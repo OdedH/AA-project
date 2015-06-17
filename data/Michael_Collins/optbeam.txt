@@ -1,0 +1,1365 @@
+Optimal Beam Search for Machine Translation
+Alexander M. Rush Yin-Wen Chang
+MIT CSAIL,
+Cambridge, MA 02139, USA
+{srush, yinwen}@csail.mit.edu
+
+Abstract
+Beam search is a fast and empirically effective
+method for translation decoding, but it lacks
+formal guarantees about search error. We develop a new decoding algorithm that combines
+the speed of beam search with the optimal certiﬁcate property of Lagrangian relaxation, and
+apply it to phrase- and syntax-based translation decoding. The new method is efﬁcient,
+utilizes standard MT algorithms, and returns
+an exact solution on the majority of translation examples in our test data. The algorithm
+is 3.5 times faster than an optimized incremental constraint-based decoder for phrase-based
+translation and 4 times faster for syntax-based
+translation.
+
+1
+
+Introduction
+
+Beam search (Koehn et al., 2003) and cube pruning (Chiang, 2007) have become the de facto decoding algorithms for phrase- and syntax-based translation. The algorithms are central to large-scale
+machine translation systems due to their efﬁciency
+and tendency to produce high-quality translations
+(Koehn, 2004; Koehn et al., 2007; Dyer et al., 2010).
+However despite practical effectiveness, neither algorithm provides any bound on possible decoding
+error.
+In this work we present a variant of beam search
+decoding for phrase- and syntax-based translation.
+The motivation is to exploit the effectiveness and efﬁciency of beam search, but still maintain formal
+guarantees. The algorithm has the following beneﬁts:
+
+Michael Collins
+Department of Computer Science,
+Columbia University,
+New York, NY 10027, USA
+mcollins@cs.columbia.edu
+
+• In theory, it can provide a certiﬁcate of optimality; in practice, we show that it produces optimal hypotheses, with certiﬁcates of optimality,
+on the vast majority of examples.
+• It utilizes well-studied algorithms and extends
+off-the-shelf beam search decoders.
+• Empirically it is very fast, results show that it is
+3.5 times faster than an optimized incremental
+constraint-based solver.
+While our focus is on fast decoding for machine
+translation, the algorithm we present can be applied
+to a variety of dynamic programming-based decoding problems. The method only relies on having a
+constrained beam search algorithm and a fast unconstrained search algorithm. Similar algorithms exist
+for many NLP tasks.
+We begin in Section 2 by describing constrained
+hypergraph search and showing how it generalizes
+translation decoding. Section 3 introduces a variant
+of beam search that is, in theory, able to produce
+a certiﬁcate of optimality. Section 4 shows how to
+improve the effectiveness of beam search by using
+weights derived from Lagrangian relaxation. Section 5 puts everything together to derive a fast beam
+search algorithm that is often optimal in practice.
+Experiments compare the new algorithm with
+several variants of beam search, cube pruning, A∗
+search, and relaxation-based decoders on two translation tasks. The optimal beam search algorithm is
+able to ﬁnd exact solutions with certiﬁcates of optimality on 99% of translation examples, signiﬁcantly
+more than other baselines. Additionally the optimal
+
+beam search algorithm is much faster than other exact methods.
+
+2
+
+Background
+
+The focus of this work is decoding for statistical machine translation. Given a source sentence, the goal
+is to ﬁnd the target sentence that maximizes a combination of translation model and language model
+scores. In order to analyze this decoding problem,
+we ﬁrst abstract away from the speciﬁcs of translation into a general form, known as a hypergraph. In
+this section, we describe the hypergraph formalism
+and its relation to machine translation.
+2.1
+
+Notation
+
+Throughout the paper, scalars and vectors are written in lowercase, matrices are written in uppercase,
+and sets are written in script-case, e.g. X . All vectors are assumed to be column vectors. The function
+δ(j) yields an indicator vector with δ(j)j = 1 and
+δ(j)i = 0 for all i = j.
+2.2
+
+Hypergraphs and Search
+
+A directed hypergraph is a pair (V, E) where V =
+{1 . . . |V|} is a set of vertices, and E is a set of directed hyperedges. Each hyperedge e ∈ E is a tuple
+v2 , . . . , v|v| , v1 where vi ∈ V for i ∈ {1 . . . |v|}.
+The head of the hyperedge is h(e) = v1 . The tail
+of the hyperedge is the ordered sequence t(e) =
+v2 , . . . , v|v| . The size of the tail |t(e)| may vary
+across different hyperedges, but |t(e)| ≥ 1 for all
+edges and is bounded by a constant. A directed
+graph is a directed hypergraph with |t(e)| = 1 for
+all edges e ∈ E.
+Each vertex v ∈ V is either a non-terminal or a
+terminal in the hypergraph. The set of non-terminals
+is N = {v ∈ V : h(e) = v for some e ∈ E}. Conversely, the set of terminals is deﬁned as T = V \N .
+All directed hypergraphs used in this work are
+acyclic: informally this implies that no hyperpath (as
+deﬁned below) contains the same vertex more than
+once (see Martin et al. (1990) for a full deﬁnition).
+Acyclicity implies a partial topological ordering of
+the vertices. We also assume there is a distinguished
+root vertex 1 where for all e ∈ E, 1 ∈ t(e).
+Next we deﬁne a hyperpath as x ∈ {0, 1}|E| where
+x(e) = 1 if hyperedge e is used in the hyperpath,
+
+procedure B EST PATH S CORE(θ, τ )
+π[v] ← 0 for all v ∈ T
+for e ∈ E in topological order do
+v2 , . . . , v|v| , v1 ← e
+|v|
+
+s ← θ(e) +
+
+π[vi ]
+i=2
+
+if s > π[v1 ] then π[v1 ] ← s
+return π[1] + τ
+Figure 1: Dynamic programming algorithm for unconstrained hypergraph search. Note that this version only
+returns the highest score: maxx∈X θ x + τ . The optimal
+hyperpath can be found by including back-pointers.
+
+x(e) = 0 otherwise. The set of valid hyperpaths is
+deﬁned as
+
+X =
+
+
+
+ x:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+x(e) = 1,
+e∈E:h(e)=1
+
+x(e) =
+e∈E:h(e)=v
+
+e∈E:v∈t(e)
+
+
+
+x(e) ∀ v ∈ N \ {1} 
+
+
+
+The ﬁrst problem we consider is unconstrained hypergraph search. Let θ ∈ R|E| be the weight vector
+for the hypergraph and let τ ∈ R be a weight offset.1
+The unconstrained search problem is to ﬁnd
+max
+x∈X
+
+θ(e)x(e) + τ = max θ x + τ
+e∈E
+
+x∈X
+
+This maximization can be computed for any
+weights and directed acyclic hypergraph in time
+O(|E|) using dynamic programming. Figure 1
+shows this algorithm which is simply a version of
+the CKY algorithm.
+Next consider a variant of this problem: constrained hypergraph search. Constraints will be necessary for both phrase- and syntax-based decoding.
+In phrase-based models, the constraints will ensure
+that each source word is translated exactly once. In
+syntax-based models, the constraints will be used to
+intersect a translation forest with a language model.
+In the constrained hypergraph problem, hyperpaths must fulﬁll additional linear hyperedge constraints. Deﬁne the set of constrained hyperpaths as
+X = {x ∈ X : Ax = b}
+1
+
+The purpose of the offset will be clear in later sections. For
+this section, the value of τ can be taken as 0.
+
+where we have a constraint matrix A ∈ R|b|×|E|
+and vector b ∈ R|b| encoding |b| constraints.
+The optimal constrained hyperpath is x∗ =
+arg maxx∈X θ x + τ .
+Note that the constrained hypergraph search problem may be NP-Hard. Crucially this is true even
+when the corresponding unconstrained search problem is solvable in polynomial time. For instance,
+phrase-based decoding is known to be NP-Hard
+(Knight, 1999), but we will see that it can be expressed as a polynomial-sized hypergraph with constraints.
+Example: Phrase-Based Machine Translation
+Consider translating a source sentence w1 . . . w|w| to
+a target sentence in a language with vocabulary Σ. A
+simple phrase-based translation model consists of a
+tuple (P, ω, σ) with
+• P; a set of pairs (q, r) where q1 . . . q|q| is a sequence of source-language words and r1 . . . r|r|
+is a sequence of target-language words drawn
+from the target vocabulary Σ.
+• ω : R|P| ; parameters for the translation model
+mapping each pair in P to a real-valued score.
+• σ : R|Σ×Σ| ; parameters of the language model
+mapping a bigram of target-language words to
+a real-valued score.
+The translation decoding problem is to ﬁnd the
+best derivation for a given source sentence. A
+derivation consists of a sequence of phrases p =
+p1 . . . pn . Deﬁne a phrase as a tuple (q, r, j, k)
+consisting of a span in the source sentence q =
+wj . . . wk and a sequence of target words r1 . . . r|r| ,
+with (q, r) ∈ P. We say the source words wj . . . wk
+are translated to r.
+The score of a derivation, f (p), is the sum of the
+translation score of each phrase plus the language
+model score of the target sentence
+|u|+1
+
+n
+
+f (p) =
+
+ω(q(pi ), r(pi )) +
+i=1
+
+σ(ui−1 , ui )
+i=0
+
+where u is the sequence of words in Σ formed
+by concatenating the phrases r(p1 ) . . . r(pn ), with
+boundary cases u0 = <s> and u|u|+1 = </s>.
+
+Crucially for a derivation to be valid it must satisfy an additional condition: it must translate every
+source word exactly once. The decoding problem
+for phrase-based translation is to ﬁnd the highestscoring derivation satisfying this property.
+We can represent this decoding problem as a constrained hypergraph using the construction of Chang
+and Collins (2011). The hypergraph weights encode the translation and language model scores, and
+its structure ensures that the count of source words
+translated is |w|, i.e. the length of the source sentence. Each vertex will remember the preceding
+target-language word and the count of source words
+translated so far.
+The hypergraph, which for this problem is also a
+directed graph, takes the following form.
+• Vertices v ∈ V are labeled (c, u) where c ∈
+{1 . . . |w|} is the count of source words translated and u ∈ Σ is the last target-language word
+produced by a partial hypothesis at this vertex.
+Additionally there is an initial terminal vertex
+labeled (0, <s>).
+• There is a hyperedge e ∈ E with head (c , u )
+and tail (c, u) if there is a valid corresponding
+phrase (q, r, j, k) such that c = c + |q| and
+u = r|r| , i.e. c is the count of words translated
+and u is the last word of target phrase r. We
+call this phrase p(e).
+The weight of this hyperedge, θ(e), is the translation model score of the pair plus its language
+model score
+
+
+|r|
+
+θ(e) = ω(q, r)+ 
+
+σ(ri−1 , ri ) +σ(u, r1 )
+i=2
+
+• To handle the end boundary, there are hyperedges with head 1 and tail (|w|, u) for all
+u ∈ Σ. The weight of these edges is the cost of
+the stop bigram following u, i.e. σ(u, </s>).
+While any valid derivation corresponds to a hyperpath in this graph, a hyperpath may not correspond to a valid derivation. For instance, a hyperpath may translate some source words more than
+once or not at all.
+
+Figure 2: Hypergraph for translating the sentence w = les1 pauvres2 sont3 demunis4 with set of pairs P =
+{(les, the), (pauvres, poor), (sont demunis, don’t have any money)}. Hyperedges are color-coded
+by source words translated: orange for les1 , green for pauvres2 , and red for sont3 demunis4 . The dotted lines
+show an invalid hyperpath x that has signature Ax = 0, 0, 2, 2 = 1, 1, 1, 1 .
+
+We handle this problem by adding additional constraints. For all source words i ∈ {1 . . . |w|}, deﬁne
+ρ as the set of hyperedges that translate wi
+ρ(i) = {e ∈ E : j(p(e)) ≤ i ≤ k(p(e))}
+Next deﬁne |w| constraints enforcing that each word
+in the source sentence is translated exactly once
+x(e) = 1 ∀ i ∈ {1 . . . |w|}
+e∈ρ(i)
+
+These linear constraints can be represented with
+a matrix A ∈ {0, 1}|w|×|E| where the rows correspond to source indices and the columns correspond
+to edges. We call the product Ax the signature,
+where in this case (Ax)i is the number of times word
+i has been translated. The full set of constrained hyperpaths is X = {x ∈ X : Ax = 1 }, and the best
+derivation under this phrase-based translation model
+has score maxx∈X θ x + τ .
+Figure 2.2 shows an example hypergraph
+with constraints for translating the sentence les
+pauvres sont demunis into English using
+a simple set of phrases. Even in this small example, many of the possible hyperpaths violate the
+constraints and correspond to invalid derivations.
+Example: Syntax-Based Machine Translation
+Syntax-based machine translation with a language
+model can also be expressed as a constrained hypergraph problem. For the sake of space, we omit the
+deﬁnition. See Rush and Collins (2011) for an indepth description of the constraint matrix used for
+syntax-based translation.
+
+3
+
+A Variant of Beam Search
+
+This section describes a variant of the beam
+search algorithm for ﬁnding the highest-scoring constrained hyperpath. The algorithm uses three main
+techniques: (1) dynamic programming with additional signature information to satisfy the constraints, (2) beam pruning where some, possibly optimal, hypotheses are discarded, and (3) branch-andbound-style application of upper and lower bounds
+to discard provably non-optimal hypotheses.
+Any solution returned by the algorithm will be a
+valid constrained hyperpath and a member of X .
+Additionally the algorithm returns a certiﬁcate ﬂag
+opt that, if true, indicates that no beam pruning
+was used, implying the solution returned is optimal. Generally it will be hard to produce a certiﬁcate
+even by reducing the amount of beam pruning; however in the next section we will introduce a method
+based on Lagrangian relaxation to tighten the upper
+bounds. These bounds will help eliminate most solutions before they trigger pruning.
+3.1
+
+Algorithm
+
+Figure 3 shows the complete beam search algorithm.
+At its core it is a dynamic programming algorithm
+ﬁlling in the chart π. The beam search chart indexes
+hypotheses by vertex v ∈ V as well as a signature
+sig ∈ R|b| where |b| is the number of constraints. A
+new hypothesis is constructed from each hyperedge
+and all possible signatures of tail nodes. We deﬁne
+the function S IGS to take the tail of an edge and re-
+
+turn the set of possible signature combinations
+|v|
+
+{sig : π[vi , sig] = −∞}
+
+S IGS(v2 , . . . v|v| ) =
+i=2
+
+where the product is the Cartesian product over sets.
+Line 8 loops over this entire set.2 For hypothesis x,
+the algorithm ensures that its signature sig is equal
+to Ax. This property is updated on line 9.
+The signature provides proof that a hypothesis is
+still valid. Let the function C HECK(sig) return true
+if the hypothesis can still fulﬁll the constraints. For
+example, in phrase-based decoding, we will deﬁne
+C HECK(sig) = (sig ≤ 1); this ensures that each
+word has been translated 0 or 1 times. This check is
+applied on line 11.
+Unfortunately maintaining all signatures is inefﬁcient. For example we will see that in phrasebased decoding the signature is a bit-string recording
+which source words have been translated; the number of possible bit-strings is exponential in the length
+of the sentence. The algorithm includes two methods for removing hypotheses, bounding and pruning.
+Bounding allows us to discard provably nonoptimal solutions. The algorithm takes as arguments
+a lower bound on the optimal score lb ≤ θ x∗ + τ ,
+and computes upper bounds on the outside score
+for all vertices v: ubs[v], i.e. an overestimate of
+the score for completing the hyperpath from v. If
+a hypothesis has score s, it can only be optimal if
+s + ubs[v] ≥ lb. This bound check is performed on
+line 11.
+Pruning removes weak partial solutions based on
+problem-speciﬁc checks. The algorithm invokes the
+black-box function, P RUNE, on line 13, passing it
+a pruning parameter β and a vertex-signature pair.
+The parameter β controls a threshold for pruning.
+For instance for phrase-based translation, it speciﬁes
+a hard-limit on the number of hypotheses to retain.
+The function returns true if it prunes from the chart.
+Note that pruning may remove optimal hypotheses,
+so we set the certiﬁcate ﬂag opt to false if the chart
+is modiﬁed.
+2
+
+For simplicity we write this loop over the entire set. In
+practice it is important to use data structures to optimize lookup. See Tillmann (2006) and Huang and Chiang (2005).
+
+1: procedure B EAM S EARCH(θ, τ, lb, β)
+2: ubs ← O UTSIDE(θ, τ )
+3: opt ← true
+4: π[v, sig] ← −∞ for all v ∈ V, sig ∈ R|b|
+5: π[v, 0] ← 0 for all v ∈ T
+6: for e ∈ E in topological order do
+7:
+v2 , . . . , v|v| , v1 ← e
+8:
+for sig (2) . . . sig (|v|) ∈ S IGS(v2 , . . . , v|v| ) do
+|v|
+
+9:
+
+sig (i)
+
+sig ← Aδ(e) +
+i=2
+|v|
+
+s ← θ(e) +
+π[vi , sig (i) ]
+i=2
+
+
+s > π[v1 , sig] ∧
+11:
+if  C HECK(sig) ∧  then
+s + ubs[v1 ] ≥ lb
+12:
+π[v1 , sig] ← s
+13:
+if P RUNE(π, v1 , sig, β) then opt ← false
+14: lb ← π[1, c] + τ
+15: return lb , opt
+
+(V, E, θ, τ ) hypergraph with weights
+ (A, b)
+matrix and vector for constraints
+Input: 
+ lb ∈ R
+lower bound
+β
+a pruning parameter
+lb
+resulting lower bound score
+Output:
+opt certiﬁcate of optimality
+10:
+
+Figure 3: A variant of the beam search algorithm. Uses
+dynamic programming to produce a lower bound on the
+optimal constrained solution and, possibly, a certiﬁcate of
+optimality. Function O UTSIDE computes upper bounds
+on outside scores. Function S IGS enumerates all possible tail signatures. Function C HECK identiﬁes signatures
+that do not violate constraints. Bounds lb and ubs are
+used to remove provably non-optimal solutions. Function P RUNE, taking parameter β, returns true if it prunes
+hypotheses from π that could be optimal.
+
+This variant on beam search satisﬁes the following two properties (recall x∗ is the optimal constrained solution)
+Property 3.1 (Primal Feasibility). The returned
+score lb lower bounds the optimal constrained
+score, that is lb ≤ θ x∗ + τ .
+Property 3.2 (Dual Certiﬁcate). If beam search returns with opt = true, then the returned score is
+optimal, i.e. lb = θ x∗ + τ .
+An immediate consequence of Property 3.1 is that
+the output of beam search, lb , can be used as the input lb for future runs of the algorithm. Furthermore,
+
+procedure P RUNE(π, v, sig, β)
+C ← {(v , sig ) : ||sig ||1 = ||sig||1 ,
+π[v , sig ] = −∞}
+D ← C \ mB EST(β, C, π)
+π[v , sig ] ← −∞ for all v , sig ∈ D
+if D = ∅ then return true
+else return false
+(v, sig) the last hypothesis added to the chart
+Input:
+β∈Z
+# of hypotheses to retain
+Output: true, if π is modiﬁed
+Figure 4: Pruning function for phrase-based translation.
+Set C contains all hypotheses with ||sig||1 source words
+translated. The function prunes all but the top-β scoring
+hypotheses in this set.
+
+if we loosen the amount of beam pruning by adjusting the pruning parameter β we can produce tighter
+lower bounds and discard more hypotheses. We can
+then iteratively apply this idea with a sequence of
+parameters β1 . . . βK producing lower bounds lb(1)
+through lb(K) . We return to this idea in Section 5.
+Example: Phrase-based Beam Search. Recall
+that the constraints for phrase-based translation consist of a binary matrix A ∈ {0, 1}|w|×|E| and vector b = 1. The value sigi is therefore the number of times source word i has been translated in
+the hypothesis. We deﬁne the predicate C HECK as
+C HECK(sig) = (sig ≤ 1) in order to remove hypotheses that already translate a source word more
+than once, and are therefore invalid. For this reason,
+phrase-based signatures are called bit-strings.
+A common beam pruning strategy is to group
+together items into a set C and retain a (possibly
+complete) subset. An example phrase-based beam
+pruner is given in Figure 4. It groups together
+hypotheses based on ||sigi ||1 , i.e. the number of
+source words translated, and applies a hard pruning
+ﬁlter that retains only the β highest-scoring items
+(v, sig) ∈ C based on π[v, sig].
+3.2
+
+Computing Upper Bounds
+
+Deﬁne the set O(v, x) to contain all outside edges of
+vertex v in hyperpath x (informally, hyperedges that
+do not have v as an ancestor). For all v ∈ V, we set
+the upper bounds, ubs, to be the best unconstrained
+outside score
+ubs[v] = max
+
+x∈X :v∈x
+
+θ(e) + τ
+e∈O(v,x)
+
+This upper bound can be efﬁciently computed for
+all vertices using the standard outside dynamic programming algorithm. We will refer to this algorithm
+as O UTSIDE (θ, τ ).
+Unfortunately, as we will see, these upper bounds
+are often quite loose. The issue is that unconstrained
+outside paths are able to violate the constraints without being penalized, and therefore greatly overestimate the score.
+
+4
+
+Finding Tighter Bounds with
+Lagrangian Relaxation
+
+Beam search produces a certiﬁcate only if beam
+pruning is never used. In the case of phrase-based
+translation, the certiﬁcate is dependent on all groups
+C having β or less hypotheses. The only way to ensure this is to bound out enough hypotheses to avoid
+pruning. The effectiveness of the bounding inequality, s + ubs[v] < lb, in removing hypotheses is directly dependent on the tightness of the bounds.
+In this section we propose using Lagrangian relaxation to improve these bounds. We ﬁrst give a
+brief overview of the method and then apply it to
+computing bounds. Our experiments show that this
+approach is very effective at ﬁnding certiﬁcates.
+4.1 Algorithm
+In Lagrangian relaxation, instead of solving the constrained search problem, we relax the constraints
+and solve an unconstrained hypergraph problem
+with modiﬁed weights. Recall the constrained hypergraph problem:
+max θ x + τ . The Lax∈X :Ax=b
+
+grangian dual of this optimization problem is
+L(λ)
+
+=
+=
+=
+
+max θ x + τ − λ (Ax − b)
+x∈X
+
+max(θ − A λ) x + τ + λ b
+x∈X
+
+max θ x + τ
+x∈X
+
+where λ ∈ R|b| is a vector of dual variables and
+deﬁne θ = θ − A λ and τ = τ + λ b. This
+maximization is over X , so for any value of λ, L(λ)
+can be calculated as BestPathScore(θ , τ ).
+Note that for all valid constrained hyperpaths x ∈
+X the term Ax−b equals 0, which implies that these
+hyperpaths have the same score under the modiﬁed
+weights as under the original weights, θ x + τ =
+θ x+τ . This leads to the following two properties,
+
+procedure LRROUND(αk , λ)
+x ← arg max θ x + τ − λ (Ax − b)
+x∈X
+
+λ ← λ − αk (Ax − b)
+opt ← Ax = b
+ub ← θ x + τ
+return λ , ub, opt
+procedure L AGRANGIAN R ELAXATION(α)
+λ(0) ← 0
+for k in 1 . . . K do
+λ(k) , ub, opt ← LRROUND(αk , λ(k−1) )
+if opt then return λ(k) , ub, opt
+return λ(K) , ub, opt
+Input: α1 . . . αK sequence of subgradient rates
+
+λ ﬁnal dual vector
+Output:  ub upper bound on optimal constrained solution
+opt certiﬁcate of optimality
+Figure 5: Lagrangian relaxation algorithm. The algorithm repeatedly calls LRROUND to compute the subgradient, update the dual vector, and check for a certiﬁcate.
+
+where x ∈ X is the hyperpath computed within the
+max,
+Property 4.1 (Dual Feasibility). The value L(λ) upper bounds the optimal solution, that is L(λ) ≥
+θ x∗ + τ
+Property 4.2 (Primal Certiﬁcate). If the hyperpath
+x is a member of X , i.e. Ax = b, then L(λ) =
+θ x∗ + τ .
+Property 4.1 states that L(λ) always produces
+some upper bound; however, to help beam search,
+we want as tight a bound as possible: minλ L(λ).
+The Lagrangian relaxation algorithm, shown in
+Figure 5, uses subgradient descent to ﬁnd this minimum. The subgradient of L(λ) is Ax − b where
+x is the argmax of the modiﬁed objective x =
+arg maxx∈X θ x + τ . Subgradient descent iteratively solves unconstrained hypergraph search problems to compute these subgradients and updates λ.
+See Rush and Collins (2012) for an extensive discussion of this style of optimization in natural language
+processing.
+Example: Phrase-based Relaxation. For phrasebased translation, we expand out the Lagrangian to
+L(λ)
+
+=
+
+max θ x + τ − λ (Ax − b) =
+x∈X
+
+
+k(p(e))
+
+θ(e) −
+
+max
+x∈X
+
+e∈E
+
+|s|
+
+λi  x(e) + τ +
+i=j(p(e))
+
+λi
+i=1
+
+The weight of each edge θ(e) is modiﬁed by the
+dual variables λi for each source word translated by
+the edge, i.e. if (q, r, j, k) = p(e), then the score
+k
+is modiﬁed by
+i=j λi . A solution under these
+weights may use source words multiple times or not
+at all. However if the solution uses each source word
+exactly once (Ax = 1), then we have a certiﬁcate
+and the solution is optimal.
+4.2
+
+Utilizing Upper Bounds in Beam Search
+
+For many problems, it may not be possible to satisfy
+Property 4.2 by running the subgradient algorithm
+alone. Yet even for these problems, applying subgradient descent will produce an improved estimate
+of the upper bound, minλ L(λ).
+To utilize these improved bounds, we simply replace the weights in beam search and the outside algorithm with the modiﬁed weights from Lagrangian
+relaxation, θ and τ . Since the result of beam search
+must be a valid constrained hyperpath x ∈ X , and
+for all x ∈ X , θ x + τ = θ x + τ , this substitution does not alter the necessary properties of
+the algorithm; i.e. if the algorithm returns with opt
+equal to true, then the solution is optimal.
+Additionally the computation of upper bounds
+now becomes
+ubs[v] = max
+
+x∈X :v∈x
+
+θ (e) + τ
+e∈O(v,x)
+
+These outside paths may still violate constraints, but
+the modiﬁed weights now include penalty terms to
+discourage common violations.
+
+5
+
+Optimal Beam Search
+
+The optimality of the beam search algorithm is dependent on the tightness of the upper and lower
+bounds. We can produce better lower bounds by
+varying the pruning parameter β; we can produce
+better upper bounds by running Lagrangian relaxation. In this section we combine these two ideas
+and present a complete optimal beam search algorithm.
+Our general strategy will be to use Lagrangian
+relaxation to compute modiﬁed weights and to use
+beam search over these modiﬁed weights to attempt
+to ﬁnd an optimal solution. One simple method for
+doing this, shown at the top of Figure 6, is to run
+
+in stages. The algorithm ﬁrst runs Lagrangian relaxation to compute the best λ vector. The algorithm
+then iteratively runs beam search using the parameter sequence βk . These parameters allow the algorithm to loosen the amount of beam pruning. For
+example in phrase based pruning, we would raise
+the number of hypotheses stored per group until no
+beam pruning occurs.
+A clear disadvantage of the staged approach is
+that it needs to wait until Lagrangian relaxation is
+completed before even running beam search. Often beam search will be able to quickly ﬁnd an optimal solution even with good but non-optimal λ. In
+other cases, beam search may still improve the lower
+bound lb.
+This motivates the alternating algorithm O PTB EAM shown Figure 6. In each round, the algorithm alternates between computing subgradients to
+tighten ubs and running beam search to maximize
+lb. In early rounds we set β for aggressive beam
+pruning, and as the upper bounds get tighter, we
+loosen pruning to try to get a certiﬁcate. If at any
+point either a primal or dual certiﬁcate is found, the
+algorithm returns the optimal solution.
+
+6
+
+Related Work
+
+Approximate methods based on beam search and
+cube-pruning have been widely studied for phrasebased (Koehn et al., 2003; Tillmann and Ney, 2003;
+Tillmann, 2006) and syntax-based translation models (Chiang, 2007; Huang and Chiang, 2007; Watanabe et al., 2006; Huang and Mi, 2010).
+There is a line of work proposing exact algorithms
+for machine translation decoding. Exact decoders
+are often slow in practice, but help quantify the errors made by other methods. Exact algorithms proposed for IBM model 4 include ILP (Germann et al.,
+2001), cutting plane (Riedel and Clarke, 2009), and
+multi-pass A* search (Och et al., 2001). Zaslavskiy
+et al. (2009) formulate phrase-based decoding as a
+traveling salesman problem (TSP) and use a TSP
+decoder. Exact decoding algorithms based on ﬁnite
+state transducers (FST) (Iglesias et al., 2009) have
+been studied on phrase-based models with limited
+reordering (Kumar and Byrne, 2005). Exact decoding based on FST is also feasible for certain hierarchical grammars (de Gispert et al., 2010). Chang
+
+procedure O PT B EAM S TAGED(α, β)
+λ, ub, opt ←L AGRANGIAN R ELAXATION (α)
+if opt then return ub
+θ ←θ−A λ
+τ ←τ +λ b
+lb(0) ← −∞
+for k in 1 . . . K do
+lb(k) , opt ← B EAM S EARCH(θ , τ , lb(k−1) , βk )
+if opt then return lb(k)
+return maxk∈{1...K} lb(k)
+procedure O PT B EAM(α, β)
+λ(0) ← 0
+lb(0) ← −∞
+for k in 1 . . . K do
+λ(k) , ub(k) , opt ← LRROUND(αk , λ(k−1) )
+if opt then return ub(k)
+θ ← θ − A λ(k)
+τ ← τ + λ(k) b
+lb(k) , opt ← B EAM S EARCH(θ , τ , lb(k−1) , βk )
+if opt then return lb(k)
+return maxk∈{1...K} lb(k)
+α1 . . . αK sequence of subgradient rates
+Input:
+β1 . . . βK sequence of pruning parameters
+Output: optimal constrained score or lower bound
+Figure 6: Two versions of optimal beam search: staged
+and alternating. Staged runs Lagrangian relaxation to
+ﬁnd the optimal λ, uses λ to compute upper bounds, and
+then repeatedly runs beam search with pruning sequence
+β1 . . . βk . Alternating switches between running a round
+of Lagrangian relaxation and a round of beam search with
+the updated λ. If either produces a certiﬁcate it returns the
+result.
+
+and Collins (2011) and Rush and Collins (2011) develop Lagrangian relaxation-based approaches for
+exact machine translation.
+Apart from translation decoding, this paper is
+closely related to work on column generation for
+NLP. Riedel et al. (2012) and Belanger et al. (2012)
+relate column generation to beam search and produce exact solutions for parsing and tagging problems. The latter work also gives conditions for when
+beam search-style decoding is optimal.
+
+7
+
+Results
+
+To evaluate the effectiveness of optimal beam search
+for translation decoding, we implemented decoders
+for phrase- and syntax-based models. In this section we compare the speed and optimality of these
+
+decoders to several baseline methods.
+7.1
+
+Setup and Implementation
+
+For phrase-based translation we used a German-toEnglish data set taken from Europarl (Koehn, 2005).
+We tested on 1,824 sentences of length at most 50
+words. For experiments the phrase-based systems
+uses a trigram language model and includes standard
+distortion penalties. Additionally the unconstrained
+hypergraph includes further derivation information
+similar to the graph described in Chang and Collins
+(2011).
+For syntax-based translation we used a Chineseto-English data set. The model and hypergraphs
+come from the work of Huang and Mi (2010). We
+tested on 691 sentences from the newswire portion
+of the 2008 NIST MT evaluation test set. For experiments, the syntax-based model uses a trigram
+language model. The translation model is tree-tostring syntax-based model with a standard contextfree translation forest. The constraint matrix A
+is based on the constraints described by Rush and
+Collins (2011).
+Our decoders use a two-pass architecture. The
+ﬁrst pass sets up the hypergraph in memory, and the
+second pass runs search. When possible the baselines share optimized construction and search code.
+The performance of optimal beam search is dependent on the sequences α and β. For the stepsize α we used a variant of Polyak’s rule (Polyak,
+1987; Boyd and Mutapcic, 2007), substituting the
+unknown optimal score for the last computed lower
+ub(k) −lb(k)
+bound: αk ← ||Ax(k) −b||2 . We adjust the order of
+2
+the pruning parameter β based on a function µ of
+(k)
+(k)
+the current gap: βk ← 10µ(ub −lb ) .
+Previous work on these data sets has shown that
+exact algorithms do not result in a signiﬁcant increase in translation accuracy. We focus on the efﬁciency and model score of the algorithms.
+7.2
+
+Baseline Methods
+
+The experiments compare optimal beam search
+(O PT B EAM) to several different decoding methods. For both systems we compare to: B EAM, the
+beam search decoder from Figure 3 using the original weights θ and τ , and β ∈ {100, 1000}; LRT IGHT, Lagrangian relaxation followed by incre-
+
+Figure 7: Two graphs from phrase-based decoding.
+Graph (a) shows the duality gap distribution for 1,824
+sentences after 0, 5, and 10 rounds of LR. Graph (b)
+shows the % of certiﬁcates found for sentences with differing gap sizes and beam search parameters β. Duality
+gap is deﬁned as, ub - (θ x∗ + τ ).
+
+mental tightening constraints, which is a reimplementation of Chang and Collins (2011) and Rush
+and Collins (2011).
+For phrase-based translation we compare with:
+M OSES -GC, the standard Moses beam search decoder with β ∈ {100, 1000} (Koehn et al., 2007);
+M OSES, a version of Moses without gap constraints
+more similar to B EAM (see Chang and Collins
+(2011)); AS TAR, an implementation of A∗ search
+using original outside scores, i.e. O UTSIDE(θ, τ ),
+and capped at 20,000,000 queue pops.
+For syntax-based translation we compare with:
+ILP, a general-purpose integer linear programming solver (Gurobi Optimization, 2013) and
+C UBE P RUNING, an approximate decoding method
+similar to beam search (Chiang, 2007), tested with
+β ∈ {100, 1000}.
+7.3
+
+Experiments
+
+Table 1 shows the main results. For phrase-based
+translation, O PT B EAM decodes the optimal translation with certiﬁcate in 99% of sentences with an
+average time of 17.27 seconds per sentence. This
+
+Phrase-Based
+B EAM (100)
+B EAM (1000)
+B EAM (100000)
+M OSES (100)
+M OSES (1000)
+AS TAR (cap)
+LR-T IGHT
+O PT B EAM
+ChangCollins
+M OSES -GC (100)
+M OSES -GC (1000)
+Syntax-Based
+B EAM (100)
+B EAM (1000)
+C UBE (100)
+C UBE (1000)
+LR-T IGHT
+O PT B EAM
+ILP
+
+time
+2.33
+2.33
+3.34
+0.18
+2.29
+11.11
+4.20
+2.85
+10.90
+0.14
+1.33
+
+11-20 (558)
+cert
+exact
+19.5
+38.0
+37.8
+66.3
+83.9
+96.2
+0.0
+81.0
+0.0
+97.8
+99.3
+99.3
+100.0
+100.0
+100.0
+100.0
+100.0
+100.0
+0.0
+89.4
+0.0
+89.4
+
+time
+8.37
+8.42
+18.53
+0.36
+4.39
+91.39
+23.25
+10.33
+57.20
+0.27
+2.62
+
+21-30 (566)
+cert
+exact
+1.6
+7.2
+3.4
+18.9
+22.4
+60.4
+0.0
+45.6
+0.0
+78.8
+53.9
+53.9
+100.0
+100.0
+100.0
+100.0
+100.0
+100.0
+0.0
+84.1
+0.0
+84.3
+
+time
+24.12
+21.60
+46.65
+0.53
+6.52
+122.67
+88.16
+28.29
+203.4
+0.41
+4.15
+
+time
+0.40
+0.78
+0.08
+1.76
+0.37
+0.23
+9.15
+
+11-20 (192)
+cert
+exact
+4.7
+75.9
+16.9
+79.4
+0.0
+77.6
+0.0
+91.7
+100.0
+100.0
+100.0
+100.0
+100.0
+100.0
+
+time
+0.40
+2.65
+0.16
+4.06
+1.76
+0.50
+32.35
+
+21-30 (159)
+cert
+exact
+0.0
+66.0
+0.6
+67.1
+0.0
+66.7
+0.0
+95.0
+100.0
+100.0
+100.0
+100.0
+100.0
+100.0
+
+time
+0.75
+6.20
+0.23
+5.71
+4.79
+1.42
+49.6
+
+31-40 (347)
+cert
+exact
+0.3
+1.4
+0.6
+3.2
+2.0
+18.1
+0.0
+14.1
+0.0
+43.5
+7.8
+7.8
+99.7
+99.7
+100.0
+100.0
+99.7
+99.7
+0.0
+75.8
+0.0
+75.8
+31-40 (136)
+cert
+0.0
+0.0
+0.0
+0.0
+100.0
+100.0
+100.0
+
+exact
+43.4
+47.5
+43.9
+82.9
+100.0
+100.0
+100.0
+
+41-50 (168)
+cert
+exact
+0.0
+0.0
+0.6
+1.2
+1.2
+6.5
+0.0
+6.0
+0.0
+19.6
+1.2
+1.2
+97.0
+97.0
+97.0
+97.0
+97.0
+97.0
+0.0
+78.6
+0.0
+79.2
+
+time
+14.50
+12.44
+23.39
+0.34
+4.20
+67.99
+60.11
+17.27
+120.9
+0.26
+2.61
+
+all (1824)
+cert
+exact
+15.3
+23.2
+22.6
+36.9
+43.2
+62.4
+0.0
+52.3
+0.0
+74.6
+58.8
+58.8
+99.7
+99.7
+99.7
+99.7
+99.7
+99.7
+0.0
+84.9
+0.0
+85.0
+
+41-100 (123)
+time
+cert
+exact
+1.66
+0.0
+25.8
+15.5
+0.0
+36.4
+0.41
+0.0
+26.3
+10.69
+0.0
+60.9
+30.85
+94.5
+94.5
+7.14
+93.6
+93.6
+108.6
+100.0
+100.0
+
+time
+0.68
+4.16
+0.19
+4.66
+7.25
+1.75
+40.1
+
+all (691)
+cert
+exact
+5.72
+58.7
+12.5
+65.5
+0.0
+59.0
+0.0
+85.0
+99.0
+99.0
+98.8
+98.8
+100.0
+100.0
+
+time
+71.35
+53.99
+83.53
+0.74
+9.00
+139.61
+377.9
+84.34
+679.9
+0.58
+6.19
+
+Table 1: Experimental results for translation experiments. Column time is the mean time per sentence in seconds,
+cert is the percentage of sentences solved with a certiﬁcate of optimality, exact is the percentage of sentences solved
+exactly, i.e. θ x + τ = θ x∗ + τ . Results are grouped by sentence length (group 1-10 is omitted for space).
+
+is seven times faster than the decoder of Chang and
+Collins (2011) and 3.5 times faster then our reimplementation, LR-T IGHT. AS TAR performs poorly,
+taking lots of time on difﬁcult sentences. B EAM runs
+quickly, but rarely ﬁnds an exact solution. M OSES
+without gap constraints is also fast, but less exact
+than O PT B EAM and unable to produce certiﬁcates.
+For syntax-based translation. O PT B EAM ﬁnds a
+certiﬁcate on 98.8% of solutions with an average
+time of 1.75 seconds per sentence, and is four times
+faster than LR-T IGHT. C UBE (100) is an order
+of magnitude faster, but is rarely exact on longer
+sentences. C UBE (1000) ﬁnds more exact solutions, but is comparable in speed to optimal beam
+search. B EAM performs better than in the phrasebased model, but is not much faster than O PT B EAM.
+Figure 7.2 shows the relationship between beam
+search optimality and duality gap. Graph (a) shows
+how a handful of LR rounds can signiﬁcantly tighten
+the upper bound score of many sentences. Graph (b)
+shows how beam search is more likely to ﬁnd optimal solutions with tighter bounds. B EAM effectively
+uses 0 rounds of LR, which may explain why it ﬁnds
+so few optimal solutions compared to O PT B EAM.
+Table 2 breaks down the time spent in each part
+of the algorithm. For both methods, beam search has
+the most time variance and uses more time on longer
+sentences. For phrase-based sentences, Lagrangian
+relaxation is fast, and hypergraph construction dom-
+
+Hypergraph
+PB Lag. Relaxation
+Beam Search
+Hypergraph
+SB Lag. Relaxation
+Beam Search
+
+≥ 30
+mean median
+56.6% 69.8%
+10.0% 5.5%
+33.4% 24.6%
+0.5% 1.6%
+15.0% 35.2%
+84.4% 63.1%
+
+all
+mean median
+59.6% 69.6%
+9.4% 7.6%
+30.9% 22.8%
+0.8% 2.4%
+17.3% 41.4%
+81.9 % 56.1%
+
+Table 2: Distribution of time within optimal beam search,
+including: hypergraph construction, Lagrangian relaxation, and beam search. Mean is the percentage of total
+time. Median is the distribution over the median values
+for each row.
+
+inates. If not for this cost, O PT B EAM might be comparable in speed to M OSES (1000).
+
+8
+
+Conclusion
+
+In this work we develop an optimal variant of beam
+search and apply it to machine translation decoding. The algorithm uses beam search to produce
+constrained solutions and bounds from Lagrangian
+relaxation to eliminate non-optimal solutions. Results show that this method can efﬁciently ﬁnd exact
+solutions for two important styles of machine translation.
+Acknowledgments Alexander
+
+Rush,
+Yin-Wen
+Chang and Michael Collins were all supported by
+NSF grant IIS-1161814. Alexander Rush was partially
+supported by an NSF Graduate Research Fellowship.
+
+References
+David Belanger, Alexandre Passos, Sebastian Riedel, and
+Andrew McCallum. 2012. Map inference in chains
+using column generation. In NIPS, pages 1853–1861.
+Stephen Boyd and Almir Mutapcic. 2007. Subgradient
+methods.
+Yin-Wen Chang and Michael Collins. 2011. Exact decoding of phrase-based translation models through lagrangian relaxation. In Proceedings of the Conference
+on Empirical Methods in Natural Language Processing, pages 26–37. Association for Computational Linguistics.
+David Chiang. 2007. Hierarchical phrase-based translation. computational linguistics, 33(2):201–228.
+Adria de Gispert, Gonzalo Iglesias, Graeme Blackwood,
+Eduardo R. Banga, and William Byrne. 2010. Hierarchical Phrase-Based Translation with Weighted FiniteState Transducers and Shallow-n Grammars. In Computational linguistics, volume 36, pages 505–533.
+Chris Dyer, Adam Lopez, Juri Ganitkevitch, Jonathen
+Weese, Ferhan Ture, Phil Blunsom, Hendra Setiawan,
+Vlad Eidelman, and Philip Resnik. 2010. cdec: A
+decoder, alignment, and learning framework for ﬁnitestate and context-free translation models.
+Ulrich Germann, Michael Jahr, Kevin Knight, Daniel
+Marcu, and Kenji Yamada. 2001. Fast decoding and
+optimal decoding for machine translation. In Proceedings of the 39th Annual Meeting on Association for
+Computational Linguistics, ACL ’01, pages 228–235.
+Inc. Gurobi Optimization. 2013. Gurobi optimizer reference manual.
+Liang Huang and David Chiang. 2005. Better k-best
+parsing. In Proceedings of the Ninth International
+Workshop on Parsing Technology, pages 53–64. Association for Computational Linguistics.
+Liang Huang and David Chiang. 2007. Forest rescoring:
+Faster decoding with integrated language models. In
+Proceedings of the 45th Annual Meeting of the Association of Computational Linguistics, pages 144–151,
+Prague, Czech Republic, June. Association for Computational Linguistics.
+Liang Huang and Haitao Mi. 2010. Efﬁcient incremental
+decoding for tree-to-string translation. In Proceedings
+of the 2010 Conference on Empirical Methods in Natural Language Processing, pages 273–283, Cambridge,
+MA, October. Association for Computational Linguistics.
+Gonzalo Iglesias, Adri` de Gispert, Eduardo R. Banga,
+a
+and William Byrne. 2009. Rule ﬁltering by pattern
+for efﬁcient hierarchical translation. In Proceedings of
+the 12th Conference of the European Chapter of the
+ACL (EACL 2009), pages 380–388, Athens, Greece,
+March. Association for Computational Linguistics.
+
+Kevin Knight. 1999. Decoding complexity in wordreplacement translation models. Computational Linguistics, 25(4):607–615.
+Philipp Koehn, Franz Josef Och, and Daniel Marcu.
+2003. Statistical phrase-based translation. In Proceedings of the 2003 Conference of the North American
+Chapter of the Association for Computational Linguistics on Human Language Technology, NAACL ’03,
+pages 48–54.
+Philipp Koehn, Hieu Hoang, Alexandra Birch, Chris
+Callison-Burch, Marcello Federico, Nicola Bertoldi,
+Brooke Cowan, Wade Shen, Christine Moran, Richard
+Zens, Chris Dyer, Ondˇej Bojar, Alexandra Conr
+stantin, and Evan Herbst. 2007. Moses: Open source
+toolkit for statistical machine translation. In Proceedings of the 45th Annual Meeting of the ACL on Interactive Poster and Demonstration Sessions, ACL ’07,
+pages 177–180.
+Philipp Koehn. 2004. Pharaoh: a beam search decoder
+for phrase-based statistical machine translation models. Machine translation: From real users to research,
+pages 115–124.
+Shankar Kumar and William Byrne. 2005. Local phrase
+reordering models for statistical machine translation.
+In Proceedings of Human Language Technology Conference and Conference on Empirical Methods in Natural Language Processing, pages 161–168, Vancouver, British Columbia, Canada, October. Association
+for Computational Linguistics.
+R. Kipp Martin, Rardin L. Rardin, and Brian A. Campbell. 1990. Polyhedral characterization of discrete dynamic programming. Operations research,
+38(1):127–138.
+Franz Josef Och, Nicola Uefﬁng, and Hermann Ney.
+2001. An efﬁcient A* search algorithm for statistical machine translation. In Proceedings of the workshop on Data-driven methods in machine translation Volume 14, DMMT ’01, pages 1–8, Stroudsburg, PA,
+USA. Association for Computational Linguistics.
+Boris Polyak. 1987. Introduction to Optimization. Optimization Software, Inc.
+Sebastian Riedel and James Clarke. 2009. Revisiting
+optimal decoding for machine translation IBM model
+4. In Proceedings of Human Language Technologies:
+The 2009 Annual Conference of the North American
+Chapter of the Association for Computational Linguistics, Companion Volume: Short Papers, pages 5–8. Association for Computational Linguistics.
+Sebastian Riedel, David Smith, and Andrew McCallum.
+2012. Parse, price and cut: delayed column and row
+generation for graph based parsers. In Proceedings
+of the 2012 Joint Conference on Empirical Methods
+in Natural Language Processing and Computational
+
+Natural Language Learning, pages 732–743. Association for Computational Linguistics.
+Alexander M Rush and Michael Collins. 2011. Exact
+decoding of syntactic translation models through lagrangian relaxation. In Proceedings of the 49th Annual Meeting of the Association for Computational
+Linguistics: Human Language Technologies, volume 1, pages 72–82.
+Alexander M Rush and Michael Collins. 2012. A tutorial
+on dual decomposition and lagrangian relaxation for
+inference in natural language processing. Journal of
+Artiﬁcial Intelligence Research, 45:305–362.
+Christoph Tillmann and Hermann Ney. 2003. Word reordering and a dynamic programming beam search algorithm for statistical machine translation. Computational Linguistics, 29(1):97–133.
+Christoph Tillmann. 2006. Efﬁcient dynamic programming search algorithms for phrase-based SMT.
+In Proceedings of the Workshop on Computationally
+Hard Problems and Joint Inference in Speech and Language Processing, CHSLP ’06, pages 9–16.
+Taro Watanabe, Hajime Tsukada, and Hideki Isozaki.
+2006. Left-to-right target generation for hierarchical
+phrase-based translation. In Proceedings of the 21st
+International Conference on Computational Linguistics and the 44th annual meeting of the Association for
+Computational Linguistics, ACL-44, pages 777–784,
+Morristown, NJ, USA. Association for Computational
+Linguistics.
+Mikhail Zaslavskiy, Marc Dymetman, and Nicola Cancedda. 2009. Phrase-based statistical machine translation as a traveling salesman problem. In Proceedings
+of the Joint Conference of the 47th Annual Meeting of
+the ACL and the 4th International Joint Conference on
+Natural Language Processing of the AFNLP: Volume
+1 - Volume 1, ACL ’09, pages 333–341, Stroudsburg,
+PA, USA. Association for Computational Linguistics.
+
+

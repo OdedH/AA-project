@@ -1,0 +1,1331 @@
+Viterbi Training Improves Unsupervised Dependency Parsing
+Valentin I. Spitkovsky
+Computer Science Department
+Stanford University and Google Inc.
+valentin@cs.stanford.edu
+
+Hiyan Alshawi
+Google Inc.
+Mountain View, CA, 94043, USA
+hiyan@google.com
+
+Daniel Jurafsky and Christopher D. Manning
+Departments of Linguistics and Computer Science
+Stanford University, Stanford, CA, 94305, USA
+jurafsky@stanford.edu and manning@cs.stanford.edu
+Abstract
+We show that Viterbi (or “hard”) EM is
+well-suited to unsupervised grammar induction. It is more accurate than standard
+inside-outside re-estimation (classic EM),
+signiﬁcantly faster, and simpler. Our experiments with Klein and Manning’s Dependency Model with Valence (DMV) attain state-of-the-art performance — 44.8%
+accuracy on Section 23 (all sentences) of
+the Wall Street Journal corpus — without
+clever initialization; with a good initializer, Viterbi training improves to 47.9%.
+This generalizes to the Brown corpus,
+our held-out set, where accuracy reaches
+50.8% — a 7.5% gain over previous best
+results. We ﬁnd that classic EM learns better from short sentences but cannot cope
+with longer ones, where Viterbi thrives.
+However, we explain that both algorithms
+optimize the wrong objectives and prove
+that there are fundamental disconnects between the likelihoods of sentences, best
+parses, and true parses, beyond the wellestablished discrepancies between likelihood, accuracy and extrinsic performance.
+
+1 Introduction
+Unsupervised learning is hard, often involving difﬁcult objective functions. A typical approach is
+to attempt maximizing the likelihood of unlabeled
+data, in accordance with a probabilistic model.
+Sadly, such functions are riddled with local optima (Charniak, 1993, Ch. 7, inter alia), since their
+number of peaks grows exponentially with instances of hidden variables. Furthermore, a higher
+likelihood does not always translate into superior
+
+task-speciﬁc accuracy (Elworthy, 1994; Merialdo,
+1994). Both complications are real, but we will
+discuss perhaps more signiﬁcant shortcomings.
+We prove that learning can be error-prone even
+in cases when likelihood is an appropriate measure of extrinsic performance and where global
+optimization is feasible. This is because a key
+challenge in unsupervised learning is that the desired likelihood is unknown. Its absence renders
+tasks like structure discovery inherently underconstrained. Search-based algorithms adopt surrogate metrics, gambling on convergence to the
+“right” regularities in data. Their wrong objectives create cases in which both efﬁciency and performance improve when expensive exact learning
+techniques are replaced by cheap approximations.
+We propose using Viterbi training (Brown
+et al., 1993), instead of inside-outside reestimation (Baker, 1979), to induce hierarchical
+syntactic structure from natural language text. Our
+experiments with Klein and Manning’s (2004) Dependency Model with Valence (DMV), a popular
+state-of-the-art model (Headden et al., 2009; Cohen and Smith, 2009; Spitkovsky et al., 2009),
+beat previous benchmark accuracies by 3.8% (on
+Section 23 of WSJ) and 7.5% (on parsed Brown).
+Since objective functions used in unsupervised
+grammar induction are provably wrong, advantages of exact inference may not apply. It makes
+sense to try the Viterbi approximation — it is also
+wrong, only simpler and cheaper than classic EM.
+As it turns out, Viterbi EM is not only faster but
+also more accurate, consistent with hypotheses of
+de Marcken (1995) and Spitkovsky et al. (2009).
+We begin by reviewing the model, standard data
+sets and metrics, and our experimental results. After relating our contributions to prior work, we
+delve into proofs by construction, using the DMV.
+
+Corpus
+WSJ1
+WSJ2
+WSJ3
+WSJ4
+WSJ5
+WSJ6
+WSJ7
+WSJ8
+WSJ9
+WSJ10
+WSJ11
+WSJ12
+
+Sentences
+159
+499
+876
+1,394
+2,008
+2,745
+3,623
+4,730
+5,938
+7,422
+8,856
+10,500
+
+POS Tokens
+159
+839
+1,970
+4,042
+7,112
+11,534
+17,680
+26,536
+37,408
+52,248
+68,022
+87,750
+
+Corpus
+WSJ13
+WSJ14
+WSJ15
+WSJ20
+WSJ25
+WSJ30
+WSJ35
+WSJ40
+WSJ45
+WSJ100
+Section 23
+Brown100
+
+Sentences
+12,270
+14,095
+15,922
+25,523
+34,431
+41,227
+45,191
+47,385
+48,418
+49,206
+2,353
+24,208
+
+Figure 1: Sizes of WSJ{1, . . . , 45, 100}, Section 23 of
+
+NNS
+Payrolls
+
+VBD
+fell
+
+IN
+in
+
+NN
+September
+
+♦
+
+.
+
+0
+
+P
+
+=
+×
+×
+×
+×
+×
+×
+×
+×
+
+z
+}|
+{
+(1 − PSTOP (⋄, L, T))
+(1 − PSTOP (VBD, L, T))
+(1 − PSTOP (VBD, R, T))
+(1 − PSTOP (IN, R, T))
+PSTOP (VBD, L, F)
+PSTOP (NNS, L, T)
+PSTOP (IN, L, T)
+PSTOP (NN, L, T)
+PSTOP (⋄, L, F)
+{z
+}
+|
+1
+
+×
+×
+×
+×
+×
+×
+×
+×
+×
+
+PATTACH (⋄, L, VBD)
+PATTACH (VBD, L, NNS)
+PATTACH (VBD, R, IN)
+PATTACH (IN, R, NN)
+PSTOP (VBD, R, F)
+PSTOP (NNS, R, T)
+PSTOP (IN, R, F)
+PSTOP (NN, R, T)
+PSTOP (⋄, R, T) .
+|
+{z
+}
+1
+
+Figure 2: A dependency structure for a short sentence and its probability, as factored by the DMV,
+after summing out PORDER (Spitkovsky et al., 2009).
+
+2 Dependency Model with Valence
+The DMV (Klein and Manning, 2004) is a singlestate head automata model (Alshawi, 1996) over
+lexical word classes {cw } — POS tags. Its generative story for a sub-tree rooted at a head (of class
+ch ) rests on three types of independent decisions:
+(i) initial direction dir ∈ {L, R} in which to attach
+children, via probability PORDER (ch ); (ii) whether to
+seal dir, stopping with probability PSTOP (ch , dir, adj),
+conditioned on adj ∈ {T, F} (true iff considering
+dir ’s ﬁrst, i.e., adjacent, child); and (iii) attachments (of class ca ), according to PATTACH (ch , dir, ca ).
+This produces only projective trees. A root token
+♦ generates the head of a sentence as its left (and
+only) child. Figure 2 displays a simple example.
+The DMV lends itself to unsupervised learning via inside-outside re-estimation (Baker, 1979).
+Viterbi training (Brown et al., 1993) re-estimates
+each next model as if supervised by the previous
+best parse trees. And supervised learning from
+
+POS Tokens
+110,760
+136,310
+163,715
+336,555
+540,895
+730,099
+860,053
+942,801
+986,830
+1,028,054
+48,201
+391,796
+
+WSJ∞
+
+45
+40
+35
+30
+25
+20
+15
+10
+5
+
+Thousands
+of Sentences
+
+Thousands
+of Tokens
+
+900
+800
+700
+600
+500
+400
+300
+200
+100
+
+WSJk 5 10 15 20 25 30 35 40 45
+
+and Brown100 (Spitkovsky et al., 2009).
+
+reference parse trees is straight-forward, since
+maximum-likelihood estimation reduces to countˆ
+ing: PATTACH (ch , dir, ca ) is the fraction of children —
+those of class ca — attached on the dir side of a
+ˆ
+head of class ch ; PSTOP (ch , dir, adj = T), the fraction of words of class ch with no children on the
+ˆ
+dir side; and PSTOP (ch , dir, adj = F), the ratio1 of the
+number of words of class ch having a child on the
+dir side to their total number of such children.
+
+3 Standard Data Sets and Evaluation
+The DMV is traditionally trained and tested on
+customized subsets of Penn English Treebank’s
+Wall Street Journal portion (Marcus et al., 1993).
+Following Klein and Manning (2004), we begin with reference constituent parses and compare against deterministically derived dependencies: after pruning out all empty sub-trees, punctuation and terminals (tagged # and $) not pronounced where they appear, we drop all sentences
+with more than a prescribed number of tokens
+remaining and use automatic “head-percolation”
+rules (Collins, 1999) to convert the rest, as is standard practice. We experiment with WSJk (sentences with at most k tokens), for 1 ≤ k ≤ 45, and
+Section 23 of WSJ∞ (all sentence lengths). We
+also evaluate on Brown100, similarly derived from
+the parsed portion of the Brown corpus (Francis
+and Kucera, 1979), as our held-out set. Figure 1
+shows these corpora’s sentence and token counts.
+Proposed parse trees are judged on accuracy: a
+directed score is simply the overall fraction of correctly guessed dependencies. Let S be a set of
+sentences, with |s| the number of terminals (to1
+The expected number of trials needed to get one
+Bernoulli(p) success is n ∼ Geometric(p), with n ∈ Z+ ,
+P(n) = (1 − p)n−1 p and E(n) = p−1 ; MoM and MLE
+agree, p = (# of successes)/(# of trials).
+ˆ
+
+60
+50
+
+Oracle
+
+Ad-Hoc∗
+
+40
+30
+20
+Uninformed
+10
+5
+
+10
+
+15
+
+20
+
+25
+
+30
+
+35
+
+40
+
+150
+Uninformed
+100
+50
+
+(c) Iterations for Inside-Outside (Soft EM)
+5
+
+10
+
+15
+
+20
+
+25
+
+30
+
+35
+
+40
+
+WSJk
+
+Oracle
+
+60
+50
+
+Ad-Hoc∗
+
+Uninformed
+
+40
+30
+20
+10
+
+5 10 15 20 25 30 35 40 WSJk
+(training on all WSJ sentences up to k tokens in length)
+
+(d) Iterations for Viterbi (Hard EM)
+200
+150
+
+Ad-Hoc∗
+
+100
+50
+
+Uninformed
+5
+
+10
+
+15
+
+20
+
+25
+
+30
+
+Oracle
+35
+
+40
+
+Iterations to Convergence
+
+Ad-Hoc∗
+
+Iterations to Convergence
+
+Oracle
+
+200
+
+70
+
+WSJk
+
+400
+350
+
+(b) %-Accuracy for Viterbi (Hard EM)
+
+Directed Dependency Accuracy on WSJ40
+
+70
+
+Directed Dependency Accuracy on WSJ40
+
+(a) %-Accuracy for Inside-Outside (Soft EM)
+
+WSJk
+
+Figure 3: Directed dependency accuracies attained by the DMV, when trained on WSJk, smoothed, then
+tested against a ﬁxed evaluation set, WSJ40, for three different initialization strategies (Spitkovsky et al.,
+2009). Red, green and blue graphs represent the supervised (maximum-likelihood oracle) initialization,
+a linguistically-biased initializer (Ad-Hoc∗ ) and the uninformed (uniform) prior. Panel (b) shows results
+obtained with Viterbi training instead of classic EM — Panel (a), but is otherwise identical (in both, each
+of the 45 vertical slices captures ﬁve new experimental results and arrows connect starting performance
+with ﬁnal accuracy, emphasizing the impact of learning). Panels (c) and (d) show the corresponding
+numbers of iterations until EM’s convergence.
+kens) for each s ∈ S. Denote by T (s) the set
+of all dependency parse trees of s, and let ti (s)
+stand for the parent of token i, 1 ≤ i ≤ |s|, in
+t(s) ∈ T (s). Call the gold reference t∗ (s) ∈ T (s).
+For a given model of grammar, parameterized by
+ˆ
+θ, let tθ (s) ∈ T (s) be a (not necessarily unique)
+likeliest (also known as Viterbi) parse of s:
+ˆ
+tθ (s) ∈
+
+arg max Pθ (t) ;
+t∈T (s)
+
+then θ’s directed accuracy on a reference set R is
+
+100% ·
+
+s∈R
+
+|s|
+ˆ
+i=1 1{tθ (s)=t∗ (s)}
+i
+i
+s∈R |s|
+
+.
+
+4 Experimental Setup and Results
+Following Spitkovsky et al. (2009), we trained the
+DMV on data sets WSJ{1, . . . , 45} using three initialization strategies: (i) the uninformed uniform
+prior; (ii) a linguistically-biased initializer, AdHoc∗ ;2 and (iii) an oracle — the supervised MLE
+solution. Standard training is without smoothing,
+iterating each run until successive changes in overall per-token cross-entropy drop below 2−20 bits.
+We re-trained all models using Viterbi EM
+instead of inside-outside re-estimation, explored
+Laplace (add-one) smoothing during training, and
+experimented with hybrid initialization strategies.
+2
+Ad-Hoc∗ is Spitkovsky et al.’s (2009) variation on Klein
+and Manning’s (2004) “ad-hoc harmonic” completion.
+
+60
+50
+
+Ad-Hoc∗
+
+40
+
+Oracle
+Baby Steps
+
+30
+20
+Uninformed
+10
+5
+
+10
+
+15
+
+20
+
+25
+
+30
+
+35
+
+40
+
+(b) %-Accuracy for Viterbi (Hard EM)
+70
+Oracle
+
+60
+50
+
+Ad-Hoc∗
+
+Uninformed
+
+40
+30
+20
+Baby Steps
+
+10
+
+5
+
+WSJk
+
+10
+
+15
+
+20
+
+25
+
+30
+
+35
+
+40
+
+Directed Dependency Accuracy on WSJ40
+
+70
+
+Directed Dependency Accuracy on WSJ40
+
+(a) %-Accuracy for Inside-Outside (Soft EM)
+
+WSJk
+
+Figure 4: Superimposes directed accuracies attained by DMV models trained with Laplace smoothing
+(brightly-colored curves) over Figure 3(a,b); violet curves represent Baby Steps (Spitkovsky et al., 2009).
+4.1
+
+Result #1: Viterbi-Trained Models
+
+The results of Spitkovsky et al. (2009), tested
+against WSJ40, are re-printed in Figure 3(a); our
+corresponding Viterbi runs appear in Figure 3(b).
+We observe crucial differences between the two
+training modes for each of the three initialization
+strategies. Both algorithms walk away from the
+supervised maximum-likelihood solution; however, Viterbi EM loses at most a few points of
+accuracy (3.7% at WSJ40), whereas classic EM
+drops nearly twenty points (19.1% at WSJ45). In
+both cases, the single best unsupervised result is
+with good initialization, although Viterbi peaks
+earlier (45.9% at WSJ8) and in a narrower range
+(WSJ8-9) than classic EM (44.3% at WSJ15;
+WSJ13-20). The uniform prior never quite gets off
+the ground with classic EM but manages quite well
+under Viterbi training, 3 given sufﬁcient data — it
+even beats the “clever” initializer everywhere past
+WSJ10. The “sweet spot” at WSJ15 — a neighborhood where both Ad-Hoc∗ and the oracle excel under classic EM — disappears with Viterbi.
+Furthermore, Viterbi does not degrade with more
+(complex) data, except with a biased initializer.
+More than a simple efﬁciency hack, Viterbi EM
+actually improves performance. And its beneﬁts to
+running times are also non-trivial: it not only skips
+computing the outside charts in every iteration but
+also converges (sometimes an order of magnitude)
+3
+In a concurrently published related work, Cohen and
+Smith (2010) prove that the uniform-at-random initializer is a
+competitive starting M-step for Viterbi EM; our uninformed
+prior consists of uniform multinomials, seeding the E-step.
+
+faster than classic EM (see Figure 3(c,d)).4
+4.2 Result #2: Smoothed Models
+Smoothing rarely helps classic EM and hurts in
+the case of oracle training (see Figure 4(a)). With
+Viterbi, supervised initialization suffers much less,
+the biased initializer is a wash, and the uninformed
+uniform prior generally gains a few points of accuracy, e.g., up 2.9% (from 42.4% to 45.2%, evaluated against WSJ40) at WSJ15 (see Figure 4(b)).
+Baby Steps (Spitkovsky et al., 2009) — iterative
+re-training with increasingly more complex data
+sets, WSJ1, . . . ,WSJ45 — using smoothed Viterbi
+training fails miserably (see Figure 4(b)), due to
+Viterbi’s poor initial performance at short sentences (possibly because of data sparsity and sensitivity to non-sentences — see examples in §7.3).
+4.3 Result #3: State-of-the-Art Models
+Simply training up smoothed Viterbi at WSJ15,
+using the uninformed uniform prior, yields 44.8%
+accuracy on Section 23 of WSJ∞ , already beating
+previous state-of-the-art by 0.7% (see Table 1(A)).
+Since both classic EM and Ad-Hoc∗ initializers
+work well with short sentences (see Figure 3(a)),
+it makes sense to use their pre-trained models to
+initialize Viterbi training, mixing the two strategies. We judged all Ad-Hoc∗ initializers against
+WSJ15 and found that the one for WSJ8 minimizes sentence-level cross-entropy (see Figure 5).
+This approach does not involve reference parse
+4
+
+For classic EM, the number of iterations to convergence
+appears sometimes inversely related to performance, giving
+credence to the notion of early termination as a regularizer.
+
+Model
+DMV
+A.
+B.
+C.
+D.
+EVG
+
+Incarnation
+Bilingual Log-Normals (tie-verb-noun)
+(Cohen and Smith, 2009)
+Less is More (Ad-Hoc∗ @15)
+(Spitkovsky et al., 2009)
+Smoothed Viterbi Training (@15), Initialized with the Uniform Prior
+A Good Initializer (Ad-Hoc∗ ’s @8), Classically Pre-Trained (@15)
+Smoothed Viterbi Training (@15), Initialized with B
+Smoothed Viterbi Training (@45), Initialized with C
+Smoothed (skip-head), Lexicalized
+(Headden et al., 2009)
+
+WSJ10
+62.0
+56.2
+59.9
+63.8
+64.4
+65.3
+68.8
+
+WSJ20
+48.0
+48.2
+50.0
+52.3
+53.5
+53.8
+
+WSJ∞
+42.2
+44.1
+44.8
+46.2
+47.8
+47.9
+
+Brown100
+43.3
+48.1
+49.3
+50.5
+50.8
+
+Table 1: Accuracies on Section 23 of WSJ{10, 20,∞ } and Brown100 for three recent state-of-the-art
+systems, our initializer, and smoothed Viterbi-trained runs that employ different initialization strategies.
+bpt
+5.5
+5.0
+4.5
+WSJk
+
+x-Entropy h (in bits per token) on WSJ15
+lowest cross-entropy (4.32bpt) attained at WSJ8
+
+5
+
+10
+
+15
+
+20
+
+25
+
+30
+
+35
+
+40
+
+45
+
+Figure 5: Sentence-level cross-entropy on WSJ15
+for Ad-Hoc∗ initializers of WSJ{1, . . . , 45}.
+trees and is therefore still unsupervised. Using the
+Ad-Hoc∗ initializer based on WSJ8 to seed classic
+training at WSJ15 yields a further 1.4% gain in accuracy, scoring 46.2% on WSJ∞ (see Table 1(B)).
+This good initializer boosts accuracy attained
+by smoothed Viterbi at WSJ15 to 47.8% (see Table 1(C)). Using its solution to re-initialize training at WSJ45 gives a tiny further improvement
+(0.1%) on Section 23 of WSJ∞ but bigger gains
+on WSJ10 (0.9%) and WSJ20 (see Table 1(D)).
+Our results generalize. Gains due to smoothed
+Viterbi training and favorable initialization carry
+over to Brown100 — accuracy improves by 7.5%
+over previous published numbers (see Table 1). 5
+
+5 Discussion of Experimental Results
+The DMV has no parameters to capture syntactic
+relationships beyond local trees, e.g., agreement.
+Spitkovsky et al. (2009) suggest that classic EM
+breaks down as sentences get longer precisely because the model makes unwarranted independence
+assumptions. They hypothesize that the DMV reserves too much probability mass for what should
+be unlikely productions. Since EM faithfully allocates such re-distributions across the possible
+parse trees, once sentences grow sufﬁciently long,
+this process begins to deplete what began as likelier structures. But medium lengths avoid a ﬂood
+of exponentially-confusing longer sentences (and
+5
+In a sister paper, Spitkovsky et al. (2010) improve performance by incorporating parsing constraints harvested from
+the web into Viterbi training; nevertheless, results presented
+in this paper remain the best of models trained purely on WSJ.
+
+the sparseness of unrepresentative shorter ones). 6
+Our experiments corroborate this hypothesis.
+First of all, Viterbi manages to hang on to supervised solutions much better than classic EM.
+Second, Viterbi does not universally degrade with
+more (complex) training sets, except with a biased
+initializer. And third, Viterbi learns poorly from
+small data sets of short sentences (WSJk, k < 5).
+Viterbi may be better suited to unsupervised
+grammar induction compared with classic EM, but
+neither is sufﬁcient, by itself. Both algorithms
+abandon good solutions and make no guarantees
+with respect to extrinsic performance. Unfortunately, these two approaches share a deep ﬂaw.
+
+6 Related Work on Improper Objectives
+It is well-known that maximizing likelihood may,
+in fact, degrade accuracy (Pereira and Schabes,
+1992; Elworthy, 1994; Merialdo, 1994). de Marcken (1995) showed that classic EM suffers from
+a fatal attraction towards deterministic grammars
+and suggested a Viterbi training scheme as a remedy. Liang and Klein’s (2008) analysis of errors
+in unsupervised learning began with the inappropriateness of the likelihood objective (approximation), explored problems of data sparsity (estimation) and focused on EM-speciﬁc issues related to
+non-convexity (identiﬁability and optimization).
+Previous literature primarily relied on experimental evidence. de Marcken’s analytical result is
+an exception but pertains only to EM-speciﬁc local attractors. Our analysis conﬁrms his intuitions
+and moreover shows that there can be global preferences for deterministic grammars — problems
+that would persist with tractable optimization. We
+prove that there is a fundamental disconnect between objective functions even when likelihood is
+a reasonable metric and training data are inﬁnite.
+6
+
+Klein and Manning (2004) originally trained the DMV
+on WSJ10 and Gillenwater et al. (2009) found it useful to discard data from WSJ3, which is mostly incomplete sentences.
+
+7 Proofs (by Construction)
+There is a subtle distinction between three different probability distributions that arise in parsing,
+each of which can be legitimately termed “likelihood” — the mass that a particular model assigns
+to (i) highest-scoring (Viterbi) parse trees; (ii) the
+correct (gold) reference trees; and (iii) the sentence strings (sums over all derivations). A classic
+unsupervised parser trains to optimize the third,
+makes actual parsing decisions according to the
+ﬁrst, and is evaluated against the second. There
+are several potential disconnects here. First of all,
+the true generative model θ ∗ may not yield the
+largest margin separations for discriminating between gold parse trees and next best alternatives;
+and second, θ ∗ may assign sub-optimal mass to
+string probabilities. There is no reason why an opˆ
+timal estimate θ should make the best parser or
+coincide with a peak of an unsupervised objective.
+7.1
+
+The Three Likelihood Objectives
+
+A supervised parser ﬁnds the “best” parameters
+ˆ
+θ by maximizing the likelihood of all reference
+structures t∗ (s) — the product, over all sentences,
+of the probabilities that it assigns to each such tree:
+ˆ
+θSUP = arg max L(θ) = arg max
+θ
+
+θ
+
+∗
+
+Pθ (t (s)).
+s
+
+For the DMV, this objective function is convex —
+its unique peak is easy to ﬁnd and should match
+the true distribution θ ∗ given enough data, barring
+practical problems caused by numerical instability
+and inappropriate independence assumptions. It is
+often easier to work in log-probability space:
+ˆ
+θSUP = arg maxθ log L(θ)
+= arg maxθ s log Pθ (t∗ (s)).
+
+This objective function is not convex and in general does not have a unique peak, so in practice one
+˜
+usually settles for θUNS — a ﬁxed point. There is no
+ˆSUP should agree with θUNS , which is
+ˆ
+reason why θ
+˜
+in turn (often badly) approximated by θUNS , in our
+case using EM. A logical alternative to maximizing the probability of sentences is to maximize the
+probability of the most likely parse trees instead: 7
+ˆ
+θVIT = arg max
+θ
+
+s lg Pθ (t
+
+∗ (s))
+
+s |s|
+
+.
+
+ˆ
+Clearly, arg maxθ L(θ) = θSUP = arg minθ h(θ).
+Unsupervised parsers cannot rely on references
+and attempt to jointly maximize the probability of
+each sentence instead, summing over the probabilities of all possible trees, according to a model θ:
+ˆ
+θUNS = arg max
+θ
+
+Pθ (t) .
+
+log
+s
+
+t∈T (s)
+Pθ (s)
+
+s
+
+˜
+This 1-best approximation similarly arrives at θVIT ,
+with no claims of optimality. Each next model is
+re-estimated as if supervised by reference parses.
+ˆ
+7.2 A Warm-Up Case: Accuracy vs. θSUP = θ ∗
+A simple way to derail accuracy is to maximize
+the likelihood of an incorrect model, e.g., one that
+makes false independence assumptions. Consider
+ﬁtting the DMV to a contrived distribution — two
+equiprobable structures over identical three-token
+sentences from a unary vocabulary { a }:
+(i) a a a ; (ii) a a a .
+There are six tokens and only two have children
+on any given side, so adjacent stopping MLEs are:
+2
+2
+ˆ
+ˆ
+PSTOP ( a , L, T) = PSTOP ( a , R, T) = 1 − = .
+6
+3
+The rest of the estimated model is deterministic:
+ˆ
+ˆ
+PATTACH (♦, L, a ) = PATTACH ( a , ∗, a ) = 1
+ˆ
+and PSTOP ( a , ∗, F) = 1,
+since all dependents are a and every one is an
+only child. But the DMV generates left- and rightattachments independently, allowing a third parse:
+
+Cross-entropy, measured in bits per token (bpt),
+offers an interpretable proxy for a model’s quality:
+h(θ) = −
+
+ˆ
+log Pθ (tθ (s)).
+
+(iii) a a a .
+It also cannot capture the fact that all structures are
+local (or that all dependency arcs point in the same
+direction), admitting two additional parse trees:
+(iv) a
+
+a a ; (v) a a a .
+
+Each possible structure must make four (out of six)
+adjacent stops, incurring identical probabilities:
+24
+ˆ
+ˆ
+PSTOP ( a , ∗, T)4 × (1 − PSTOP ( a , ∗, T))2 = 6 .
+3
+7
+
+It is also possible to use k-best Viterbi, with k > 1.
+
+Thus, the MLE model does not break symmetry
+and rates each of the ﬁve parse trees as equally
+likely. Therefore, its expected per-token accuracy
+is 40%. Average overlaps between structures (i-v)
+and answers (i,ii) are (i) 100% or 0; (ii) 0 or 100%;
+and (iii,iv,v) 33.3%: (3 + 3)/(5 × 3) = 2/5 = 0.4.
+A decoy model without left- or right-branching,
+˜
+˜
+i.e., PSTOP ( a , L, T) = 1 or PSTOP ( a , R, T) = 1,
+
+This kernel is tiny, but, as before, our analysis is
+invariant to n-fold replication: the problem cannot
+be explained away by a small training size — it
+persists even in inﬁnitely large data sets. And so,
+we consider three reference parse trees for twotoken sentences over a binary vocabulary { a , z }:
+
+would assign zero probability to some of the training data. It would be forced to parse every instance
+of a a a either as (i) or as (ii), deterministically.
+Nevertheless, it would attain a higher per-token accuracy of 50%. (Judged on exact matches, at the
+granularity of whole trees, the decoy’s guaranteed
+50% accuracy clobbers the MLE’s expected 20%.)
+Our toy data set could be replicated n-fold without changing the analysis. This conﬁrms that, even
+in the absence of estimation errors or data sparsity,
+there can be a fundamental disconnect between
+likelihood and accuracy, if the model is wrong.8
+
+One third of the time, z is the head; only a can
+be a child; and only a has right-dependents. Trees
+(i)-(iii) are the only two-terminal parses generated
+by the model and are equiprobable. Thus, these
+sentences are representative of a length-two restriction of everything generated by the true θ ∗ :
+
+7.3
+
+PATTACH (♦, L, a ) =
+
+NP :
+
+NNP
+— Marvin
+
+NNP
+Alisky.
+
+♦
+
+S:
+
+NNP
+(Braniff
+
+VBD
+declined).
+
+NNP
+Victoria,
+
+NNP
+Texas
+
+PSTOP ( z , L, T) = 0;
+PSTOP (∗, ∗, F) = PSTOP ( z , R, T) = 1;
+PATTACH ( a , ∗, a ) = PATTACH ( z , L, a ) = 1.
+ˆ
+Contrast the optimal estimate θSUP = θ ∗ with the
+9 θ that is identical to θ ∗ , except
+˜
+decoy ﬁxed point
+3
+˜
+˜
+PSTOP ( a , L, T) = and PSTOP ( a , R, T) = 1.
+5
+The probability of stopping is now 3/5 on the left
+and 1 on the right, instead of 4/5 on both sides —
+˜
+θ disallows a ’s right-dependents but preserves its
+overall fertility. The probabilities of leaves a (no
+ˆ
+˜
+children), under the models θSUP and θ, are:
+ˆ
+ˆ
+ˆ
+P( a ) = PSTOP ( a , L, T)×PSTOP ( a , R, T) =
+
+4
+5
+
+2
+
+3
+˜
+˜
+˜
+and P( a ) = PSTOP ( a , L, T)×PSTOP ( a , R, T) = .
+5
+
+♦
+
+NP-LOC :
+
+2
+4
+and PSTOP ( a , ∗, T) = ,
+3
+5
+
+since a is the head two out of three times, and
+since only one out of ﬁve a ’s attaches a child on
+either side. Elsewhere, the model is deterministic:
+
+ˆ
+ˆ
+ˆ
+A Subtler Case: θ ∗ = θSUP vs. θUNS vs. θVIT
+
+We now prove that, even with the right model,
+mismatches between the different objective likelihoods can also handicap the truth. Our calculations are again exact, so there are no issues with
+numerical stability. We work with a set of parameters θ ∗ already factored by the DMV, so that its
+problems could not be blamed on invalid independence assumptions. Yet we are able to ﬁnd another
+˜
+ˆ
+impostor distribution θ that outshines θSUP = θ ∗ on
+both unsupervised metrics, which proves that the
+ˆ
+true models θSUP and θ ∗ are not globally optimal,
+as judged by the two surrogate objective functions.
+This next example is organic. We began with
+WSJ10 and conﬁrmed that classic EM abandons
+the supervised solution. We then iteratively discarded large portions of the data set, so long as
+the remainder maintained the (un)desired effect —
+ˆ
+EM walking away from its θSUP . This procedure
+isolated such behavior, arriving at a minimal set:
+
+8
+
+(i) a a ; (ii) a z ; (iii) a a .
+
+♦
+
+And the probabilities of, e.g., structure a z , are:
+
+And as George Box quipped, “Essentially, all models are
+wrong, but some are useful” (Box and Draper, 1987, p. 424).
+
+ˆ
+ˆ
+PATTACH (♦, L, z ) × PSTOP ( z , R, T)
+ˆ
+ˆ
+× (1 − PSTOP ( z , L, T)) × PSTOP ( z , L, F)
+ˆ
+ˆ
+× PATTACH ( z , L, a ) × P( a )
+˜
+The model estimated from the parse trees induced by θ
+˜
+over the three sentences is again θ, for both soft and hard EM.
+9
+
+1 16
+ˆ
+ˆ
+= PATTACH (♦, L, z ) × P( a ) = ·
+3 25
+1 3
+˜
+˜
+and PATTACH (♦, L, z ) × P( a ) = · .
+3 5
+Similarly, the probabilities of all four possible
+parse trees for the two distinct sentences, a a and
+˜
+ˆ
+a z , under the two models, θSUP = θ ∗ and θ, are:
+ˆ
+θSUP = θ∗
+
+˜
+θ
+
+a z
+
+1
+3
+16
+75
+
+a z
+a a
+a a
+
+2
+3
+
+` 16 ´
+
+1
+3
+1
+5
+
+=
+= 0.213
+25
+
+0
+`4´ `
+´ ` 16 ´
+4
+1 − 5 25 =
+5
+128
+= 0.06826
+1875
+
+2
+3
+
+`3´
+
+=
+5
+= 0.2
+
+0
+`
+´ `3´
+3
+1− 5 5 =
+4
+= 0.16
+25
+
+0.06826
+
+0
+
+ˆ
+To the three true parses, θSUP assigns probability
+16
+128 2
+˜
+≈ 0.0009942 — about 1.66bpt; θ
+75
+1875
+leaves zero mass for (iii), corresponding to a larger
+(inﬁnite) cross-entropy, consistent with theory.
+So far so good, but if asked for best (Viterbi)
+ˆ
+parses, θSUP could still produce the actual trees,
+˜
+whereas θ would happily parse sentences of (iii)
+and (i) the same, perceiving a joint probability of
+(0.2)(0.16)2 = 0.00512 — just 1.27bpt, appearˆ
+ing to outperform θSUP = θ ∗ ! Asked for sentence
+˜ would remain unchanged (it parses
+probabilities, θ
+ˆ
+each sentence unambiguously), but θSUP would ag128 2
+16
+gregate to 75 2 · 1875 ≈ 0.003977, improv˜
+ing to 1.33bpt, but still noticeably “worse” than θ.
+˜
+Despite leaving zero probability to the truth, θ
+beats θ ∗ on both surrogate metrics, globally. This
+seems like an egregious error. Judged by (extrin˜
+sic) accuracy, θ still holds its own: it gets four
+directed edges from predicting parse trees (i) and
+(ii) completely right, but none of (iii) — a solid
+66.7%. Subject to tie-breaking, θ ∗ is equally likely
+to get (i) and/or (iii) entirely right or totally wrong
+(they are indistinguishable): it could earn a perfect
+˜
+100%, tie θ, or score a low 33.3%, at 1:2:1 odds,
+˜
+respectively — same as θ’s deterministic 66.7%
+accuracy, in expectation, but with higher variance.
+
+8 Discussion of Theoretical Results
+Daum´ et al. (2009) questioned the beneﬁts of use
+ing exact models in approximate inference. In our
+case, the model already makes strong simplifying
+assumptions and the objective is also incorrect. It
+makes sense that Viterbi EM sometimes works,
+since an approximate wrong “solution” could, by
+chance, be better than one that is exactly wrong.
+
+One reason why Viterbi EM may work well is
+that its score is used in selecting actual output
+parse trees. Wainwright (2006) provided strong
+theoretical and empirical arguments for using the
+same approximate inference method in training
+as in performing predictions for a learned model.
+He showed that if inference involves an approximation, then using the same approximate method
+to train the model gives even better performance
+guarantees than exact training methods. If our task
+were not parsing but language modeling, where
+the relevant score is the sum of the probabilities
+over individual derivations, perhaps classic EM
+would not be doing as badly, compared to Viterbi.
+Viterbi training is not only faster and more accurate but also free of inside-outside’s recursion constraints. It therefore invites more ﬂexible modeling techniques, including discriminative, featurerich approaches that target conditional likelihoods,
+essentially via (unsupervised) self-training (Clark
+et al., 2003; Ng and Cardie, 2003; McClosky et
+al., 2006a; McClosky et al., 2006b, inter alia).
+Such “learning by doing” approaches may be
+relevant to understanding human language acquisition, as children frequently ﬁnd themselves
+forced to interpret a sentence in order to interact with the world. Since most models of human
+probabilistic parsing are massively pruned (Jurafsky, 1996; Chater et al., 1998; Lewis and Vasishth,
+2005, inter alia), the serial nature of Viterbi EM
+— or the very limited parallelism of k-best Viterbi
+— may be more appropriate in modeling this task
+than the fully-integrated inside-outside solution.
+
+9 Conclusion
+Without a known objective, as in unsupervised
+learning, correct exact optimization becomes impossible. In such cases, approximations, although
+liable to pass over a true optimum, may achieve
+faster convergence and still improve performance.
+We showed that this is the case with Viterbi
+training, a cheap alternative to inside-outside reestimation, for unsupervised dependency parsing.
+We explained why Viterbi EM may be particularly well-suited to learning from longer sentences, in addition to any general beneﬁts to synchronizing approximation methods across learning and inference. Our best algorithm is simpler and an order of magnitude faster than classic EM. It achieves state-of-the-art performance:
+3.8% higher accuracy than previous published best
+
+results on Section 23 (all sentences) of the Wall
+Street Journal corpus. This improvement generalizes to the Brown corpus, our held-out evaluation
+set, where the same model registers a 7.5% gain.
+Unfortunately, approximations alone do not
+bridge the real gap between objective functions.
+This deeper issue could be addressed by drawing
+parsing constraints (Pereira and Schabes, 1992)
+from speciﬁc applications. One example of such
+an approach, tied to machine translation, is synchronous grammars (Alshawi and Douglas, 2000).
+An alternative — observing constraints induced by
+hyper-text mark-up, harvested from the web — is
+explored in a sister paper (Spitkovsky et al., 2010),
+published concurrently.
+
+Acknowledgments
+Partially funded by NSF award IIS-0811974 and by the Air
+Force Research Laboratory (AFRL), under prime contract
+no. FA8750-09-C-0181; ﬁrst author supported by the Fannie & John Hertz Foundation Fellowship. We thank Angel X. Chang, Mengqiu Wang and the anonymous reviewers
+for many helpful comments on draft versions of this paper.
+
+References
+H. Alshawi and S. Douglas. 2000. Learning dependency
+transduction models from unannotated examples. In
+Royal Society of London Philosophical Transactions Series A, volume 358.
+H. Alshawi. 1996. Head automata for speech translation. In
+Proc. of ICSLP.
+J. K. Baker. 1979. Trainable grammars for speech recognition. In Speech Communication Papers for the 97th Meeting of the Acoustical Society of America.
+G. E. P. Box and N. R. Draper. 1987. Empirical ModelBuilding and Response Surfaces. John Wiley.
+P. F. Brown, V. J. Della Pietra, S. A. Della Pietra, and R. L.
+Mercer. 1993. The mathematics of statistical machine
+translation: Parameter estimation. Computational Linguistics, 19.
+E. Charniak. 1993. Statistical Language Learning. MIT
+Press.
+N. Chater, M. J. Crocker, and M. J. Pickering. 1998. The
+rational analysis of inquiry: The case of parsing. In
+M. Oaksford and N. Chater, editors, Rational Models of
+Cognition. Oxford University Press.
+S. Clark, J. Curran, and M. Osborne. 2003. Bootstrapping
+POS-taggers using unlabelled data. In Proc. of CoNLL.
+S. B. Cohen and N. A. Smith. 2009. Shared logistic normal distributions for soft parameter tying in unsupervised
+grammar induction. In Proc. of NAACL-HLT.
+S. B. Cohen and N. A. Smith. 2010. Viterbi training for
+PCFGs: Hardness results and competitiveness of uniform
+initialization. In Proc. of ACL.
+
+M. Collins. 1999. Head-Driven Statistical Models for Natural Language Parsing. Ph.D. thesis, University of Pennsylvania.
+H. Daum´ , III, J. Langford, and D. Marcu. 2009. Searche
+based structured prediction. Machine Learning, 75(3).
+C. de Marcken. 1995. Lexical heads, phrase structure and
+the induction of grammar. In WVLC.
+D. Elworthy. 1994. Does Baum-Welch re-estimation help
+taggers? In Proc. of ANLP.
+W. N. Francis and H. Kucera, 1979. Manual of Information
+to Accompany a Standard Corpus of Present-Day Edited
+American English, for use with Digital Computers. Department of Linguistic, Brown University.
+J. Gillenwater, K. Ganchev, J. Graca, B. Taskar, and
+¸
+F. Pereira. 2009. Sparsity in grammar induction. In
+NIPS: Grammar Induction, Representation of Language
+and Language Learning.
+W. P. Headden, III, M. Johnson, and D. McClosky. 2009.
+Improving unsupervised dependency parsing with richer
+contexts and smoothing. In Proc. of NAACL-HLT.
+D. Jurafsky. 1996. A probabilistic model of lexical and syntactic access and disambiguation. Cognitive Science, 20.
+D. Klein and C. D. Manning. 2004. Corpus-based induction
+of syntactic structure: Models of dependency and constituency. In Proc. of ACL.
+R. L. Lewis and S. Vasishth. 2005. An activation-based
+model of sentence processing as skilled memory retrieval.
+Cognitive Science, 29.
+P. Liang and D. Klein. 2008. Analyzing the errors of unsupervised learning. In Proc. of HLT-ACL.
+M. P. Marcus, B. Santorini, and M. A. Marcinkiewicz. 1993.
+Building a large annotated corpus of English: The Penn
+Treebank. Computational Linguistics, 19(2).
+D. McClosky, E. Charniak, and M. Johnson. 2006a. Effective self-training for parsing. In Proc. of NAACL-HLT.
+D. McClosky, E. Charniak, and M. Johnson. 2006b. Reranking and self-training for parser adaptation. In Proc. of
+COLING-ACL.
+B. Merialdo. 1994. Tagging English text with a probabilistic
+model. Computational Linguistics, 20(2).
+V. Ng and C. Cardie. 2003. Weakly supervised natural language learning without redundant views. In Proc. of HLTNAACL.
+F. Pereira and Y. Schabes. 1992. Inside-outside reestimation
+from partially bracketed corpora. In Proc. of ACL.
+V. I. Spitkovsky, H. Alshawi, and D. Jurafsky. 2009. Baby
+Steps: How “Less is More” in unsupervised dependency
+parsing. In NIPS: Grammar Induction, Representation of
+Language and Language Learning.
+V. I. Spitkovsky, D. Jurafsky, and H. Alshawi. 2010. Proﬁting from mark-up: Hyper-text annotations for guided parsing. In Proc. of ACL.
+M. J. Wainwright. 2006. Estimating the “wrong” graphical
+model: Beneﬁts in the computation-limited setting. Journal of Machine Learning Research, 7.
+
+

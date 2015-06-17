@@ -1,0 +1,943 @@
+Painless Unsupervised Learning with Features
+Taylor Berg-Kirkpatrick
+
+Alexandre Bouchard-Cˆ t´
+o e John DeNero
+Computer Science Division
+University of California at Berkeley
+{tberg, bouchard, denero, klein}@cs.berkeley.edu
+
+Abstract
+We show how features can easily be added
+to standard generative models for unsupervised learning, without requiring complex
+new training methods. In particular, each
+component multinomial of a generative model
+can be turned into a miniature logistic regression model if feature locality permits. The intuitive EM algorithm still applies, but with a
+gradient-based M-step familiar from discriminative training of logistic regression models. We apply this technique to part-of-speech
+induction, grammar induction, word alignment, and word segmentation, incorporating
+a few linguistically-motivated features into
+the standard generative model for each task.
+These feature-enhanced models each outperform their basic counterparts by a substantial
+margin, and even compete with and surpass
+more complex state-of-the-art models.
+
+1
+
+Introduction
+
+Unsupervised learning methods have been increasingly successful in recent NLP research. The reasons are varied: increased supplies of unlabeled
+data, improved understanding of modeling methods,
+additional choices of optimization algorithms, and,
+perhaps most importantly for the present work, incorporation of richer domain knowledge into structured models. Unfortunately, that knowledge has
+generally been encoded in the form of conditional
+independence structure, which means that injecting
+it is both tricky (because the connection between
+independence and knowledge is subtle) and timeconsuming (because new structure often necessitates
+new inference algorithms).
+In this paper, we present a range of experiments
+wherein we improve existing unsupervised models
+by declaratively adding richer features. In particular, we parameterize the local multinomials of exist-
+
+Dan Klein
+
+ing generative models using features, in a way which
+does not require complex new machinery but which
+still provides substantial ﬂexibility. In the featureengineering paradigm, one can worry less about the
+backbone structure and instead use hand-designed
+features to declaratively inject domain knowledge
+into a model. While feature engineering has historically been associated with discriminative, supervised learning settings, we argue that it can and
+should be applied more broadly to the unsupervised
+setting.
+The idea of using features in unsupervised learning is neither new nor even controversial. Many
+top unsupervised results use feature-based models (Smith and Eisner, 2005; Haghighi and Klein,
+2006). However, such approaches have presented
+their own barriers, from challenging normalization
+problems, to neighborhood design, to the need for
+complex optimization procedures. As a result, most
+work still focuses on the stable and intuitive approach of using the EM algorithm to optimize data
+likelihood in locally normalized, generative models.
+The primary contribution of this paper is to
+demonstrate the clear empirical success of a simple and accessible approach to unsupervised learning with features, which can be optimized by using standard NLP building blocks. We consider
+the same generative, locally-normalized models that
+dominate past work on a range of tasks. However,
+we follow Chen (2003), Bisani and Ney (2008), and
+Bouchard-Cˆ t´ et al. (2008), and allow each comoe
+ponent multinomial of the model to be a miniature
+multi-class logistic regression model. In this case,
+the EM algorithm still applies with the E-step unchanged. The M-step involves gradient-based training familiar from standard supervised logistic regression (i.e., maximum entropy models). By integrating these two familiar learning techniques, we
+add features to unsupervised models without any
+
+specialized learning or inference.
+A second contribution of this work is to show that
+further gains can be achieved by directly optimizing data likelihood with LBFGS (Liu et al., 1989).
+This alternative optimization procedure requires no
+additional machinery beyond what EM uses. This
+approach is still very simple to implement, and we
+found that it empirically outperforms EM.
+This paper is largely empirical; the underlying optimization techniques are known, even if the overall
+approach will be novel to many readers. As an empirical demonstration, our results span an array of
+unsupervised learning tasks: part-of-speech induction, grammar induction, word alignment, and word
+segmentation. In each task, we show that declaring a
+few linguistically motivated feature templates yields
+state-of-the-art results.
+
+2
+
+Models
+
+We start by explaining our feature-enhanced model
+for part-of-speech (POS) induction. This particular
+example illustrates our approach to adding features
+to unsupervised models in a well-known NLP task.
+We then explain how the technique applies more
+generally.
+2.1
+
+Example: Part-of-Speech Induction
+
+POS induction consists of labeling words in text
+with POS tags. A hidden Markov model (HMM) is a
+standard model for this task, used in both a frequentist setting (Merialdo, 1994; Elworthy, 1994) and in
+a Bayesian setting (Goldwater and Grifﬁths, 2007;
+Johnson, 2007).
+A POS HMM generates a sequence of words in
+order. In each generation step, an observed word
+emission yi and a hidden successor POS tag zi+1 are
+generated independently, conditioned on the current
+POS tag zi . This process continues until an absorbing stop state is generated by the transition model.
+There are two types of conditional distributions in
+the model—emission and transition probabilities—
+that are both multinomial probability distributions.
+The joint likelihood factors into these distributions:
+Pθ (Y = y, Z = z) = Pθ (Z1 = z1 ) ·
+|z|
+
+Pθ (Yi = yi |Zi = zi ) · Pθ (Zi+1 = zi+1 |Zi = zi )
+i=1
+
+The emission distribution Pθ (Yi = yi |Zi = zi ) is
+parameterized by conditional probabilities θy,z,EMIT
+for each word y given tag z. Alternatively, we can
+express this emission distribution as the output of a
+logistic regression model, replacing the explicit conditional probability table by a logistic function parameterized by weights and features:
+θy,z,EMIT (w) =
+
+exp w, f (y, z, EMIT)
+y exp w, f (y , z, EMIT )
+
+This feature-based logistic expression is equivalent
+to the ﬂat multinomial in the case that the feature
+function f (y, z, EMIT) consists of all indicator features on tuples (y, z, EMIT), which we call BASIC
+features. The equivalence follows by setting weight
+wy,z,EMIT = log(θy,z,EMIT ).1 This formulation is
+known as the natural parameterization of the multinomial distribution.
+In order to enhance this emission distribution, we
+include coarse features in f (y, z, EMIT), in addition to the BASIC features. Crucially, these features
+can be active across multiple (y, z) values. In this
+way, the model can abstract general patterns, such
+as a POS tag co-occurring with an inﬂectional morpheme. We discuss speciﬁc POS features in Section 4.
+2.2
+
+General Directed Models
+
+Like the HMM, all of the models we propose are
+based on locally normalized generative decisions
+that condition on some context. In general, let X =
+(Z, Y) denote the sequence of generation steps (random variables) where Z contains all hidden random
+variables and Y contains all observed random variables. The joint probability of this directed model
+factors as:
+Pw (X = x) =
+
+Pw Xi = xi Xπ(i) = xπ(i) ,
+i∈I
+
+where Xπ(i) denotes the parents of Xi and I is the
+index set of the variables in X.
+In the models that we use, each factor in the above
+expression is the output of a local logistic regression
+1
+
+As long as no transition or emission probabilities are equal
+to zero. When zeros are present, for instance to model that an
+absorbing stop state can only transition to itself, it is often possible to absorb these zeros into a base measure. All the arguments
+in this paper carry with a structured base measure; we drop it for
+simplicity.
+
+model parameterized by w:
+
+These expected counts are then normalized in the
+M-step to re-estimate θ:
+
+˛
+`
+´
+exp w, f (d, c, t)
+Pw Xi = d˛Xπ(i) = c = P
+d exp w, f (d , c, t)
+
+Above, d is the generative decision value for Xi
+picked by the model, c is the conditioning context
+tuple of values for the parents of Xi , and t is the
+type of decision being made. For instance, the POS
+HMM has two types of decisions: transitions and
+emissions. In the emission model, the type t is EMIT,
+the decision d is a word and the context c is a tag.
+The denominator normalizes the factor to be a probability distribution over decisions.
+The objective function we derive from this model
+is the marginal likelihood of the observations y,
+along with a regularization term:
+L(w) = log Pw (Y = y) − κ||w||2
+2
+
+(1)
+
+This model has two advantages over the more prevalent form of a feature-rich unsupervised model, the
+globally normalized Markov random ﬁeld.2 First,
+as we explain in Section 3, optimizing our objective does not require computing expectations over
+the joint distribution. In the case of the POS HMM,
+for example, we do not need to enumerate an inﬁnite sum of products of potentials when optimizing, in contrast to Haghighi and Klein (2006). Second, we found that locally normalized models empirically outperform their globally normalized counterparts, despite their efﬁciency and simplicity.
+
+3
+
+Optimization
+
+3.1 Optimizing with Expectation Maximization
+In this section, we describe the EM algorithm applied to our feature-rich, locally normalized models.
+For models parameterized by standard multinomials, EM optimizes L(θ) = log Pθ (Y = y) (Dempster et al., 1977). The E-step computes expected
+counts for each tuple of decision d, context c, and
+multinomial type t:
+
+1(Xi = d, Xπ(i) = c, t) Y = y
+
+ed,c,t ← Eθ
+
+(2)
+
+i∈I
+2
+
+The locally normalized model class is actually equivalent
+to its globally normalized counterpart when the former meets
+the following three conditions: (1) The graphical model is a
+directed tree. (2) The BASIC features are included in f . (3) We
+do not include regularization in the model (κ = 0). This follows
+from Smith and Johnson (2007).
+
+θd,c,t ←
+
+ed,c,t
+d ed ,c,t
+
+Normalizing expected counts in this way maximizes
+the expected complete log likelihood with respect to
+the current model parameters.
+EM can likewise optimize L(w) for our locally
+normalized models with logistic parameterizations.
+The E-step ﬁrst precomputes multinomial parameters from w for each decision, context, and type:
+θd,c,t (w) ←
+
+exp w, f (d, c, t)
+d exp w, f (d , c, t)
+
+Then, expected counts e are computed according to Equation 2. In the case of POS induction,
+expected counts are computed with the forwardbackward algorithm in both the standard and logistic
+parameterizations. The only change is that the conditional probabilities θ are now functions of w.
+The M-step changes more substantially, but still
+relies on canonical NLP learning methods. We wish
+to choose w to optimize the regularized expected
+complete log likelihood:
+ed,c,t log θd,c,t (w) − κ||w||2
+2
+
+(w, e) =
+
+(3)
+
+d,c,t
+
+We optimize this objective via a gradient-based
+search algorithm like LBFGS. The gradient with respect to w takes the form
+ed,c,t · ∆d,c,t (w) − 2κ · w
+
+(w, e) =
+
+(4)
+
+d,c,t
+
+∆d,c,t (w) = f (d, c, t) −
+
+θd ,c,t (w)f (d , c, t)
+d
+
+This gradient matches that of regularized logistic regression in a supervised model: the difference ∆ between the observed and expected features,
+summed over every decision and context. In the supervised case, we would observe the count of occurrences of (d, c, t), but in the unsupervised M-step,
+we instead substitute expected counts ed,c,t .
+This gradient-based M-step is an iterative procedure. For each different value of w considered during the search, we must recompute θ(w), which requires computation in proportion to the size of the
+
+parameter space. However, e stays ﬁxed throughout
+the M-step. Algorithm 1 outlines EM in its entirety.
+The subroutine climb(·, ·, ·) represents a generic optimization step such as an LBFGS iteration.
+Algorithm 1 Feature-enhanced EM
+repeat
+Compute expected counts e
+repeat
+Compute (w, e)
+Compute (w, e)
+w ← climb(w, (w, e),
+
+£ Eq. 2
+£ Eq. 3
+£ Eq. 4
+
+(w, e))
+
+until convergence
+until convergence
+
+3.2
+
+Direct Marginal Likelihood Optimization
+
+Another approach to optimizing Equation 1 is to
+compute the gradient of the log marginal likelihood
+directly (Salakhutdinov et al., 2003). The gradient
+turns out to have the same form as Equation 4, with
+the key difference that ed,c,t is recomputed for every
+different value of w. Algorithm 2 outlines the procedure. Justiﬁcation for this algorithm appears in the
+Appendix.
+Algorithm 2 Feature-enhanced direct gradient
+repeat
+Compute expected counts e
+£ Eq. 2
+Compute L(w)
+£ Eq. 1
+Compute
+(w, e)
+£ Eq. 4
+w ← climb(w, L(w),
+
+(w, e))
+
+until convergence
+In practice, we ﬁnd that this optimization approach leads to higher task accuracy for several
+models. However, in cases where computing ed,c,t
+is expensive, EM can be a more efﬁcient alternative.
+
+4
+
+Part-of-Speech Induction
+
+We now describe experiments that demonstrate the
+effectiveness of locally normalized logistic models.
+We ﬁrst use the bigram HMM described in Section 2.1 for POS induction, which has two types of
+multinomials. For type EMIT, the decisions d are
+words and contexts c are tags. For type TRANS, the
+decisions and contexts are both tags.
+
+4.1
+
+POS Induction Features
+
+We use the same set of features used by Haghighi
+and Klein (2006) in their baseline globally normalized Markov random ﬁeld (MRF) model. These are
+all coarse features on emission contexts that activate
+for words with certain orthographic properties. We
+use only the BASIC features for transitions. For
+an emission with word y and tag z, we use the
+following feature templates:
+
+1(y = ·, z = ·)
+Check if y contains digit and conjoin
+with z:
+1(containsDigit(y) = ·, z = ·)
+C ONTAINS -H YPHEN: 1(containsHyphen(x) = ·, z = ·)
+I NITIAL -C AP:
+Check if the ﬁrst letter of y is
+capitalized: 1(isCap(y) = ·, z = ·)
+S UFFIX:
+Indicator functions for character sufﬁxes of up to length 3 present in y.
+BASIC:
+C ONTAINS -D IGIT:
+
+4.2
+
+POS Induction Data and Evaluation
+
+We train and test on the entire WSJ tag corpus (Marcus et al., 1993). We attempt the most difﬁcult version of this task where the only information our system can make use of is the unlabeled text itself. In
+particular, we do not make use of a tagging dictionary. We use 45 tag clusters, the number of POS tags
+that appear in the WSJ corpus. There is an identiﬁability issue when evaluating inferred tags. In order to measure accuracy on the hand-labeled corpus,
+we map each cluster to the tag that gives the highest
+accuracy, the many-1 evaluation approach (Johnson,
+2007). We run all POS induction models for 1000
+iterations, with 10 random initializations. The mean
+and standard deviation of many-1 accuracy appears
+in Table 1.
+4.3
+
+POS Induction Results
+
+We compare our model to the basic HMM and a bigram version of the feature-enhanced MRF model of
+Haghighi and Klein (2006). Using EM, we achieve
+a many-1 accuracy of 68.1. This outperforms the
+basic HMM baseline by a 5.0 margin. The same
+model, trained using the direct gradient approach,
+achieves a many-1 accuracy of 75.5, outperforming
+the basic HMM baseline by a margin of 12.4. These
+results show that the direct gradient approach can offer additional boosts in performance when used with
+a feature-enhanced model. We also outperform the
+
+globally normalized MRF, which uses the same set
+of features and which we train using a direct gradient approach.
+To the best of our knowledge, our system achieves
+the best performance to date on the WSJ corpus for
+totally unsupervised POS tagging.3
+
+5
+
+Grammar Induction
+
+We next apply our technique to a grammar induction
+task: the unsupervised learning of dependency parse
+trees via the dependency model with valence (DMV)
+(Klein and Manning, 2004). A dependency parse is
+a directed tree over tokens in a sentence. Each edge
+of the tree speciﬁes a directed dependency from a
+head token to a dependent, or argument token. Thus,
+the number of dependencies in a parse is exactly the
+number of tokens in the sentence, not counting the
+artiﬁcial root token.
+5.1
+
+Dependency Model with Valence
+
+The DMV deﬁnes a probability distribution over dependency parse trees. In this head-outward attachment model, a parse and the word tokens are derived
+together through a recursive generative process. For
+each token generated so far, starting with the root, a
+set of left dependents is generated, followed by a set
+of right dependents.
+There are two types of multinomial distributions
+in this model. The Bernoulli STOP probabilities
+θd,c,STOP capture the valence of a particular head. For
+this type, the decision d is whether or not to stop
+generating arguments, and the context c contains the
+current head h, direction δ and adjacency adj. If
+a head’s stop probability is high, it will be encouraged to accept few arguments. The ATTACH multinomial probability distributions θd,c,ATTACH capture
+attachment preferences of heads. For this type, a decision d is an argument token a, and the context c
+consists of a head h and a direction δ.
+We take the same approach as previous work
+(Klein and Manning, 2004; Cohen and Smith, 2009)
+and use gold POS tags in place of words.
+3
+
+Haghighi and Klein (2006) achieve higher accuracies by
+making use of labeled prototypes. We do not use any external
+information.
+
+5.2
+
+Grammar Induction Features
+
+One way to inject knowledge into a dependency
+model is to encode the similarity between the various morphological variants of nouns and verbs. We
+encode this similarity by incorporating features into
+both the STOP and the ATTACH probabilities. The
+attachment features appear below; the stop feature
+templates are similar and are therefore omitted.
+BASIC:
+N OUN:
+
+1(a = ·, h = ·, δ = ·)
+
+Generalize the morphological variants of
+nouns by using isNoun(·):
+1(a = ·, isNoun(h) = ·, δ = ·)
+1(isNoun(a) = ·, h = ·, δ = ·)
+1(isNoun(a) = ·, isNoun(h) = ·, δ = ·)
+V ERB:
+Same as above, generalizing verbs instead
+of nouns by using isVerb(·)
+N OUN -V ERB: Same as above, generalizing with
+isVerbOrNoun(·) = isVerb(·)∨isNoun(·)
+BACK -O FF: We add versions of all other features that
+ignore direction or adjacency.
+
+While the model has the expressive power to allow speciﬁc morphological variants to have their
+own behaviors, the existence of coarse features encourages uniform analyses, which in turn gives better accuracies.
+Cohen and Smith’s (2009) method has similar
+characteristics. They add a shared logistic-normal
+prior (SLN) to the DMV in order to tie multinomial
+parameters across related derivation events. They
+achieve their best results by only tying parameters between different multinomials when the corresponding contexts are headed by nouns and verbs.
+This observation motivates the features we choose to
+incorporate into the DMV.
+5.3
+
+Grammar Induction Data and Evaluation
+
+For our English experiments we train and report directed attachment accuracy on portions of the WSJ
+corpus. We work with a standard, reduced version of
+WSJ, WSJ10, that contains only sentences of length
+10 or less after punctuation has been removed. We
+train on sections 2-21, and use section 22 as a development set. We report accuracy on section 23.
+These are the same training, development, and test
+sets used by Cohen and Smith (2009). The regularization parameter (κ) is tuned on the development
+set to maximize accuracy.
+For our Chinese experiments, we use the same
+corpus and training/test split as Cohen and Smith
+
+6
+
+Word Alignment
+
+Word alignment is a core machine learning component of statistical machine translation systems,
+and one of the few NLP tasks that is dominantly
+solved using unsupervised techniques. The purpose of word alignment models is to induce a correspondence between the words of a sentence and
+the words of its translation.
+6.1
+
+Word Alignment Models
+
+We consider two classic generative alignment models that are both used heavily today, IBM Model 1
+(Brown et al., 1994) and the HMM alignment model
+(Ney and Vogel, 1996). These models generate a
+hidden alignment vector z and an observed foreign
+sentence y, all conditioned on an observed English
+sentence e. The likelihood of both models takes the
+form:
+p(zj = i|zj−1 ) · θyj ,ei ,ALIGN
+
+P (y, z|e) =
+j
+
+WSJ10
+
+WSJ
+
+Inference
+EM
+LBFGS
+EM
+LBFGS
+
+EM
+EM
+LBFGS
+(Cohen and Smith, 2009)
+Basic-DMV
+EM
+Feature-DMV
+EM
+LBFGS
+(Cohen and Smith, 2009)
+Word Alignment
+Basic-Model 1
+EM
+Feature-Model 1 EM
+Basic-HMM
+EM
+Feature-HMM
+EM
+Word Segmentation
+Basic-Unigram
+EM
+Feature-Unigram EM
+LBFGS
+(Johnson and Goldwater, 2009)
+NIST ChEn
+
+Grammar Induction Results
+
+We are able to outperform Cohen and Smith’s (2009)
+best system, which requires a more complicated
+variational inference method, on both English and
+Chinese data sets. Their system achieves an accuracy of 61.3 for English and an accuracy of 51.9 for
+Chinese.4 Our feature-enhanced model, trained using the direct gradient approach, achieves an accuracy of 63.0 for English, and an accuracy of 53.6 for
+Chinese. To our knowledge, our method for featurebased dependency parse induction outperforms all
+existing methods that make the same set of conditional independence assumptions as the DMV.
+
+–
+1.0
+5.0
+
+Grammar Induction
+Basic-DMV
+Feature-DMV
+
+BR
+
+5.4
+
+Reg
+κ
+–
+0.1
+1.0
+1.0
+κ
+–
+0.05
+10.0
+
+CTB10
+
+Model
+POS Induction
+Basic-HMM
+Feature-MRF
+Feature-HMM
+
+(2009). We train on sections 1-270 of the Penn Chinese Treebank (Xue et al., 2002), similarly reduced
+(CTB10). We test on sections 271-300 of CTB10,
+and use sections 400-454 as a development set.
+The DMV is known to be sensitive to initialization. We use the deterministic harmonic initializer
+from Klein and Manning (2004). We ran each optimization procedure for 100 iterations. The results
+are reported in Table 1.
+
+κ
+–
+–
+–
+–
+κ
+–
+0.2
+0.2
+
+Eval
+Many-1
+63.1 (1.3)
+59.6 (6.9)
+68.1 (1.7)
+75.5 (1.1)
+Dir
+47.8
+48.3
+63.0
+61.3
+42.5
+49.9
+53.6
+51.9
+AER
+38.0
+35.6
+33.8
+30.0
+F1
+76.9 (0.1)
+84.5 (0.5)
+88.0 (0.1)
+87
+
+Table 1: Locally normalized feature-based models outperform
+all proposed baselines for all four tasks. LBFGS outperformed
+EM in all cases where the algorithm was sufﬁciently fast to run.
+Details of each experiment appear in the main text.
+
+The distortion term p(zj = i|zj−1 ) is uniform in
+Model 1, and Markovian in the HMM. See Liang et
+al. (2006) for details on the speciﬁc variant of the
+distortion model of the HMM that we used. We use
+these standard distortion models in both the baseline
+and feature-enhanced word alignment systems.
+The bilexical emission model θy,e,ALIGN differentiates our feature-enhanced system from the baseline system. In the former, the emission model is a
+standard conditional multinomial that represents the
+probability that decision word y is generated from
+context word e, while in our system, the emission
+model is re-parameterized as a logistic regression
+model and feature-enhanced.
+Many supervised feature-based alignment models
+have been developed. In fact, this logistic parameterization of the HMM has been proposed before and
+yielded alignment improvements, but was trained
+using supervised estimation techniques (Varea et al.,
+2002).5 However, most full translation systems to-
+
+4
+
+Using additional bilingual data, Cohen and Smith (2009)
+achieve an accuracy of 62.0 for English, and an accuracy of
+52.0 for Chinese, still below our results.
+
+5
+
+Varea et al. (2002) describes unsupervised EM optimization with logistic regression models at a high level—their dy-
+
+day rely on unsupervised learning so that the models
+may be applied easily to many language pairs. Our
+approach provides efﬁcient and consistent unsupervised estimation for feature-rich alignment models.
+6.2
+
+Word Alignment Features
+
+The BASIC features on pairs of lexical items
+provide strong baseline performance. We add
+coarse features to the model in order to inject
+prior knowledge and tie together lexical items with
+similar characteristics.
+BASIC:
+E DIT-D ISTANCE:
+D ICTIONARY:
+S TEM:
+P REFIX:
+
+1(e = ·, y = ·)
+1(dist(y, e) = ·)
+1((y, e) ∈ D) for dictionary D.
+1(stem(e) = ·, y = ·) for Porter stemmer.
+1(preﬁx(e) = ·, y = ·) for preﬁxes of
+
+C HARACTER:
+
+length 4.
+1(e = ·, charAt(y, i) = ·) for index i in
+the Chinese word.
+
+These features correspond to several common
+augmentations of word alignment models, such as
+adding dictionary priors and truncating long words,
+but here we integrate them all coherently into a single model.
+6.3
+
+Word Alignment Data and Evaluation
+
+We evaluate on the standard hand-aligned portion
+of the NIST 2002 Chinese-English development set
+(Ayan et al., 2005). The set is annotated with sure S
+and possible P alignments. We measure alignment
+quality using alignment error rate (AER) (Och and
+Ney, 2000).
+We train the models on 10,000 sentences of FBIS
+Chinese-English newswire. This is not a large-scale
+experiment, but large enough to be relevant for lowresource languages. LBFGS experiments are not
+provided because computing expectations in these
+models is too computationally intensive to run for
+many iterations. Hence, EM training is a more appropriate optimization approach: computing the Mstep gradient requires only summing over word type
+pairs, while the marginal likelihood gradient needed
+for LBFGS requires summing over training sentence
+alignments. The ﬁnal alignments, in both the baseline and the feature-enhanced models, are computed
+by training the generative models in both directions,
+namic training approach—but provides no experiments.
+
+combining the result with hard union competitive
+thresholding (DeNero and Klein, 2007), and using agreement training for the HMM (Liang et al.,
+2006). The combination of these techniques yields
+a state-of-the-art unsupervised baseline for ChineseEnglish.
+6.4
+
+Word Alignment Results
+
+For both IBM Model 1 and the HMM alignment
+model, EM training with feature-enhanced models
+outperforms the standard multinomial models, by
+2.4 and 3.8 AER respectively.6 As expected, large
+positive weights are assigned to both the dictionary
+and edit distance features. Stem and character features also contribute to the performance gain.
+
+7
+
+Word Segmentation
+
+Finally, we show that it is possible to improve upon
+the simple and effective word segmentation model
+presented in Liang and Klein (2009) by adding
+phonological features. Unsupervised word segmentation is the task of identifying word boundaries in
+sentences where spaces have been removed. For a
+sequence of characters y = (y1 , ..., yn ), a segmentation is a sequence of segments z = (z1 , ..., z|z| )
+such that z is a partition of y and each zi is a contiguous subsequence of y. Unsupervised models for
+this task infer word boundaries from corpora of sentences of characters without ever seeing examples of
+well-formed words.
+7.1
+
+Unigram Double-Exponential Model
+
+Liang and Klein’s (2009) unigram doubleexponential model corresponds to a simple
+derivational process where sentences of characters
+x are generated a word at a time, drawn from a
+multinomial over all possible strings θz,SEGMENT .
+For this type, there is no context and the decision is
+the particular string generated. In order to avoid the
+degenerate MLE that assigns mass only to single
+segment sentences it is helpful to independently
+generate a length for each segment from a ﬁxed
+distribution. Liang and Klein (2009) constrain individual segments to have maximum length 10 and
+generate lengths from the following distribution:
+6
+
+The best published results for this dataset are supervised,
+and trained on 17 times more data (Haghighi et al., 2009).
+
+θl,LENGTH = exp(−l1.6 ) when 1 ≤ l ≤ 10. Their
+model is deﬁcient since it is possible to generate
+lengths that are inconsistent with the actual lengths
+of the generated segments. The likelihood equation
+is given by:
+P (Y = y, Z = z) =
+|z|
+
+(1 − θSTOP ) θzi ,SEGMENT exp(−|zi |1.6 )
+
+θSTOP
+i=1
+
+7.2
+
+Segmentation Data and Evaluation
+
+We train and test on the phonetic version of the
+Bernstein-Ratner corpus (1987). This is the same
+set-up used by Liang and Klein (2009), Goldwater
+et al. (2006), and Johnson and Goldwater (2009).
+This corpus consists of 9790 child-directed utterances transcribed using a phonetic representation.
+We measure segment F1 score on the entire corpus.
+We run all word segmentation models for 300 iterations with 10 random initializations and report the
+mean and standard deviation of F1 in Table 1.
+7.3
+
+Segmentation Features
+
+The SEGMENT multinomial is the important distribution in this model. We use the following features:
+BASIC:
+L ENGTH:
+N UMBER -VOWELS:
+P HONO -C LASS -P REF:
+P HONO -C LASS -P REF:
+
+1(z = ·)
+1(length(z) = ·)
+1(numVowels(z) = ·)
+1(preﬁx(coarsePhonemes(z)) = ·)
+1(sufﬁx(coarsePhonemes(z)) = ·)
+
+The phonological class preﬁx and sufﬁx features
+project each phoneme of a string to a coarser class
+and then take preﬁx and sufﬁx indicators on the
+string of projected characters. We include two versions of these features that use projections with different levels of coarseness. The goal of these features is to help the model learn general phonetic
+shapes that correspond to well-formed word boundaries.
+As is the case in general for our method, the
+feature-enhanced unigram model still respects the
+conditional independence assumptions that the standard unigram model makes, and inference is still
+performed using a simple dynamic program to compute expected sufﬁcient statistics, which are just segment counts.
+
+7.4
+
+Segmentation Results
+
+To our knowledge our system achieves the best performance to date on the Bernstein-Ratner corpus,
+with an F1 of 88.0. It is substantially simpler than
+the non-parametric Bayesian models proposed by
+Johnson et al. (2007), which require sampling procedures to perform inference and achieve an F1 of
+87 (Johnson and Goldwater, 2009). Similar to our
+other results, the direct gradient approach outperforms EM for feature-enhanced models, and both
+approaches outperform the baseline, which achieves
+an F1 of 76.9.
+
+8
+
+Conclusion
+
+We have shown that simple, locally normalized
+models can effectively incorporate features into unsupervised models. These enriched models can
+be easily optimized using standard NLP building blocks. Beyond the four tasks explored in
+this paper—POS tagging, DMV grammar induction, word alignment, and word segmentation—the
+method can be applied to many other tasks, for example grounded semantics, unsupervised PCFG induction, document clustering, and anaphora resolution.
+
+Acknowledgements
+We thank Percy Liang for making his word segmentation code available to us, and the anonymous reviewers for their comments.
+
+Appendix: Optimization
+In this section, we derive the gradient of the log marginal likelihood needed for the direct gradient approach. Let w0 be the current weights in Algorithm 2 and e = e(w0 ) be the expectations
+under these weights as computed in Equation 2. In order to justify Algorithm 2, we need to prove that L(w0 ) =
+(w0 , e).
+We use the following simple lemma: if φ, ψ are real-valued
+functions such that: (1) φ(w0 ) = ψ(w0 ) for some w0 ; (2)
+φ(w) ≤ ψ(w) on an open set containing w0 ; and (3), φ and ψ
+are differentiable at w0 ; then ψ(w0 ) = φ(wP
+0 ).
+We set ψ(w) = L(w) and φ(w) = (w, e)− z Pw0 (Z =
+z|Y = y) log Pw0 (Z = z|Y = y). If we can show that ψ, φ
+satisfy the conditions of the lemma we are done since the second
+term of φ depends on w0 , but not on w.
+Property (3) can be easily checked, and property (2) follows
+from Jensen’s inequality. Finally, property (1) follows from
+Lemma 2 of Neal and Hinton (1998).
+
+References
+N. F. Ayan, B. Dorr, and C. Monz. 2005. Combining
+word alignments using neural networks. In Empirical
+Methods in Natural Language Processing.
+N. Bernstein-Ratner. 1987. The phonology of parentchild speech. K. Nelson and A. van Kleeck.
+M. Bisani and H. Ney. 2008. Joint-sequence models for
+grapheme-to-phoneme conversion.
+A. Bouchard-Cˆ t´ , P. Liang, D. Klein, and T. L. Grifﬁths.
+oe
+2008. A probabilistic approach to language change.
+In Neural Information Processing Systems.
+P. F. Brown, S. A. Della Pietra, V. J. Della Pietra, and
+R. L. Mercer. 1994. The mathematics of statistical
+machine translation: Parameter estimation. Computational Linguistics.
+S. F. Chen. 2003. Conditional and joint models for
+grapheme-to-phoneme conversion. In Eurospeech.
+S. B. Cohen and N. A. Smith. 2009. Shared logistic normal distributions for soft parameter tying in unsupervised grammar induction. In North American Chapter
+of the Association for Computational Linguistics.
+A. P. Dempster, N. M. Laird, and D. B. Rubin. 1977.
+Maximum likelihood from incomplete data via the EM
+algorithm. Journal of the Royal Statistical Society. Series B (Methodological).
+J. DeNero and D. Klein. 2007. Tailoring word alignments to syntactic machine translation. In Association
+for Computational Linguistics.
+D. Elworthy. 1994. Does Baum-Welch re-estimation
+help taggers? In Association for Computational Linguistics.
+S. Goldwater and T. L. Grifﬁths. 2007. A fully Bayesian
+approach to unsupervised part-of-speech tagging. In
+Association for Computational Linguistics.
+S. Goldwater, T. L. Grifﬁths, and M. Johnson. 2006.
+Contextual dependencies in unsupervised word segmentation. In International Conference on Computational Linguistics/Association for Computational Linguistics.
+A. Haghighi and D. Klein. 2006. Prototype-driven learning for sequence models. In Association for Computational Linguistics.
+A. Haghighi, J. Blitzer, J. DeNero, and D. Klein. 2009.
+Better word alignments with supervised ITG models.
+In Association for Computational Linguistics.
+M. Johnson and S. Goldwater. 2009. Improving nonparametric Bayesian inference: Experiments on unsupervised word segmentation with adaptor grammars.
+In North American Chapter of the Association for
+Computational Linguistics.
+M. Johnson, T. L. Grifﬁths, and S. Goldwater. 2007.
+Adaptor grammars: a framework for specifying compositional nonparametric Bayesian models. In Neural
+Information Processing Systems.
+
+M. Johnson. 2007. Why doesnt EM ﬁnd good HMM
+POS-taggers? In Empirical Methods in Natural Language Processing/Computational Natural Language
+Learning.
+D. Klein and C. D. Manning. 2004. Corpus-based induction of syntactic structure: Models of dependency
+and constituency. In Association for Computational
+Linguistics.
+P. Liang and D. Klein. 2009. Online EM for unsupervised models. In North American Chapter of the Association for Computational Linguistics.
+P. Liang, B. Taskar, and D. Klein. 2006. Alignment by
+agreement. In North American Chapter of the Association for Computational Linguistics.
+D. C. Liu, J. Nocedal, and C. Dong. 1989. On the limited
+memory BFGS method for large scale optimization.
+Mathematical Programming.
+M. P. Marcus, M. A. Marcinkiewicz, and B. Santorini.
+1993. Building a large annotated corpus of English:
+the penn treebank. Computational Linguistics.
+B. Merialdo. 1994. Tagging English text with a probabilistic model. Computational Linguistics.
+R. Neal and G. E. Hinton. 1998. A view of the EM
+algorithm that justiﬁes incremental, sparse, and other
+variants. In Learning in Graphical Models. Kluwer
+Academic Publishers.
+H. Ney and S. Vogel. 1996. HMM-based word alignment
+in statistical translation. In International Conference
+on Computational Linguistics.
+F. J. Och and H. Ney. 2000. Improved statistical alignment models. In Association for Computational Linguistics.
+R. Salakhutdinov, S. Roweis, and Z. Ghahramani. 2003.
+Optimization with EM and expectation-conjugategradient. In International Conference on Machine
+Learning.
+N. A. Smith and J. Eisner. 2005. Contrastive estimation:
+Training log-linear models on unlabeled data. In Association for Computational Linguistics.
+N. A. Smith and M. Johnson. 2007. Weighted and probabilistic context-free grammars are equally expressive.
+Computational Linguistics.
+I. G. Varea, F. J. Och, H. Ney, and F. Casacuberta. 2002.
+Reﬁned lexicon models for statistical machine translation using a maximum entropy approach. In Association for Computational Linguistics.
+N. Xue, F-D Chiou, and M. Palmer. 2002. Building a
+large-scale annotated Chinese corpus. In International
+Conference on Computational Linguistics.
+
+

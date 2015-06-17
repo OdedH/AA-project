@@ -1,0 +1,4026 @@
+Journal of Machine Learning Research ? (2007) ??–??
+
+Submitted ??/07; Published ??/07
+
+1
+
+Exponentiated Gradient Algorithms for Conditional Random
+Fields and Max-Margin Markov Networks
+Michael Collins∗
+Amir Globerson∗
+Terry Koo∗
+Xavier Carreras
+
+mcollins@csail.mit.edu
+gamir@csail.mit.edu
+maestro@csail.mit.edu
+carreras@csail.mit.edu
+
+Computer Science and Artiﬁcial Intelligence Laboratory
+Massachusetts Institute of Technology
+Cambridge, MA 02139, USA
+
+Peter L. Bartlett
+
+bartlett@cs.berkeley.edu
+
+University of California, Berkeley
+Division of Computer Science and Department of Statistics
+Berkeley, CA 94720, USA
+
+Editor: ...
+
+Abstract
+Log-linear and maximum-margin models are two commonly-used methods in supervised
+machine learning, and are frequently used in structured prediction problems. Eﬃcient
+learning of parameters in these models is therefore an important problem, and becomes a
+key factor when learning from very large data sets. This paper describes exponentiated
+gradient (EG) algorithms for training such models, where EG updates are applied to the
+convex dual of either the log-linear or max-margin objective function; the dual in both the
+log-linear and max-margin cases corresponds to minimizing a convex function with simplex
+constraints. We study both batch and online variants of the algorithm, and provide rates
+of convergence for both cases. In the max-margin case, O( 1 ) EG updates are required
+to reach a given accuracy in the dual; in contrast, for log-linear models only O(log( 1 ))
+updates are required. For both the max-margin and log-linear cases, our bounds suggest
+that the online EG algorithm requires a factor of n less computation to reach a desired
+accuracy than the batch EG algorithm, where n is the number of training examples. Our
+experiments conﬁrm that the online algorithms are much faster than the batch algorithms
+in practice. We describe how the EG updates factor in a convenient way for structured
+prediction problems, allowing the algorithms to be eﬃciently applied to problems such as
+sequence learning or natural language parsing. We perform extensive evaluation of the
+algorithms, comparing them to to L-BFGS and stochastic gradient descent for log-linear
+models, and to SVM-Struct for max-margin models. The algorithms are applied to multiclass problems as well as a more complex large-scale parsing task. In all these settings, the
+EG algorithms presented here outperform the other methods.
+Keywords:
+Exponentiated Gradient, Log-Linear Models, Maximum-Margin Models,
+Structured Prediction, Conditional Random Fields
+
+∗. These authors contributed equally.
+c 2007 Michael Collins, Amir Globerson, Terry Koo, Xavier Carreras, Peter L. Bartlett.
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+1. Introduction
+Structured prediction problems involve learning to map inputs x to labels y, where the
+labels have rich internal structure, and where the set of possible labels for a given input is
+typically exponential in size. Examples of structured prediction problems include sequence
+labeling and natural language parsing. Several models that implement learning in this
+scenario have been proposed over the last few years, including log-linear models such as
+conditional random ﬁelds (CRFs, Laﬀerty et al., 2001), and maximum-margin models such
+as maximum-margin Markov networks (Taskar et al., 2004a).
+For both log-linear and max-margin models, learning is framed as minimization of a
+regularized loss function which is convex. In spite of the convexity of the objective function,
+ﬁnding the optimal parameters for these models can be computationally intensive, especially
+for very large data sets. This problem is exacerbated in structured prediction problems,
+where the large size of the set of possible labels adds an additional layer of complexity.
+The development of eﬃcient optimization algorithms for learning in structured prediction
+problems is therefore an important problem.
+In this paper we describe learning algorithms that exploit the structure of the dual
+optimization problems for log-linear and max-margin models. For both log-linear and maxmargin models the dual problem corresponds to the minimization of a convex function Q
+subject to simplex constraints (Jaakkola and Haussler, 1999; Lebanon and Laﬀerty, 2002;
+Taskar et al., 2004a). More speciﬁcally, the goal is to ﬁnd
+argmin Q(α1 , α2 , . . . , αn )
+
+(1)
+
+∀i, αi ∈∆
+
+where n is the number of training examples, each αi is a vector of dual variables for the i’th
+training example, and Q(α) is a convex function.1 The size of each vector αi is |Y|, where
+Y is the set of possible labels for any training example. Furthermore, αi is constrained to
+belong to the simplex of distributions over Y, deﬁned as:
+
+
+
+
+∆ = p ∈ R|Y| : py ≥ 0 ,
+py = 1
+(2)
+
+
+y∈Y
+
+Thus each αi is constrained to form a distribution over the set of possible labels. The
+max-margin and log-linear problems diﬀer only in their deﬁnition of Q.
+The algorithms in this paper make use of exponentiated gradient (EG) updates (Kivinen
+and Warmuth, 1997) in solving the problem in Eq. 1, in particular for the cases of loglinear or max-margin models. We focus on two classes of algorithms, which we call batch
+and online. In the batch case, the entire set of αi variables is updated simultaneously at
+each iteration of the algorithm; in the online case, a single αi variable is updated at each
+step. The “online” case essentially corresponds to coordinate-descent on the dual function
+Q, and is similar to the SMO algorithm (Platt, 1998) for training SVMs. The online
+algorithm has the advantage of updating the parameters after every sample point, rather
+than after making a full pass over the training examples; intuitively, this should lead to
+considerably faster rates of convergence when compared to the batch algorithm, and indeed
+1. In what follows we use α to denote the variables α1 , . . . , αn .
+
+2
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+our experimental and theoretical results support this intuition. A diﬀerent class of online
+algorithms consists of stochastic gradient descent (SGD) and its variants (e.g., see LeCun
+et al., 1998; Vishwanathan et al., 2006). In contrast to SGD, however, the EG algorithm is
+guaranteed to improve the dual objective at each step, and this objective may be calculated
+after each example without performing a pass over the entire data set. This is particularly
+convenient when making a choice of learning rate in the updates.
+We describe theoretical results concerning the convergence of the EG algorithms, as well
+as experiments. Our key results are as follows:
+• For the max-margin case, we show that O( 1 ) time is required for both the online
+and batch algorithms to converge to within of the optimal value of Q(α). This
+is qualitatively similar to recent results in the literature for max-margin approaches
+(e.g., see Shalev-Shwartz et al., 2007). For log-linear models, we show convergence
+rates of O(log( 1 )), a signiﬁcant improvement over the max-margin case.
+• For both the max-margin and log-linear cases, our bounds suggest that the online
+algorithm requires a factor of n less computation to reach a desired accuracy, where n is
+the number of training examples. Our experiments conﬁrm that the online algorithms
+are much faster than the batch algorithms in practice.
+• We describe how the EG algorithms can be eﬃciently applied to an important class
+of structured prediction problems where the set of labels Y is exponential in size. In
+this case the number of dual variables is also exponential in size, making algorithms
+which deal directly with the αi variables intractable. Following Bartlett et al. (2005),
+we focus on a formulation where each label y is represented as a set of “parts”, for
+example corresponding to labeled cliques in a max-margin network, or context-free
+rules in a parse tree. Under an assumption that part-based marginals can be calculated
+eﬃciently—for example using junction tree algorithms for CRFs, or the inside-outside
+algorithm for context-free parsing—the EG algorithms can be implemented eﬃciently
+for both max-margin and log-linear models.
+• In our experiments we compare the online EG algorithm to various state-of-the-art
+algorithms. For log-linear models, we compare to the L-BFGS algorithm (Byrd et al.,
+1995) and to stochastic gradient descent. For max-margin models we compare to the
+SVM-Struct algorithm of Tsochantaridis et al. (2004). The methods are applied to
+a standard multi-class learning problem, as well as a more complex natural language
+parsing problem. In both settings we show that the EG algorithm converges to the
+optimum much faster than the other algorithms.
+• In addition to proving convergence results for the deﬁnition of Q(α) used in maxmargin and log-linear models, we give theorems which may be useful when optimizing
+other deﬁnitions of Q(α) using EG updates. In particular, we give conditions for
+convergence which depend on bounds relating the Bregman divergence derived from
+Q(α) to the Kullback-Liebler divergence. Depending on the form of these bounds for
+a particular Q(α), either O( 1 ) or O(log( 1 )) rates of convergence can be derived.
+The rest of this paper is organized as follows. In Section 2, we introduce the loglinear and max-margin learning problems, and describe their dual optimization problems.
+3
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+Section 3 describes the batch and online EG algorithms; in Section 4, we describe how
+the algorithms can be eﬃciently applied to structured prediction problems. Section 5 then
+gives convergence proofs for the batch and online cases. Section 6 discusses related work.
+Sections 7 and 8 give experiments, and Section 9 discusses our results.
+This work builds on previous work described by Bartlett et al. (2005) and Globerson
+et al. (2007). Bartlett et al. (2005) described the application of the EG algorithm to maxmargin parameter estimation, and showed how the method can be applied eﬃciently to partbased formulations. Globerson et al. (2007) extended the approach to log-linear parameter
+estimation, and gave new convergence proofs for both max-margin and log-linear estimation.
+The work in the current paper gives several new results. We prove rates of convergence for
+a randomized version of the EG online algorithm; previous work on EG algorithms had
+not given convergence rates for the online case. We also report new experiments, including
+experiments with the randomized strategy. Finally, the O(log( 1 )) convergence rates for the
+log-linear case are new. The results in Globerson et al. (2007) gave O( 1 ) rates for the batch
+algorithm for log-linear models, and did not give any theoretical rates of convergence for
+the online case.
+
+2. Primal and Dual Problems for Regularized Loss Minimization
+2.1 The Primal Problems
+Consider a supervised learning setting with objects x ∈ X and labels y ∈ Y.2 In the
+structured learning setting, the labels may be sequences, trees, or other high-dimensional
+data with internal structure. Assume we are given a function φ(x, y) : X × Y → Rd that
+maps (x, y) pairs to feature vectors. Our goal is to construct a linear prediction rule
+f (x, w) = arg max w · φ(x, y)
+
+(3)
+
+y∈Y
+
+with parameters w ∈ Rd , such that f (x, w) is a good approximation of the true label of x.
+The parameters w are learned by minimizing a regularized loss
+n
+
+L(w; {(xi , yi )}n , C) =
+i=1
+
+(w, xi , yi ) +
+i=1
+
+C
+w
+2
+
+2
+
+(4)
+
+deﬁned over a labeled training set {(xi , yi )}n . Here C > 0 is a constant determining the
+i=1
+amount of regularization. The function measures the loss incurred in using w to predict
+the label of xi , given that the true label is yi .
+In this paper we will consider two deﬁnitions for (w, xi , yi ). The ﬁrst deﬁnition, originally introduced by Taskar et al. (2004a), is a variant of the hinge loss, and is deﬁned as
+follows:
+(5)
+MM (w, xi , yi ) = max e(xi , yi , y) − w · (φ(xi , yi ) − φ(xi , y)) .
+y∈Y
+
+Here e(xi , yi , y) is some measure of the error incurred in predicting y instead of yi as the
+label of xi . We assume that e(xi , yi , yi ) = 0 for all i, so that no loss is incurred for
+2. In general the set of labels for a given example x may be a set Y(x) that depends on x; in fact, in our
+experiments on dependency parsing Y does depend on x. For simplicity, in this paper we use the ﬁxed
+notation Y for all x; it is straightforward to extend our notation to the more general case.
+
+4
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+correct prediction, and therefore MM (w, xi , yi ) is always non-negative. This loss function
+corresponds to a maximum-margin approach, which explicitly penalizes training examples
+for which, for some y = yi ,
+w · (φ(xi , yi ) − φ(xi , y)) < e(xi , yi , y).
+The second loss function that we will consider is based on log-linear models, and is
+commonly used in conditional random ﬁelds (CRFs, Laﬀerty et al., 2001). First deﬁne the
+conditional distribution
+1 w·φ(x,y)
+p(y | x; w) =
+e
+,
+(6)
+Zx
+where Zx = y ew·φ(x,y) is the partition function. The loss function is then the negative
+log-likelihood under the parameters w:
+LL
+
+(w, xi , yi ) = − log p(yi | xi ; w) .
+
+(7)
+
+The function L is convex in w for both deﬁnitions MM and LL . Furthermore, in both
+cases minimization of L can be re-cast as optimization of a dual convex problem. The dual
+problems in the two cases have a similar structure, as we describe in the next two sections.
+2.2 The Log-Linear Dual
+The problem of minimizing L with the loss function
+P-LL :
+
+w∗ = argmin −
+
+LL
+
+can be written as
+
+log p(yi | xi ; w) +
+
+w
+
+i
+
+C
+w
+2
+
+2
+
+This is a convex optimization problem, and has an equivalent convex dual which was derived
+by Lebanon and Laﬀerty (2002). Denote the dual variables by αi,y where i = 1, . . . , n and
+y ∈ Y. We also use α to denote the set of all variables, and αi the set of all variables
+corresponding to a given i. Thus α = [α1 , . . . , αn ]. We assume α is a column vector.
+Deﬁne the function QLL (α) as
+QLL (α) =
+
+αi,y log αi,y +
+y
+
+i
+
+1
+w(α)
+2C
+
+2
+
+where
+w(α) =
+
+αi,y ψ i,y
+
+(8)
+
+y
+
+i
+
+and where ψ i,y = φ(xi , yi )−φ(xi , y). We shall ﬁnd the following matrix notation convenient:
+QLL (α) =
+i
+
+y
+
+1
+αi,y log αi,y + αT Aα
+2
+
+where A is a matrix of size n|Y| × n|Y| indexed by pairs (i, y), and A(i,y),(j,z) =
+5
+
+(9)
+1
+C ψ i,y
+
+· ψ j,z .
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+In what follows we denote the set of distributions over Y, i.e. the |Y|-dimensional
+probability simplex, by ∆, as in Eq. 2. The Cartesian product of n distributions over Y
+will be denoted by ∆n . The dual optimization problem is then
+D-LL : α∗ = argmin QLL (α)
+s.t.
+α ∈ ∆n
+
+(10)
+
+The minimum of D-LL is equal to −1 times the minimum of P-LL. The duality between
+P-LL and D-LL implies that the primal and dual solutions satisfy Cw∗ = w(α∗ ).
+2.3 The Max-Margin Dual
+When the loss is deﬁned using
+P-MM :
+
+MM
+
+w∗ = argmin
+w
+
+(w, xi , yi ), the primal optimization problem is as follows:
+
+max e(xi , yi , y) − w · (φ(xi , yi ) − φ(xi , y)) +
+i
+
+y
+
+C
+w
+2
+
+2
+
+The dual of this minimization problem was derived in Taskar et al. (2004a) (see also Bartlett
+et al., 2005). We ﬁrst deﬁne the dual objective
+1
+QMM (α) = −bT α + αT Aα.
+2
+
+(11)
+
+Here, the matrix A is as deﬁned above and b ∈ Rn|Y| is a vector deﬁned as bi,y = e(xi , yi , y).
+The convex dual for the max-margin case is then given by
+D-MM : α∗ = argmin QMM (α)
+s.t.
+α ∈ ∆n
+
+(12)
+
+The minimum of D-MM is equal to −1 times the minimum of P-MM. (Note that for D-MM
+the minimizer α∗ will not be unique since A is singular; in this case we take α∗ to be any
+member of the set of minimizers of QMM (α)). The optimal primal parameters are again
+related to the optimal dual parameters, through Cw∗ = w(α∗ ). Here again the constraints
+are that αi is a distribution over Y for all i.
+It can be seen that the D-LL and D-MM problems have a similar structure, in that they
+both involve minimization of a convex function Q(α) over the set ∆n . This will allow us to
+describe algorithms for both problems using a common framework.
+
+3. Exponentiated Gradient Algorithms
+In this section we describe batch and online algorithms for minimizing a convex function
+Q(α) subject to the constraints α ∈ ∆n . The algorithms can be applied to both the D-LL
+and D-MM optimization problems that were introduced in the previous section. The algorithms we describe are based on exponentiated gradient (EG) updates, originally introduced
+by Kivinen and Warmuth (1997) in the context of online learning algorithms.3
+3. Kivinen and Warmuth (1997) study a setting with an inﬁnite stream of data, as opposed to a ﬁxed data
+set which we study here. They are thus not interested in minimizing a ﬁxed objective, but rather study
+regret type bounds. This leads to algorithms and theoretical analyses that are diﬀerent from the ones
+considered in the current work.
+
+6
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+The EG updates rely on the following operation. Given a sequence of distributions
+α ∈ ∆n , a new sequence of distributions α can be obtained as
+αi,y =
+
+1
+αi,y e−η
+Zi
+
+i,y
+
+,
+
+−η i,ˆ is a partition function ensuring normalization
+y
+where i,y = ∂Q(α) , Zi =
+y
+y αi,ˆe
+ˆ
+∂αi,y
+of the distribution αi , and the parameter η > 0 is a learning rate. We will also use the
+notation αi,y ∝ αi,y e−η i,y where the partition function should be clear from the context.
+Clearly α ∈ ∆n by construction. For the dual function QLL (α) the gradient is
+
+i,y
+
+= 1 + log αi,y +
+
+1
+w(α) · ψ i,y
+C
+
+and for QMM (α) the gradient is
+i,y
+
+= −bi,y +
+
+1
+w(α) · ψ i,y
+C
+
+In this paper we will consider both parallel (batch), and sequential (online) applications
+of the EG updates, deﬁned as follows:
+• Batch: At every iteration the dual variables αi are simultaneously updated for all
+i = 1, . . . , n.
+• Online: At each iteration a single example k is chosen uniformly at random from
+{1, . . . , n} and αk is updated to give αk . The dual variables αi for i = k are left
+unchanged.
+Pseudo-code for the two schemes is given in Figures 1 and 2. From here on we will refer
+to the batch and online EG algorithms applied to the log-linear dual as LLEG-Batch, and
+LLEG-Online respectively. Similarly, when applied to the max-margin dual, they will be
+referred to as MMEG-Batch and MMEG-Online.
+Note that another plausible online algorithm would be a “deterministic” algorithm that
+repeatedly cycles over the training examples in a ﬁxed order. The motivation for the
+alternative, randomized, algorithm is two-fold. First, we are able to prove bounds on the
+rate of convergence of the randomized algorithm; we have not been able to prove similar
+bounds for the deterministic variant. Second, our experiments show that the randomized
+variant converges signiﬁcantly faster than the deterministic algorithm.
+The EG online algorithm is essentially performing coordinate descent on the dual objective, and is similar to SVM algorithms such as SMO (Platt, 1998). For binary classiﬁcation,
+the exact minimum of the dual objective with respect to a given coordinate can be found in
+closed form,4 and more complicated algorithms such as the exponentiated-gradient method
+may be unnecessary.5 However for multi-class or structured problems, the exact minimum
+4. This is true for the max-margin case. For log-linear models, minimization with respect to a single
+coordinate is a little more involved.
+5. Note, however, that it is not entirely clear that ﬁnding the exact optimum with respect to each coordinate
+would result in faster convergence than the EG method.
+
+7
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+Inputs: A convex function Q : ∆n → R, a learning rate η > 0.
+Initialization: Set α1 to a point in the interior of ∆n .
+Algorithm:
+• For t = 1, . . . , T , repeat:
+– For all i, y, calculate
+
+i,y
+
+=
+
+∂Q(αt )
+∂αi,y
+
+t+1
+t
+– For all i, y, update αi,y ∝ αi,y e−η
+
+i,y
+
+Output: Final parameters αT +1 .
+
+Figure 1: A general batch EG Algorithm for minimizing Q(α) subject to α ∈ ∆n . We use
+αt to denote the set of parameters after t iterations.
+Inputs: A convex function Q : ∆n → R, a learning rate η > 0.
+Initialization: Set α1 to a point in the interior of ∆n .
+Algorithm:
+• For t = 1, . . . , T , repeat:
+– Choose kt uniformly at random from the set {1, 2, . . . , n}
+– For all y, calculate:
+
+kt ,y
+
+=
+
+∂Q(αt )
+∂αkt ,y
+
+– For all y, update αt+1 ∝ αt t ,y e−η
+k
+kt ,y
+– For all i = kt , set
+
+αt+1
+i
+
+kt ,y
+
+.
+
+= αt
+i
+
+Output: Final parameters αT +1 .
+
+Figure 2: A general randomized online EG Algorithm for minimizing Q(α) subject to α ∈
+∆n .
+
+with respect to a coordinate αi (i.e., a set of |Y| dual variables) cannot be found in closed
+form: this is a key motivation for the use of EG algorithms in this paper.
+In Section 5 we give convergence proofs for the batch and online algorithms. The techniques used in the convergence proofs are quite general, and could potentially be useful in
+deriving EG algorithms for convex functions Q other than QLL and QMM . Before giving convergence results for the algorithms, we describe in the next section how the EG algorithms
+can be applied in structured problems.
+
+4. Structured Prediction with the EG Algorithms
+We now describe how the EG updates can be applied to structured prediction problems, for
+example parameter estimation in CRFs or natural language parsing. In structured problems
+8
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+the label set Y is typically very large, but labels can have useful internal structure. As one
+example, in CRFs each label y is an m-dimensional vector specifying the labeling of all m
+vertices in a graph. In parsing each label y is an entire parse tree. In both of these cases,
+the number of labels typically grows exponentially quickly with respect to the size of the
+inputs x.
+We follow the framework for structured problems described by Bartlett et al. (2005).
+Each label y is deﬁned to be a set of parts. We use R to refer to the set of all possible
+parts.6 We make the assumption that the feature vector for an entire label y decomposes
+into a sum over feature vectors for individual parts as follows:
+φ(x, y) =
+
+φ(x, r).
+r∈y
+
+Note that we have overloaded φ to apply to either labels y or parts r.
+As one example, consider a CRF which has an underlying graph with m nodes, and a
+maximum clique size of 2. Assume that each node can be labeled with one of two labels,
+0 or 1. In this case the labeling of an entire graph is a vector y ∈ {0, 1}m . Each possible
+input x is usually a vector in X m for some set X , although this does not have to be the
+case. Each part corresponds to a tuple (u, v, yu , yv ) where (u, v) is an edge in the graph, and
+yu , yv are the labels for the two vertices u and v. The feature vector φ(x, r) can then track
+any properties of the input x together with the labeled clique r = (u, v, yu , yv ). In CRFs
+with clique size greater than 2, each part corresponds to a labeled clique in the graph. In
+natural language parsing, each part can correspond to a context-free rule at a particular
+position in the sentence x (see Bartlett et al., 2005; Taskar et al., 2004b, for more details).
+The label set Y can be extremely large in structured prediction problems. For example,
+in a CRF with an underlying graph with m nodes and k possible labels at each node, there
+are k m possible labelings of the entire graph. The algorithms we have presented so far
+require direct manipulation of dual variables αi,y corresponding to each possible labeling
+of each training example; they will therefore be intractable in cases where there are an
+exponential number of possible labels. However, in this section we describe an approach
+that does allow an eﬃcient implementation of the algorithms in several cases. The approach
+is based on the method originally described in Bartlett et al. (2005).
+The key idea is as follows. Instead of manipulating the dual variables αi for each i
+directly, we will make use of alternative data structures θ i for all i. Each θ i is a vector
+of real values θi,r for all r ∈ R. In general we will assume that there are a tractable
+(polynomial) number of possible parts, and therefore that the number of θi,r variables is
+also polynomial. For example, for a CRF with m nodes and k labels at every node, and
+where the underlying graph has a maximum clique size of 2, each part takes the form
+r = (u, v, yu , yv ), and there are m2 k 2 possible parts.
+In the max-margin case, we follow Taskar et al. (2004a) and make the additional assumption that the error function decomposes into “local” error functions over parts:
+e(xi , yi , y) =
+
+e(xi , yi , r)
+
+(13)
+
+r∈y
+
+6. As with the label set Y, the set of parts R may in general be a set R(x) that depends on x. For simplicity,
+we assume that R is ﬁxed.
+
+9
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+For example, when Y is a sequence of variables, the cost could be the Hamming distance
+between the correct sequence yi and the predicted sequence y; it is straightforward to
+decompose the Hamming distance as a sum over parts as shown above. For brevity, in what
+follows we use ei,r instead of e(xi , yi , r).
+The θ i variables are used to implicitly deﬁne regular dual values αi = σ(θ i ) where
+σ : R|R| → ∆ is deﬁned as
+exp
+r∈y θr
+σy (θ) =
+y exp
+r∈y θr
+To see how the θ i variables can be updated, consider again the EG updates on the dual α
+variables. The EG updates in all algorithms in this paper take the form
+αi,y =
+
+αi,y exp{−η i,y }
+y
+y
+y αi,ˆ exp{−η i,ˆ}
+ˆ
+
+where for QLL
+i,y
+
+= 1 + log αi,y +
+
+1
+w(α) · (φ(xi , yi ) − φ(xi , y))
+C
+
+and for QMM ,
+
+1
+w(α) · (φ(xi , yi ) − φ(xi , y))
+C
+where bi,y = e(xi , yi , y) as in Section 2.3.
+Notice that, for both objective functions, the gradients can be expressed as a sum over
+parts. For the QLL objective function, this follows from the fact that αi = σ(θ i ) and from
+the assumption that the feature vector decomposes into parts. For the QMM objective,
+it follows from the latter, and the assumption that the loss decomposes into parts. The
+following lemma describes how EG updates on the α variables can be restated in terms of
+updates to the θ variables, provided that the gradient decomposes into parts in this way.
+i,y
+
+= −bi,y +
+
+Lemma 1 For a given α ∈ ∆n , and for a given i ∈ [1 . . . n], take αi to be the updated value
+for αi derived using an EG step, that is,
+αi,y =
+
+αi,y exp{−η i,y }
+.
+y
+y
+y αi,ˆ exp{−η i,ˆ}
+ˆ
+
+Suppose that, for some Gi and gi,r , we can write i,y = Gi +
+αi = σ(θ i ) for some θ i ∈ R|R| , and for all r we deﬁne
+
+r∈y gi,r
+
+for all y. Then if
+
+θi,r = θi,r − ηgi,r ,
+it follows that αi = σ(θ i ).
+Proof: We show that, for αi = σ(θ i ), updating the θi,r as described leads to σ(θ i ) = αi .
+For suitable partition functions Zi , Zi , and Zi , we can write
+exp
+
+r∈y (θi,r
+
+σy (θ i ) =
+
+Zi
+10
+
+− ηgi,r )
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+αi,y exp −η
+
+r∈y gi,r
+
+=
+
+Zi
+αi,y exp {−η(
+=
+Zi
+αi,y exp {−η
+=
+Zi
+= αi,y .
+
+− Gi )}
+
+i,y
+i,y }
+
+In the case of the QLL objective, a suitable update is
+θi,r = θi,r − η θi,r −
+
+1
+w(α) · φ(xi , r) .
+C
+
+In the case of the QMM objective, a suitable update is
+θi,r = θi,r − η −ei,r −
+
+1
+w(α) · φ(xi , r) .
+C
+
+Because of this result, all of the EG algorithms that we have presented can be restated
+in terms of the θ variables: instead of maintaining a sequence αt = {αt , αt , . . . , αt }
+n
+1
+2
+of dual variables, a sequence θ t = {θ t , θ t , . . . , θ t } is maintained and updated using the
+1 2
+n
+method described in the above lemmas. To illustrate this, Figure 3 gives a version of the
+randomized algorithm in Figure 2 that makes use of θ variables. The batch algorithm can
+be implemented in a similar way.
+The main computational challenge in the new algorithms comes in computing the parameter vector w(σ(θ t )). The value for w(σ(θ t )) can be expressed as a function of the
+marginal probabilities of the part variables, as follows:
+w(σ(θ t )) =
+
+αi,y (φ(xi , yi ) − φ(xi , y))
+i
+
+y
+
+σy (θ t )φ(xi , y)
+i
+
+φ(xi , yi ) −
+
+=
+i
+
+i,y
+
+σy (θ t )φ(xi , r)
+i
+
+φ(xi , yi ) −
+
+=
+
+i,y r∈y
+
+i
+
+µi,r (θ t )φ(xi , r).
+i
+
+φ(xi , yi ) −
+
+=
+i
+
+i
+
+r∈R
+
+Here the µi,r terms correspond to marginals, deﬁned as
+µi,r (θ t ) =
+i
+
+σy (θ t ).
+i
+y:r∈y
+
+The mapping from parameters θ t to marginals µi,r (θ t ) can be computed eﬃciently in several
+i
+i
+important cases of structured models. For example, in CRFs belief propagation can be used
+to eﬃciently calculate the marginal values, assuming that the tree-width of the underlying
+11
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+Inputs: Examples {(xi , yi )}n , learning rate η > 0.
+i=1
+Initialization: For each i = 1 . . . n, set θ 1 to some (possibly diﬀerent) point in R|R| .
+i
+Algorithm:
+• Calculate
+w1 =
+
+σy (θ 1 )φ(xi , y)
+i
+
+φ(xi , yi ) −
+i
+
+i,y
+
+• For t = 1, . . . , T , repeat:
+– Choose kt uniformly at random from the set [1, 2, . . . , n]
+– For all r ∈ R,
+If optimizing QLL :
+
+t+1
+θkt ,r
+
+If optimizing QMM :
+
+t+1
+θkt ,r
+
+1 t
+w · φ(xkt , r)
+C
+1
+t
+= θkt ,r − η −ekt ,r − wt · φ(xkt , r)
+C
+t
+t
+= θkt ,r − η θkt ,r −
+
+t+1
+t
+– For all i = kt , for all r, set θi,r = θi,r .
+
+– Calculate
+wt+1
+
+σy (θ t+1 )φ(xi , y)
+i
+
+φ(xi , yi ) −
+
+=
+i
+
+i,y
+
+σy (θ t t )φ(xkt , y)
+k
+
+t
+
+= w +
+
+σy (θ t+1 )φ(xkt , y)
+kt
+
+−
+
+y
+
+y
+
+Output: Final dual parameters θ T +1 or primal parameters
+
+1
+T +1
+.
+Cw
+
+Figure 3: An implementation of the algorithm in Figure 2 using a part-based representation. The
+algorithm uses variables θ i for i = 1 . . . n as a replacement for the dual variables αi in
+Figure 2.
+
+graph is small. In weighted context-free grammars the inside-outside algorithm can be
+used to calculate marginals, assuming that set of parts R corresponds to context-free rule
+productions. Once marginals are computed, it is straightforward to compute w(σ(θ t )) and
+thereby implement the part-based EG algorithms.
+
+5. Convergence Results
+In this section, we provide convergence results for the EG batch and online algorithms
+presented in Section 3. Section 5.1 provides the key results, and the following sections give
+the proofs and the technical details.
+12
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+QMM
+QLL
+
+Batch Algorithm
+n2
+|A|∞ D[α∗ α1 ]
+n(1 + n|A|∞ ) log( c1 )
+
+n
+
+Online Algorithm
+|A|∞ D[α∗ α1 ] + Q(α1 ) − Q(α∗ )
+n(1 + |A|∞ ) log( c2 )
+
+Table 1: Each entry shows the amount of computation (measured in terms of the number
+of training sample processed using the EG updates) required to obtain |Q(α) −
+Q(α∗ )| ≤ for the batch algorithm, or E [|Q(α) − Q(α∗ )|] ≤ for the online
+algorithm, for a given > 0. The constants are c1 = (1 + n|A|∞ )D[α∗ α1 ], and
+c2 = (1 + |A|∞ )D[α∗ α1 ] + Q(α1 ) − Q(α∗ )) .
+
+5.1 Main Convergence Results
+Our convergence results give bounds on how quickly the error |Q(α) − Q(α∗ )| decreases
+with respect to the number of iterations, T , of the algorithms. In all cases we have
+|Q(α) − Q(α∗ )| → 0 as T → ∞.
+In what follows we use D[p q] to denote the KL divergence between p, q ∈ ∆n (see
+Section 5.2). We also use |A|∞ to denote the maximum magnitude element of A (i.e., |A|∞ =
+max(i,y),(j,z) |A(i,y),(j,z) |). The ﬁrst theorem provides results for the EG-batch algorithms,
+and the second for the randomized online algorithms.
+Theorem 1 For the batch algorithm in Figure 1, for QLL and QMM ,
+Q(α∗ ) ≤ Q(αT +1 ) ≤ Q(α∗ ) +
+assuming that the learning rate η satisﬁes 0 < η ≤
+QMM . Furthermore, for QLL ,
+
+1
+1+n|A|∞
+
+Q(α∗ ) ≤ Q(αT +1 ) ≤ Q(α∗ ) +
+assuming again that 0 < η ≤
+
+1
+D[α∗ α1 ]
+ηT
+for QLL , and 0 < η ≤
+
+(14)
+1
+n|A|∞
+
+e−ηT
+D[α∗ α1 ]
+η
+
+for
+
+(15)
+
+1
+1+n|A|∞ .
+
+The randomized online algorithm will produce diﬀerent results at every run, since different points will be processed on diﬀerent runs. Our main result for this algorithm characterizes the mean value of the objective Q(αT +1 ) when averaged over all possible random
+orderings of points. The result implies that this mean will converge to the optimal value
+Q(α∗ ).
+Theorem 2 For the randomized algorithm in Figure 2, for QLL and QMM ,
+n
+n
+D[α∗ α1 ] +
+Q(α∗ ) ≤ E Q(αT +1 ) ≤ Q(α∗ ) +
+Q(α1 ) − Q(α∗ )
+ηT
+T
+1
+assuming that the learning rate η satisﬁes 0 < η ≤ 1+|A|∞ for QLL , and 0 < η ≤
+QMM . Furthermore, for QLL , for the algorithm in Figure 2,
+
+Q(α∗ ) ≤ E Q(αT +1 ) ≤ Q(α∗ ) + e−
+13
+
+ηT
+n
+
+1
+D[α∗ α1 ] + Q(α1 ) − Q(α∗ )
+η
+
+(16)
+1
+|A|∞
+
+for
+
+(17)
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+assuming again that 0 < η ≤
+
+1
+1+|A|∞ .
+
+The above result characterizes the average behavior of the randomized algorithm, but
+does not provide guarantees for any speciﬁc run of the algorithm. However, by applying
+the standard approach of repeated sampling (see, for example, Mitzenmacher and Upfal,
+2005; Shalev-Shwartz et al., 2007), one can obtain a solution that, with high probability,
+does not deviate by much from the average behavior. In what follows, we brieﬂy outline
+this derivation.
+Note that the random variable Q(αT +1 ) − Q(α∗ ) is nonnegative, and so by Markov’s
+inequality, it satisﬁes
+Pr Q(αT +1 ) − Q(α∗ ) ≥ 2 E Q(αT +1 ) − Q(α∗ )
+
+1
+≤ .
+2
+
+Given some δ > 0, if we run the algorithm k = log2 ( 1 ) times,7 each time with T iterations,
+δ
+ˆ
+and choose the best α of these k results, we see that
+ˆ
+Pr Q(α) − Q(α∗ ) ≥ 2 E Q(αT +1 ) − Q(α∗ )
+
+≤ δ.
+
+Thus, for any desired conﬁdence 1−δ, we can obtain a solution that is within a factor of 2 of
+the bound for T iterations in Theorem 2 by using T log2 ( 1 ) iterations. In our experiments,
+δ
+we found that repeated trials of the randomized algorithm did not yield signiﬁcantly diﬀerent
+results.
+The ﬁrst consequence of the two theorems above is that the batch and randomized online
+algorithms converge to an α with the optimal value Q(α∗ ). This follows since Equations
+14 and 16 imply that as T → ∞ the value of Q(αT +1 ) approaches Q(α∗ ).
+The second consequence is that for a given > 0 we can ﬁnd the number of iterations needed to reach an α such that |Q(α) − Q(α∗ )| ≤ for the batch algorithm or
+E [|Q(α) − Q(α∗ )|] ≤ for the online algorithm. Table 1 shows the computation required
+by the diﬀerent algorithms, where the computation is measured by the number of training
+examples that need to be processed using the EG updates.8 The entries in the table assume that the maximum possible learning rates are used for each of the algorithms—that
+1
+1
+1
+1
+is, 1+n|A|∞ for LLEG-Batch, 1+|A|∞ for LLEG-Online, n|A|∞ for MMEG-batch, and |A|∞
+for MMEG-Online.
+Crucially, note that these rates suggest that the online algorithms are signiﬁcantly more
+eﬃcient than the batch algorithms; speciﬁcally, the bounds suggest that the online algorithms require a factor of n less computation in both the QLL and QMM cases. Thus these
+results suggest that the randomized online algorithm should converge much faster than the
+batch algorithm. Roughly speaking, this is a direct consequence of the learning rate η being
+a factor of n larger in the online case (see also Section 9). This prediction is conﬁrmed in
+our empirical evaluations, which show that the online algorithm is far more eﬃcient than
+the batch algorithm.
+7. Assume for simplicity that log2 ( 1 ) is integral.
+δ
+8. Note that if we run the batch algorithm for T iterations (as in the ﬁgure), nT training examples are
+processed. In contrast, running the online algorithm for T iterations (again, as shown in the ﬁgure) only
+requires T training examples to be processed. It is important to take this into account when comparing
+the rates in Theorems 1 and 2; this is the motivation for measuring computation in terms of the number
+of examples that are processed.
+
+14
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+A second important point is that the rates for QLL lead to an O(log( 1 )) dependence on
+the desired accuracy , which is a signiﬁcant improvement over QMM , which has an O( 1 )
+dependence. Note that the O( 1 ) dependence for QMM has been shown for several other
+algorithms in the literature (e.g., see Shalev-Shwartz et al., 2007).
+To gain further intuition into the order of magnitude of iterations required, note that
+the factor D[α∗ α1 ] which appears in the above expressions is at most n log |Y|, which can
+be achieved by setting α1 to be the uniform distribution over Y for all i. Also, the value of
+i
+1
+|A|∞ can easily be seen to be C maxi,y ψ i,y 2 .
+In the remainder of this section we give proofs of the results in Theorems 1 and 2. In
+doing so, we also give theorems that apply to the optimization of general convex functions
+Q : ∆n → R.
+5.2 Divergence Measures
+Before providing convergence proofs, we deﬁne several divergence measures between distributions. Deﬁne the KL divergence between two distributions αi , β i ∈ ∆ to be
+D[αi β i ] =
+
+αi,y log
+y
+
+αi,y
+.
+βi,y
+
+Given two sets of n distributions α, β ∈ ∆n deﬁne their KL divergence as
+D[α β] =
+
+D[αi β i ] .
+i
+
+Next, we consider a more general class of divergence measures, Bregman divergences
+(e.g., see Bregman, 1967; Censor and Zenios, 1997; Kivinen and Warmuth, 1997). Given a
+convex function Q(α), the Bregman divergence between α and β is deﬁned as
+BQ [α β] = Q(α) − Q(β) −
+
+Q(β) · (α − β)
+
+Convexity of Q implies BQ [α β] ≥ 0 for all α, β ∈ ∆n .
+Note that the Bregman divergence with Q(α) = i,y αi,y log αi,y is the KL divergence.
+We shall also be interested in the Mahalanobis distance
+1
+MA [α β] = (α − β)T A(α − β)
+2
+1
+which is the Bregman divergence for Q(α) = 2 αT Aα.
+In what follows, we also use the Lp norm deﬁned for x ∈ Rm as x
+
+p
+
+=
+
+p
+
+p
+i |xi | .
+
+5.3 Dual Improvement and Bregman Divergence
+In this section we provide a useful lemma that determines when the EG updates in the batch
+algorithm will result in monotone improvement of Q(α). The lemma requires a condition
+on the relation between the Bregman and KL divergences which we deﬁne as follows (the
+second part of the deﬁnition will be used in the next section):
+15
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+Deﬁnition 5.1 : A convex function Q : ∆n → R is τ -upper-bounded for some τ > 0 if for
+any p, q ∈ ∆n ,
+BQ [p q] ≤ τ D[p q].
+In addition, we say Q(α) is (µ, τ )-bounded for constants 0 < µ < τ if for any p, q ∈ ∆n ,
+µD[p q] ≤ BQ [p q] ≤ τ D[p q].
+
+The next lemma states that if Q(α) is τ -upper-bounded, then the change in the objective
+as a result of an EG update can be related to the KL divergence between consecutive values
+of the dual variables.
+Lemma 2 If Q(α) is τ -upper-bounded, then if η is chosen such that 0 < η ≤
+that for all t in the batch algorithm (Figure 1):
+Q(αt ) − Q(αt+1 ) ≥
+
+1
+τ,
+
+1
+D[αt αt+1 ]
+η
+
+it holds
+
+(18)
+
+Proof: Given an αt , the EG update is
+t+1
+αi,y =
+
+where
+t
+i,y
+
+=
+
+∂Q(αt )
+,
+∂αi,y
+
+1 t −η
+α e
+Zit i,y
+
+t
+i,y
+
+t
+αi,ˆe−η
+y
+
+Zit =
+
+t
+i,y
+
+y
+ˆ
+
+Simple algebra yields
+D[αt αt+1 ] + D[αt+1 αt ] = η
+i
+i
+i
+i
+i
+
+t+1
+t
+(αi,y − αi,y )
+
+t
+i,y
+
+i,y
+
+Equivalently, using the notation for KL divergence between multiple distributions:
+D[αt αt+1 ] + D[αt+1 αt ] = η(αt − αt+1 ) ·
+
+Q(αt )
+
+The deﬁnition of the Bregman divergence BQ then implies
+−ηBQ [αt+1 αt ] + D[αt αt+1 ] + D[αt+1 αt ] = η(Q(αt ) − Q(αt+1 ))
+
+(19)
+
+1
+Since Q(α) is τ -upper-bounded and η ≤ τ it follows that D[αt+1 αt ] ≥ ηBQ [αt+1 αt ], and
+together with Eq. 19 we obtain the desired result η(Q(αt ) − Q(αt+1 )) ≥ D[αt αt+1 ].
+
+Note that the condition in the lemma may be weakened to requiring that τ D[αt αt+1 ] ≥
+BQ [αt αt+1 ] for all t. For simplicity, we require the condition for all p, q ∈ ∆n . Note also
+that D[p q] ≥ 0 for all p, q ∈ ∆n , so the lemma implies that for an appropriately chosen
+η, the EG updates always decrease the objective Q(α). We next show that the log-linear
+dual QLL (α) is in fact τ -upper-bounded.
+16
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+Lemma 3 Deﬁne |A|∞ to be the maximum magnitude of any element of A, i.e., |A|∞ =
+max(i,y),(j,z) |A(i,y),(j,z) |. Then QLL (α) is τLL -upper-bounded with τLL = 1 + n|A|∞ .
+Proof: First notice that the Bregman divergence BQ is linear in Q. Thus, we can write
+BQLL as a sum of two terms (see Eq. 9).
+BQLL [p q] = D[p q] + MA [p q].
+We ﬁrst bound MA [p q] in terms of squared L1 distance between p and q. Denote r = p−q.
+Then:
+MA [p q] =
+
+1
+2
+
+ri,y rj,z A(i,y),(j,z) ≤
+i,y,j,z
+
+|A|∞
+2
+
+|ri,y ||rj,z | =
+i,y,j,z
+
+|A|∞
+p − q 2.
+1
+2
+
+(20)
+
+1
+Next, we use the inequality D[p1 p2 ] ≥ 2 p1 − p2 2 (also known as Pinsker’s inequality, see
+1
+Cover and Thomas, 1991, p. 300), which holds for any two distributions p1 and p2 . Consider
+1
+1
+ˆ
+ˆ
+the two distributions p = n p and q = n q, each deﬁned over an alphabet of size n|Y|. Then
+it follows that:9
+
+|A|∞
+p−q
+2
+
+2
+1
+
+=
+
+n2 |A|∞
+ˆ ˆ
+p−q
+2
+
+2
+1
+
+≤ n2 |A|∞ D[ˆ q] = n|A|∞ D[p q]
+p ˆ
+
+(21)
+
+and thus MA [p q] ≤ n|A|∞ D[p q]. So for the Bregman divergence of QLL (α) we obtain
+BQLL [p q] ≤ (1 + n|A|∞ )D[p q]
+yielding the desired result.
+The next lemma shows that a similar result can be obtained for the QMM objective.
+Lemma 4 The function QMM (α) is τMM -upper-bounded with τMM = n|A|∞ .
+Proof: For QMM deﬁned in Eq. 11, we have
+BQMM [p q] = MA [p q]
+We can then use a similar derivation to that of Lemma 3 to obtain the result.
+We thus have that the condition in Lemma 2 is satisﬁed for both the QLL (α) and
+QMM (α) objectives, implying that their EG updates result in monotone improvement of the
+objective, for a suitably chosen η:
+Corollary 1 The LLEG-Batch algorithm with 0 < η ≤
+QLL (αt ) − QLL (αt+1 ) ≥
+and the MMEG-Batch algorithm with 0 < η ≤
+
+1
+τMM
+
+QMM (αt ) − QMM (αt+1 ) ≥
+
+1
+τLL
+
+satisﬁes for all t
+
+1
+D[αt αt+1 ]
+η
+
+(22)
+
+satisﬁes for all t
+1
+D[αt αt+1 ] .
+η
+
+(23)
+
+9. Note that D[ˆ q] is a divergence between two distributions over |Y|n symbols and D[p q] is a divergence
+p ˆ
+between two sets of n distributions over |Y| symbols.
+
+17
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+5.4 Convergence Rates for the EG Batch Algorithms
+The previous section showed that for appropriate choices of the learning rate η, the batch
+EG updates are guaranteed to improve the QLL and QMM loss functions at each iteration. In
+this section we build directly on these results, and address the following question: how many
+iterations does the batch EG algorithm require so that the |Q(αt ) − Q(α)| ≤ for a given
+> 0? We show that as long as Q(α) is τ -upper-bounded, the number of iterations required
+is O( 1 ). This bound thus holds for both the log-linear and max-margin batch algorithms.
+Next, we show that if Q(α) is (µ, τ )-bounded, the rate can be signiﬁcantly improved to
+requiring O(log( 1 )) iterations. We conclude by showing that QLL (α) is (µ, τ )-bounded,
+implying that the O(log( 1 )) rate holds for LLEG-Batch.
+The following result gives an O( 1 ) rate for QLL and QMM :
+Lemma 5 If Q(α) is τ -upper-bounded and 0 ≤ η ≤
+EG-Batch algorithm, for any u ∈ ∆n including u = α∗ ,
+Q(αT +1 ) − Q(u) ≤
+
+1
+τ,
+
+then after T iterations of the
+
+1
+D[u α1 ] .
+ηT
+
+(24)
+
+Proof: See Appendix A.
+The lemma implies that to get -close to the optimal objective value, O( 1 ) iterations are
+1
+required—more precisely, if a choice of η = τ is made, then at most τ D[u α1 ] iterations
+are required. Since its conditions are satisﬁed by both QLL (α) and QMM (α) (given an
+appropriate choice of η) the result holds for both the LLEG-Batch and MMEG-Batch
+algorithms.
+A much improved rate may be obtained if Q(α) is not only τ -upper-bounded, but also
+(µ, τ )-bounded (see Deﬁnition 5.1).
+Lemma 6 If Q(α) is (µ, τ )-bounded and 0 < η ≤
+algorithm, for any u ∈ ∆n including u = α∗ ,
+Q(αT +1 ) − Q(u) ≤
+
+1
+τ
+
+then after T iterations of the EG-Batch
+
+e−ηµT
+D[u||α1 ]
+η
+
+(25)
+
+Proof: See Appendix B.
+The lemma implies that an accuracy of may be achieved by using O(log( 1 )) iterations.
+To see why QLL (α) is (µ, τ )-bounded note that for any p, q ∈ ∆n ,
+BQLL [p q] = D[p q] + MA [p q] ≥ D[p q]
+
+(26)
+
+implying (together with Lemma 3) that QLL (α) is (1, τLL )-bounded.
+Finally, note that Lemmas 5 and 6, together with the facts that QLL is (1, τLL )-bounded
+and QMM is τMM -upper-bounded, imply Theorem 1 of Section 5.1.
+18
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+5.5 Convergence Results for the Randomized Online Algorithm
+This section analyzes the rate of convergence of the randomized online algorithm in Figure 2.
+Before stating the results, we need some deﬁnitions. We will use Qα,i : ∆ → R to be the
+function deﬁned as
+Qα,i (β) = Q(α1 , α2 , . . . , αi−1 , β, αi+1 , . . . , αn )
+for any β ∈ ∆. We denote the Bregman divergence associated with Qα,i as BQα,i [x y]. We
+then introduce the following deﬁnitions:
+Deﬁnition 5.2 : A convex function Q : ∆n → R is τ -online-upper-bounded for some τ > 0
+if for any i ∈ 1 . . . n and for any p, q ∈ ∆,
+BQα,i [p q] ≤ τ D[p q].
+In addition, Q is (µ, τ )-online-bounded for 0 < µ < τ if Q is τ -online-upper-bounded, and
+in addition, for any p, q ∈ ∆n ,
+µD[p q] ≤ BQ [p q]
+Note that the lower bound in the above deﬁnition refers to BQ and not to BQα,i . Also, note
+that if a function is (µ, τ )-online-bounded then it must also be τ -online-upper-bounded.
+The following lemma then gives results for the QLL and QMM functions:
+Lemma 7 The regularized log-likelihood dual QLL (α) is (µ, τ )-online-bounded for µ = 1
+and τ = 1 + |A|∞ . The max-margin dual QMM (α) is τ -online-upper-bounded for τ = |A|∞ .
+Proof: See Appendix C.
+For any (µ, τ )-online-bounded Q, the online EG algorithm converges at an exponential
+rate, as shown by the following lemma.
+Lemma 8 Consider the algorithm in Figure 2 applied to a convex function Q(α) that is
+1
+(µ, τ )-online-bounded. If η > 0 is chosen such that η ≤ τ , then it follows that for all u ∈ ∆n
+E Q(αT +1 ) ≤ Q(u) + e−
+
+1
+D[u α1 ] + Q(α1 ) − Q(α∗ )
+η
+
+ηµT
+n
+
+(27)
+
+where α∗ = argminα∈∆n Q(α).
+Proof: See Appendix D.
+The previous lemma shows, in particular, that the online EG algorithm converges at an
+exponential rate for the function QLL . However, these results do not apply to QMM , which
+is only τ -online-upper-bounded. The following lemma shows that such functions exhibit a
+1
+O( T ) rate of convergence.
+19
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+Lemma 9 Consider the algorithm in Figure 2 applied to a convex function Q(α) that is
+1
+τ -online-upper-bounded. If η > 0 is chosen such that η ≤ τ , then it follows that for all
+u ∈ ∆n
+n
+n
+D[u α1 ] +
+Q(α1 ) − Q(α∗ )
+(28)
+E Q(αT +1 ) ≤ Q(u) +
+ηT
+T
+where E Q(αT +1 ) is the expected value of Q(αT +1 ), and α∗ = argminα∈∆n Q(α).
+Proof: See Appendix E.
+Note that Lemmas 7, 8 and 9 complete the proof of Theorem 2 in Section 5.1.
+
+6. Related Work
+The idea of solving regularized loss-minimization problems via their convex duals has been
+addressed in several previous papers. Here we review those, speciﬁcally focusing on the
+log-linear and max-margin problems.
+Zhang (2002) presented a study of convex duals of general regularized loss functions,
+and provided a methodology for deriving such duals. He also considered a general procedure
+for solving such duals by optimizing one coordinate at a time. However, it is not clear how
+to implement this procedure in the structured learning case (i.e., when |Y| is large), and
+convergence rates are not given.
+In the speciﬁc context of log-linear models, several works have studied dual optimization.
+Earlier work (Jaakkola and Haussler, 1999; Keerthi et al., 2005; Zhu and Hastie, 2001)
+treated the logistic regression model, a simpler version of a CRF. In the binary logistic
+regression case, there is essentially one parameter αi with the constraint 0 ≤ αi ≤ 1 and
+therefore simple line search methods can be used for optimization. Minka (2003) shows
+empirical results which show that this approach performs similarly to conjugate gradient.
+The problem becomes much harder when αi is constrained to be a distribution over many
+labels, as in the case discussed here. Recently, Memisevic (2006) addressed this setting,
+and suggests optimizing αi by transferring probability mass between two labels y1 , y2 while
+keeping the distribution normalized. This requires a strategy for choosing these two labels,
+and the author suggests one which seems to perform well. We note that our EG updates
+change the whole distribution αi and are thus expected to yield much better improvement
+of the objective.
+While some previous work on log-linear models proved convergence of dual methods (e.g.,
+Keerthi et al., 2005), we are not aware of rates of convergence that have been reported in
+this context. Convergence rates for related algorithms, in particular a generalization of EG,
+known as the Mirror-Descent algorithm, have been studied in a more general context in the
+optimization literature. For instance, Beck and Teboulle (2003) describe convergence results
+which apply to quite general deﬁnitions of Q(α), but which have only O( 1 ) convergence
+2
+rates, as compared to our results of O( 1 ) and O(log( 1 )) for the max-margin and log-linear
+cases respectively. Also, their work considers optimization over a single simplex, and does
+not consider online-like algorithms such as the one we have presented.
+For max-margin models, numerous dual methods have been suggested, an earlier example being the SMO algorithm of Platt (1998). Such methods optimize subsets of the α
+parameters in the dual SVM formulation (see also Crammer and Singer, 2002). Analysis
+20
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+of a similar algorithm (Hush et al., 2006) results in an O( 1 ) rate, similar to the one we
+have here. Another algorithm for solving SVMs via the dual is the multiplicative update
+method of Sha et al. (2007). These updates are shown to converge to the optimum of the
+SVM dual, but convergence rate has not been analyzed, and extension to the structured
+case seems non-trivial. An application of EG to binary SVMs was previously studied by
+Cristianini et al. (1998). They show convergence rates of O( 1 ), that are slower than our
+2
+O( 1 ), and no extension to structured learning (or multi-class) is discussed.
+Recently, several new algorithms have been presented, along with a rate of convergence
+analysis (Joachims, 2006; Shalev-Shwartz et al., 2007; Teo et al., 2007; Tsochantaridis et al.,
+2004). All of these algorithms are similar to ours in having a relatively low dependence on n
+in terms of memory and computation. Among these, Shalev-Shwartz et al. (2007) and Teo
+et al. (2007), present an O( 1 ) rate, but where accuracy is measured in the primal or via the
+duality gap, and not in the dual as in our analysis. Thus, it seems that a rate of O( 1 ) is
+currently the best known result for algorithms that have a relatively low dependence on n
+(general QP solvers, which may have O(log( 1 )) behavior, generally have a larger dependence
+on n, both in time and space).
+Finally, we emphasize again that the EG algorithm is substantially diﬀerent from a
+stochastic gradient approach (Shalev-Shwartz et al., 2007; LeCun et al., 1998; Nedic and
+Bertsekas, 2001). EG and SGD are similar in that they both process a single training
+example at a time. However, EG corresponds to block-coordinate descent in the dual, and
+uses the exact gradient with respect to the block being updated. In contrast, SGD directly
+optimizes the primal problem, and at each update uses a single example to approximate the
+gradient of the primal objective function.
+
+7. Experiments on Regularized Log-Likelihood
+In this section we analyze the performance of the EG algorithms for optimization of regularized log-likelihood. We describe experiments on two tasks: ﬁrst, the MNIST digit
+classiﬁcation task, which is a multiclass classiﬁcation task; second, a log-linear model for a
+structured natural-language dependency-parsing task. In each case we ﬁrst give results for
+the EG method, and then compare its performance to L-BFGS (Byrd et al., 1995), which
+is a batch gradient descent method, and to stochastic gradient descent.10
+We do not report results on LLEG-Batch, since we found it to converge much more
+slowly than the online algorithm. This is expected from our theoretical results, which
+anticipate a factor of n speed-up for the online algorithm. We also report experiments
+comparing the randomized online algorithm to a deterministic online EG algorithm, where
+samples are drawn in a ﬁxed order (e.g., the algorithm ﬁrst visits the ﬁrst example, then
+the second, etc.).
+Although EG is guaranteed to converge for an appropriately chosen η, it turns out to
+be beneﬁcial to use an adaptive learning rate. Here we use the following crude strategy:
+we ﬁrst consider only 10% of the data-set, and ﬁnd a value of η that results in monotone
+improvement for at least 95% of the samples. Denote this value by η ini (for the experiments
+in Section 7.1 we simply use η ini = 0.5). For learning over the entire data-set, we keep a
+10. We also experimented with conjugate gradient algorithms, but since these resulted in worse performance
+than L-BFGS, we do not report these results here.
+
+21
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+learning rate ηi for each sample i (where i = 1, . . . , n), and initialize this rate to η ini for
+all points. When sample i is visited, we halve ηi until an improvement in the objective is
+obtained. Finally, after the update, we multiply ηi by 1.05, so that it does not decrease
+monotonically.
+It is important that when updating a single example using the online algorithms, the
+improvement (or decrease) in the dual can be easily evaluated, allowing the halving strategy
+described in the previous paragraph to be implemented eﬃciently. If the current dual
+parameters are α, the i’th coordinate is selected, and the EG updates then map αi to αi ,
+the change in the dual objective is
+
+y
+
+1
+αi,y log αi,y +
+w(α) +
+2C
+
+2
+
+αi,y − αi,y ψ i,y
+y
+
+−
+
+αi,y log αi,y −
+y
+
+1
+w(α)
+2C
+
+2
+
+The primal parameters w(α) are maintained throughout the algorithm (see Figure 3), so
+that this change in the dual objective can be calculated eﬃciently. A similar method can
+be used to calculate the change in the dual objective in the max-margin case.
+We measure the performance of each training algorithm (the EG algorithms, as well
+as the batch gradient and stochastic gradient methods) as a function of the amount of
+computation spent. Speciﬁcally, we measure computation in terms of the number of times
+each training example is visited. For EG, an example is considered to be visited for every
+value of η that is tested on it. For L-BFGS, all examples are visited for every evaluation
+performed by the line-search routine. We deﬁne the measure of eﬀective iterations to be
+the number of examples visited, divided by n.
+7.1 Multi-class Classiﬁcation
+We ﬁrst conducted multi-class classiﬁcation experiments on the MNIST classiﬁcation task.
+Examples in this dataset are images of handwritten digits represented as 784-dimensional
+vectors. We used a training set of 59k examples, and a validation set of 10k examples.11
+We deﬁne a ten-class logistic-regression model where
+p(y | x) ∝ ex·wy
+
+(29)
+
+and x, wy ∈ R784 , y ∈ {1, . . . , 10}.
+Models were trained for various values of the regularization parameter C: speciﬁcally, we
+tried values of C equal to 1000, 100, 10, 1, 0.1, and 0.01. Convergence of the EG algorithm
+for low values of C (i.e., 0.1 and 0.01) was found to be slow; we discuss this issue more in
+Section 7.1.1, arguing that it is not a serious problem.
+Figure 4 shows plots of the validation error versus computation for C equal to 1000,
+100, 10, and 1, when using the EG algorithm. For C equal to 10 or more, convergence is
+fast. For C = 1 convergence is somewhat slower. Note that there is little to choose between
+C = 10 and C = 1 in terms of validation error.
+11. In reporting results, we consider only validation error; that is, error computed during the training process
+on a validation set. This measure is often used in early-stopping of algorithms, and is therefore of interest
+in the current context. We do not report test error since our main focus is algorithmic.
+
+22
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+16
+
+14
+
+C=1
+C=10
+
+7.9
+Classification Error (%)
+
+15
+Classification Error (%)
+
+8
+
+C=1
+C=10
+C=100
+C=1000
+
+13
+12
+11
+10
+9
+
+7.8
+7.7
+7.6
+7.5
+7.4
+7.3
+
+8
+7
+
+7.2
+10
+
+20
+
+30
+
+40 50 60
+Eff. Iteration
+
+70
+
+80
+
+90 100
+
+20
+
+40
+
+60
+
+80 100 120 140 160 180 200
+Eff. Iteration
+
+Figure 4: Validation error results on the MNIST learning task for log-linear models trained using
+the EG randomized online algorithm. The X axis shows the number of eﬀective iterations
+over the entire data set. The Y axis shows validation error percentages. The left ﬁgure
+shows plots for values of C equal to 1, 10, 100, and 1000. The right ﬁgure shows plots
+for C equal to 1 and 10 at a larger scale.
+
+Figure 5 shows plots of the primal and dual objective functions for diﬀerent values of C.
+Note that EG does not explicitly minimize the primal objective function, so the EG primal
+will not necessarily decrease at every iteration. Nevertheless, our experiments show that
+the EG primal decreases quite quickly. Figure 6 shows how the duality gap decreases with
+the amount of computation spent (the duality gap is the diﬀerence between the primal and
+dual values at each iteration). The log of the duality gap decreases more-or-less linearly
+with the amount of computation spent, as predicted by the O(log( 1 )) bounds on the rate
+of convergence.
+Finally, we compare the deterministic and randomized versions of the EG algorithm.
+Figure 7 shows the primal and dual objectives for both algorithms. It can be seen that the
+randomized algorithm is clearly much faster to converge. This is even more evident when
+plotting the duality gap, which converges much faster to zero in the case of the randomized
+algorithm. These results give empirical evidence that the randomized strategy is to be
+preferred over a ﬁxed ordering of the training examples (note that we have been able to
+prove bounds on convergence rate for the randomized algorithm, but have not been able to
+prove similar bounds for the deterministic case).
+7.1.1 Convergence for Low Values of C
+As mentioned in the previous section, convergence of the EG algorithm for low values of C
+can be very slow. This is to be expected from the bounds on convergence, which predict that
+1
+convergence time should scale linearly with C (other algorithms, e.g., see Shalev-Shwartz
+1
+et al., 2007, also require O( C ) time for convergence). This is however, not a serious problem
+23
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+1
+
+Primal, C=1000
+Dual, C=1000
+Primal, C=100
+Dual, C=100
+
+0.5
+Objective
+
+Objective
+
+0.8
+
+Primal, C=10
+Dual, C=10
+Primal, C=1
+Dual, C=1
+
+0.6
+
+0.6
+0.4
+
+0.4
+0.3
+0.2
+
+0.2
+
+0.1
+
+0
+
+0
+5
+
+10
+
+15
+
+20 25 30
+Eff. Iteration
+
+35
+
+40
+
+45
+
+50
+
+5
+
+10
+
+15
+
+20 25 30
+Eff. Iteration
+
+35
+
+40
+
+45
+
+50
+
+Figure 5: Primal and dual objective values on the MNIST learning task for log-linear models trained
+using the EG randomized online algorithm. The dual values have been negated so that
+the primal and dual problems have the same optimal value. The X axis shows the number
+of eﬀective iterations over the entire data set. The Y axis shows the value of the primal
+or dual objective functions. The left ﬁgure shows plots for values of C equal to 1000 and
+100; the right ﬁgure shows plots for C equal to 10, and 1. In all cases the primal and
+dual objectives converge to the same value, with faster convergence for larger values of
+C.
+
+on the MNIST data, where validation error has reached a minimum point for around C = 10
+or C = 1.
+If convergence for small values of C is required, one strategy we have found eﬀective is
+to start C at a higher value, then “anneal” it towards the target value. For example, see
+Figure 8 for results for C = 1 using one such annealing scheme. For this experiment, if we
+take t to be number of iterations over the training set, where for any t we have processed
+t × n training examples, we set C = 10 for t ≤ 5, and set C = 1 + 9 × 0.7t−5 for t > 5.
+Thus C starts at 10, then decays exponentially quickly towards the target value of 1. It
+can be seen that convergence is signiﬁcantly faster for the annealed method. The intuition
+behind this method is that the solution to the dual problem for C = 10 is a reasonable
+approximation to the solution for C = 1, and is considerably more easy to solve; in the
+annealing strategy we start with an easier problem and then gradually move towards the
+harder problem of C = 1.
+7.1.2 An Efficient Method for Optimizing a Range of C Values
+In practice, when estimating parameters using either regularized log-likelihood or hingeloss, a range of values for C are tested, with cross-validation or validation on a held-out
+set being used to choose the optimal value of C. In the previously described experiments,
+we independently optimized log-likelihood-based models for diﬀerent values of C. In this
+24
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+C=1000
+C=100
+C=10
+C=1
+
+Duality Gap (%)
+
+100
+10
+1
+0.1
+0.01
+0.001
+1e-04
+
+20 40 60 80 100 120 140 160 180 200
+Eff. Iteration
+
+Figure 6: Graph showing the duality gap on the MNIST learning task for log-linear models trained
+using the EG randomized online algorithm. The X axis shows the number of eﬀective
+iterations over the entire data set. The Y axis (with a log scale) shows the value of the
+duality gap, as a percentage of the ﬁnal optimal value.
+
+0.7
+0.6
+
+Deterministic EG
+Randomized EG
+
+200
+Duality Gap (%)
+
+0.5
+Objective
+
+250
+
+Primal - Deterministic EG
+Dual - Deterministic EG
+Primal - Randomized EG
+Dual - Randomized EG
+
+0.4
+0.3
+0.2
+
+150
+100
+50
+
+0.1
+0
+
+0
+0
+
+50
+
+100
+150
+Eff. Iteration
+
+200
+
+250
+
+0
+
+50
+
+100
+150
+Eff. Iteration
+
+200
+
+250
+
+Figure 7: Results on the MNIST learning task, comparing the randomized and deterministic online
+EG algorithms, for C = 1. The left ﬁgure shows primal and dual objective values
+for both algorithms. The right ﬁgure shows the normalized value of the duality gap:
+(primal(t) − dual(t))/opt, where opt is the value of the joint optimum of the primal and
+dual problems, and t is the iteration number. The X axis counts the number of eﬀective
+iterations over the entire data set.
+
+section we describe a highly eﬃcient method for training a sequence of models for a range
+of values of C.
+25
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+0.65
+
+16
+
+C=1
+C=1, annealed
+
+0.55
+0.5
+Objective
+
+C=1
+C=1, annealed
+
+15
+Classification Error (%)
+
+0.6
+
+0.45
+0.4
+0.35
+0.3
+0.25
+
+14
+13
+12
+11
+10
+9
+8
+
+0.2
+
+7
+5
+
+10
+
+15
+
+20 25 30
+Eff. Iteration
+
+35
+
+40
+
+45
+
+50
+
+10
+
+20
+
+30
+
+40 50 60
+Eff. Iteration
+
+70
+
+80
+
+90 100
+
+Figure 8: Results on the MNIST learning task, for C = 1, comparing the regular EG randomized
+algorithm with an annealed version of the algorithm (see Section 7.1.1). The left ﬁgure
+shows primal objective values calculated for C = 1; the right ﬁgure shows validation
+error. The annealed strategy gives signiﬁcantly faster convergence.
+
+The method is as follows. We pick some maximum value for C; as in our previous
+experiments, we will choose a maximum value of C = 1000. We also pick a tolerance value
+, and a parameter 0 < β < 1. We then optimize C using the randomized online algorithm,
+until the duality gap is less than ×p, where p is the primal value. Once the duality gap has
+converged to within this tolerance, we reduce C by a factor of β, and again optimize to
+within an tolerance. We continue this strategy—for each value of C optimizing to within
+a factor of , then reducing C by a factor of β—until C has reached a low enough value. At
+the end of the sequence, this method recovers a series of models for diﬀerent values of C,
+each optimized to within a tolerance of .
+It is crucial that each time we decrease C, we take our initial dual values to be the ﬁnal
+dual values resulting from optimization for the previous value of C. In practice, if C does
+not decrease too quickly, the previous dual values are a very good starting point for the
+new value of C; this corresponds to a “warm start” in optimizing values of C that are less
+than the maximum value. A similar initialization method is used in Koh et al. (2007) in
+the context of 1 regularized logistic regression.
+As one example of this approach, we trained models in this way with the starting
+(maximum) value of C set to 1000, set to 0.001 (i.e., 0.1%), and β set to 0.7. Table 2
+shows the number of iterations of training required for each value of C. The beneﬁts of
+using the previous dual values at each new value of C are clear: for 13.84 ≤ C ≤ 700 at
+most 5 iterations are required for convergence; even for C = 0.798 only 15.24 iterations are
+required; a range of 25 diﬀerent values of C between 1000 and 0.274 can be optimized with
+211.17 eﬀective iterations over the training set.
+26
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+C
+1000
+700
+490
+343
+240.1
+168.07
+117.649
+82.3543
+57.648
+40.3536
+28.2475
+19.7733
+13.8413
+9.6889
+6.78223
+4.74756
+3.32329
+2.32631
+1.62841
+1.13989
+0.797923
+0.558546
+0.390982
+0.273687
+
+Iterations
+11
+3
+4.01
+4.09
+4.24
+4.32
+4.3
+4.29
+4.32
+4.33
+4.34
+4.36
+4.38
+5.47
+5.49
+5.51
+6.6
+7.69
+8.78
+12
+15.24
+20.61
+27.05
+35.63
+
+Total
+Iterations
+11
+14
+18.01
+22.1
+26.34
+30.67
+34.97
+39.27
+43.6
+47.93
+52.28
+56.64
+61.03
+66.51
+72
+77.52
+84.12
+91.82
+100.61
+112.62
+127.86
+148.47
+175.53
+211.17
+
+Error
+0.1011
+0.0968
+0.0926
+0.0895
+0.0869
+0.0846
+0.0829
+0.0809
+0.0803
+0.0775
+0.0768
+0.0758
+0.076
+0.0744
+0.0741
+0.0732
+0.0736
+0.0735
+0.0729
+0.074
+0.0747
+0.0749
+0.074
+0.0747
+
+Table 2: Table showing number of eﬀective iterations required to optimize a sequence of values for
+C for the MNIST task, using the method described in Section 7.1.2. The column C shows
+the sequence of decreasing regularizer constants. Iterations shows the number of eﬀective
+iterations over the training set required to optimized each value of C. Total iterations
+shows the cumulative value of Iterations, and Error shows the validation error obtained
+for every C value. It can be seen that the optimal error is reached at C = 1.62841.
+
+27
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+7.1.3 Comparisons to Stochastic Gradient Descent
+This section compares performance of the EG algorithms to stochastic gradient descent
+(SGD) on the primal objective. In SGD the parameters w are initially set to be 0. At each
+step an example index i is chosen at random, and the following update is performed:
+w =w−η
+
+∂
+∂w
+
+− log p(yi | xi ; w) +
+
+C
+w
+2n
+
+2
+
+where η > 0 is a learning rate. The term
+∂
+∂w
+
+− log p(yi | xi ; w) +
+
+C
+w
+2n
+
+2
+
+can be thought of as an estimate of the gradient of the primal objective function for the
+entire training set.
+In our experiments, we chose the learning rate η to be
+η=
+
+η0
+1 + k/n
+
+where η0 > 0 is a constant, n is the number of training examples, and k is the number of
+updates that have been performed up to this point. Thus the learning rate decays to 0 with
+the number of examples that are updated. This follows the approach described in LeCun
+et al. (1998); we have consistently found that it performs better than using a single, ﬁxed
+learning rate.
+We tested SGD for C values of 1000, 100, 10, 1, 0.1 and 0.01. In each case we chose the
+value of η0 as follows. For each value of C we ﬁrst tested values of η0 equal to 1, 0.1, 0.01,
+0.001, and 0.0001, and then chose the value of η0 which led to the best validation error after
+a single iteration of SGD. This strategy resulted in a choice of η0 = 0.01 for all values of C
+except C = 1000, where η0 = 0.001 was chosen. We have found this strategy to be a robust
+method for choosing η0 (note that we do not want to run SGD for more iterations with all
+(C, η0 ) combinations, as this would require 5 times as much computation as picking a single
+value of η0 ).
+Figure 9 compares validation error rates for SGD and the randomized EG algorithm.
+For the initial (roughly 5) iterations of training, SGD has better validation error scores, but
+beyond this the EG algorithm is very competitive on this task. Note that the amount of
+computation for SGD does not include the iterations required to ﬁnd the optimal value of
+η0 ; if this computation was included the SGD curves would be shifted 5 iterations to the
+right.
+To compare the primal objective obtained by EG and SGD, we used the EG weight
+1
+vector C w(αt ) to compute primal values. Figure 10 shows graphs comparing performance
+in optimizing the primal objective value for EG and SGD. For C equal to 1000, 100, and
+10, the results are similar: SGD is initially better than EG, but after around 5 iterations
+EG overtakes SGD, and converges much more quickly to the optimal point. The diﬀerence
+between EG and SGD appears to become more pronounced as C becomes smaller. For
+C = 1 our strategy for choosing η0 does not pick the optimal value for η0 at least when
+evaluating the primal objective; see the caption to the ﬁgure for more discussion. EG again
+appears to out-perform SGD after the initial few iterations.
+28
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+8
+
+EG, C=10
+SGD, C=10
+SGD, C=0.01
+SGD, C=1000
+SGD, C=100
+
+11
+
+EG, C=10
+SGD, C=10
+SGD, C=0.01
+
+7.9
+Classification Error (%)
+
+Classification Error (%)
+
+12
+
+10
+9
+8
+
+7.8
+7.7
+7.6
+7.5
+7.4
+
+7
+
+7.3
+10
+
+20
+
+30
+
+40 50 60
+Eff. Iteration
+
+70
+
+80
+
+90 100
+
+5
+
+10
+
+15
+
+20 25 30
+Eff. Iteration
+
+35
+
+40
+
+45
+
+50
+
+Figure 9: Graphs showing validation error results on the MNIST learning task, comparing the EG
+randomized algorithm to stochastic gradient descent (SGD). The X axis shows number
+of eﬀective training iterations, the Y axis shows validation error in percent. The EG
+results are shown for C = 10; SGD results are shown for several values of C. For SGD
+for C = 1, C = 0.1, and C = 0.01 the curves were nearly identical, hence we omit the
+curves for C = 1 and C = 0.1. Note that the amount of computation for SGD does not
+include the iterations required to ﬁnd the optimal value for the learning rate η0 .
+
+7.1.4 Comparisons to L-BFGS
+One of the standard approaches to training log-linear models is using the L-BFGS gradientbased algorithm (Sha and Pereira, 2003). L-BFGS is a batch algorithm, in the sense that
+its updates require evaluating the primal objective and gradient, which involves iterating
+over the entire data-set. To compare L-BFGS to EG, we used the implementation based on
+Byrd et al. (1995).12
+For L-BFGS, a total of n training examples must be processed every time the gradient or
+objective function is evaluated; note that because L-BFGS uses a line search, each iteration
+may involve several such evaluations.13
+As in Section 7.1.3, we calculated primal values for EG. Figure 11 shows the primal
+objective for EG, and L-BFGS. It can be seen that the primal value for EG converges
+considerably faster than the L-BFGS one. Also shown is a curve of validation error for both
+12. Speciﬁcally, we used the code by Zhu, Byrd, Lu, and Nocedal’s (www.ece.northwestern.edu/∼nocedal/)
+with L. Stewart’s wrapper (www.cs.toronto.edu/∼liam/).
+13. The implementation of L-BFGS that we use requires both the gradient and objective when performing
+the line-search. In some line-search variants, it is possible to use only objective evaluations. In this case,
+the EG line search will be somewhat more costly, since the dual objective requires evaluations of both
+marginals and partition function, whereas the primal objective only requires the partition function. This
+will have an eﬀect on running times only if the EG line search evaluates more than one point, which
+happened for less than 10% of the points in our experiments.
+
+29
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+0.652
+
+0.4
+
+EG, C=1000
+SGD, C=1000
+
+0.651
+
+EG, C=100
+SGD, C=100
+
+0.395
+0.39
+
+0.649
+
+Objective
+
+Objective
+
+0.65
+
+0.648
+0.647
+
+0.385
+0.38
+
+0.646
+0.375
+
+0.645
+0.644
+
+0.37
+10 20 30 40 50 60 70 80 90 100
+Eff. Iteration
+
+0.34
+
+10 20 30 40 50 60 70 80 90 100
+Eff. Iteration
+
+0.34
+
+EG, C=10
+SGD, C=10
+
+0.33
+
+EG, C=1
+EG, C=1, annealed
+SGD, C=1, eta=0.1
+SGD, C=1, eta=0.01
+
+0.32
+Objective
+
+Objective
+
+0.32
+0.31
+0.3
+
+0.3
+0.28
+
+0.29
+0.26
+0.28
+0.24
+
+0.27
+10
+
+20
+
+30
+
+40 50 60
+Eff. Iteration
+
+70
+
+80
+
+90 100
+
+10
+
+20
+
+30
+
+40 50 60
+Eff. Iteration
+
+70
+
+80
+
+90 100
+
+Figure 10: Graphs showing primal objective values on the MNIST learning task, comparing the EG
+randomized algorithm to stochastic gradient descent (SGD). The X axis shows number
+of eﬀective training iterations, the Y axis shows primal objective. The graphs are for
+C equal to 1000, 100, 10, and 1. For C = 1 we show EG results with and without
+the annealed strategy described in Section 7.1.1. For C = 1 we also show two SGD
+curves, for learning rates 0.01 and 0.1: in this case η0 = 0.01 was the best-performing
+learning rate after one iteration for both validation error and primal objective, however
+a post-hoc analysis shows that η0 = 0.1 converges to a better value in the limit. Thus
+our strategy for choosing η0 was not optimal in this case, although it is diﬃcult to
+know how η0 = 0.1 could be chosen without post-hoc analysis of the convergence for
+the diﬀerent values of η0 . For other values of C our strategy for picking η0 was more
+robust.
+
+algorithms. Here we show the results for EG with C = 10 and L-BFGS with various C
+values. It can be seen that L-BFGS does not outperform the EG curve for any value of C.
+30
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+EG, C=1000
+L-BFGS, C=1000
+
+EG, C=100
+L-BFGS, C=100
+
+0.55
+
+0.8
+Objective
+
+Objective
+
+0.5
+0.75
+
+0.7
+
+0.45
+
+0.4
+0.65
+0.35
+5
+
+10
+
+15
+20
+Eff. Iteration
+
+0.5
+
+25
+
+30
+
+10
+
+0.5
+
+EG, C=10
+L-BFGS, C=10
+
+Objective
+
+Objective
+
+0.4
+0.35
+
+30
+40
+Eff. Iteration
+
+50
+
+60
+
+EG, C=1
+EG, C=1, annealed
+L-BFGS, C=1
+
+0.45
+
+0.45
+
+20
+
+0.4
+0.35
+0.3
+
+0.3
+0.25
+0.25
+
+0.2
+10
+
+20
+
+30
+
+40
+
+50
+
+60
+
+70
+
+80
+
+90 100
+
+20
+
+40
+
+60
+
+Eff. Iteration
+
+12
+Classification Error (%)
+
+80 100 120 140 160 180 200
+Eff. Iteration
+
+EG, C=10
+L-BFGS, C=1000
+L-BFGS, C=100
+L-BFGS, C=10
+L-BFGS, C=1
+L-BFGS, C=0.1
+L-BFGS, C=0.01
+
+11
+10
+9
+8
+7
+10
+
+20
+
+30
+
+40 50 60
+Eff. Iteration
+
+70
+
+80
+
+90 100
+
+Figure 11: Results on the MNIST learning task, comparing the EG algorithm to L-BFGS. The
+ﬁgures on the ﬁrst and second row show the primal objective for both algorithms, for
+various values of C. The bottom curve shows validation error for L-BFGS for various
+values of C and for EG with C = 10.
+
+31
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+7.2 Structured learning - Dependency Parsing
+Parsing of natural language sentences is a challenging structured learning task. Dependency
+parsing (McDonald et al., 2005) is a simpliﬁed form of parsing where the goal is to map
+sentences x into projective directed spanning trees over the set of words in x. Each label
+y is a set of directed arcs (dependencies) between pairs of words in the sentence. Each
+dependency is a pair (h, m) where h is the index of the head word of the dependency,
+and m is the index of the modiﬁer word. Assuming we have a function φ(x, h, m) that
+assigns a feature vector to dependencies (h, m), we can use a weight vector w to score a
+given tree y by w · (h,m)∈y φ(x, h, m). Dependency parsing corresponds to a structured
+problem where the parts r are dependencies (h, m); the approach described in Section 4 can
+be applied eﬃciently to dependency structures. For projective dependency trees (e.g., see
+Koo et al., 2007), the required marginals can be computed eﬃciently using a variant of the
+inside-outside algorithm (Baker, 1979).
+In the experiments below we use a feature set φ(x, h, m) similar to that in McDonald
+et al. (2005) and Koo et al. (2007), resulting in 2, 500, 554 features. We report results on the
+Spanish data-set which is part of the CoNLL-X Shared Task on multilingual dependency
+parsing (Buchholz and Marsi, 2006). The training data consists of 2, 306 sentences (58, 771
+tokens). To evaluate validation error, we use 1, 000 sentences (30, 563 tokens) and report
+accuracy (rate of correct edges in a predicted parse tree) on these sentences.14
+As in the multi-class experiments, we compare to SGD and L-BFGS. The implementation of the algorithms is similar to that described in Section 7.1. The gradients for SGD
+and L-BFGS were obtained by calculating the relevant marginals of the model, using the
+inside-outside algorithm that was also used for EG. The learning rate for SGD was chosen
+as in the previous section; that is, we tested several learning rates (η0 = 1, 0.1, 0.001, 0.0001)
+and chose the one that yielded the minimum validation error after one iteration.
+Figure 12 shows results for EG and L-BFGS on the parsing task. We experiment with
+values of C in the set {0.1, 1, 10, 100, 1000}. Of these, the value that results in optimal
+validation error was C = 10. The performance of L-BFGS, SGD and EG is demonstrated
+in terms of the primal objective for a subset of the C values. L-BFGS and EG both
+converge to the optimal value, and EG is signiﬁcantly faster. On the other hand, SGD
+does not converge to the optimum for all C values (e.g., for C = 1, 10), and when it does
+converge to the optimum, it is slower than EG.
+Figure 12 also shows the validation error for EG at the optimal C value, compared to
+validation error for L-BFGS and SGD at various C values. Again, it can be seen that EG
+signiﬁcantly outperforms L-BFGS. For SGD, performance is comparable to EG. However,
+as mentioned earlier, SGD in fact does not successfully optimize the primal objective for
+low values of C, and for higher values of C the SGD primal objective is slower to converge.
+As in the multi-class experiments (see Figure 10), it is possible to ﬁnd learning rates for
+SGD such that it converges to the primal optimum for C = 1, 10. However, the optimality
+of these rates only becomes evident after 10 iterations or more (results not shown). Thus, to
+ﬁnd a learning rate for SGD that actually solves the optimization problem would typically
+require an additional few tens of iterations, making it signiﬁcantly slower than EG.
+14. All 3, 306 sentences were obtained from the training data section of the CoNLL-X Spanish data-set (Civit
+and Mart´ 2002).
+ı,
+
+32
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+C
+1000
+700
+490
+343
+240.1
+168.07
+117.649
+82.354
+57.648
+40.353
+28.247
+19.773
+13.841
+9.688
+6.782
+4.747
+3.323
+2.326
+1.628
+1.139
+0.797
+
+Iterations
+8
+3.01
+4.76
+4.9
+4.91
+6.1
+6.06
+6.08
+7.23
+7.23
+8.33
+9.4
+12.6
+13.71
+19.03
+23.33
+30.82
+37.22
+45.8
+57.53
+73.6
+
+Total
+Iterations
+8
+11.01
+15.77
+20.67
+25.58
+31.68
+37.74
+43.82
+51.05
+58.28
+66.61
+76.01
+88.61
+102.32
+121.35
+144.68
+175.5
+212.72
+258.52
+316.05
+389.65
+
+Accuracy
+72.44
+73.42
+74.35
+75.29
+76.13
+77.13
+77.82
+78.74
+79.41
+79.99
+80.38
+80.60
+80.77
+80.72
+80.67
+80.61
+80.31
+80.18
+79.98
+79.63
+79.36
+
+Table 3: Table showing number of eﬀective iterations required to optimize a sequence of values for
+C for the parsing task, using the method described in Section 7.1.2. The column C shows
+the sequence of decreasing regularizer constants. Iterations shows the number of eﬀective
+iterations over the training set required to optimize each value of C. Total iterations shows
+the cumulative value of Iterations, and Accuracy shows the validation accuracy obtained
+for every C value. It can be seen that the optimal accuracy is reached at C = 13.841.
+
+Finally, it is possible to use EG to eﬃciently optimize over a set of regularization constants, as in Section 7.1.2. Table 3 shows results for a sequence of regularization constants.
+
+8. Experiments on Max-Margin Models
+The max-margin loss (Eq. 5) has a discontinuity in its derivative. This makes optimization of
+max-margin models somewhat more involved than log-linear ones, since gradient algorithms
+such as L-BFGS cannot be used. This diﬃculty is exacerbated in the case of structured
+prediction models, since maximization in Eq. 5 is potentially over an exponentially large
+set.
+In this section, we apply the EG algorithm to the max-margin problem, and compare its
+performance to the SVM-Struct algorithm presented in Tsochantaridis et al. (2004).15 SVMStruct is based on a cutting-plane algorithm that operates on the dual max-margin problem
+(D-MM) and results in monotone improvement in this dual. In this sense, it is similar to
+our EG algorithm. In order to facilitate a fair comparison, we report the performance of
+15. Code available from svmlight.joachims.org/svm struct.html
+
+33
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+25
+
+20
+
+EG, C=1000
+L-BFGS, C=1000
+SGD, C=1000
+
+24.8
+
+19
+18.5
+
+24.4
+
+Objective
+
+Objective
+
+24.6
+
+24.2
+24
+
+18
+17.5
+17
+
+23.8
+
+16.5
+
+23.6
+
+16
+
+23.4
+
+15.5
+0
+
+10
+
+20
+
+20
+
+30
+40
+Eff. Iteration
+
+50
+
+60
+
+0
+
+10
+
+20
+
+30
+
+EG, C=10
+L-BFGS, C=10
+SGD, C=10
+
+18
+
+50
+
+60
+
+Objective
+
+20
+
+14
+
+15
+
+12
+
+10
+
+10
+
+5
+
+8
+
+0
+0
+
+20
+
+40
+
+60
+
+80 100 120 140 160 180 200
+
+0
+
+20
+
+40
+
+60
+
+Eff. Iteration
+
+80 100 120 140 160 180 200
+Eff. Iteration
+
+82
+
+80
+
+80
+
+78
+76
+
+EG, C=10
+L-BFGS, C=0.01
+L-BFGS, C=0.1
+L-BFGS, C=1
+L-BFGS, C=10
+L-BFGS, C=100
+
+74
+72
+0
+
+20
+
+40
+
+60
+
+Accuracy (%)
+
+82
+
+Accuracy (%)
+
+30
+40
+Eff. Iteration
+
+EG, C=1
+L-BFGS, C=1
+SGD, C=1
+
+25
+
+16
+Objective
+
+EG, C=100
+L-BFGS, C=100
+SGD, C=100
+
+19.5
+
+78
+76
+EG, C=10
+SGD, C=1
+SGD, C=10
+SGD, C=100
+
+74
+72
+
+80 100 120 140 160 180 200
+Eff. Iteration
+
+0
+
+10
+
+20
+
+30
+
+40 50 60
+Eff. Iteration
+
+70
+
+80
+
+90 100
+
+Figure 12: Results on the dependency-parsing task, comparing the EG algorithm to L-BFGS and
+SGD. All algorithms are trained on the log-linear objective function. The ﬁgures on
+the ﬁrst and second rows show the primal objective for the three algorithms, for various
+values of C. The left bottom plot shows validation accuracy (measured as the fraction of
+correctly predicted edges) for L-BFGS for various values of C and for EG with C = 10.
+The right bottom plot show validation accuracy for EG (with C = 10) and SGD.
+
+34
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+the two algorithms as a function of time. We do not report results by iteration since EG
+and SVM-struct involve diﬀerent computation per iteration (e.g., SVM-Struct solves a QP
+per iteration).
+We applied SVM-Struct and EG to the dependency parsing problem described in Section 7.2. To apply SVM-Struct to this problem, we supply it with a routine that ﬁnds
+the y ∈ Y which attains the maximum of the hinge-loss in Eq. 5. This maximum can
+be found using a Viterbi-style algorithm. For the value of C we experimented with C ∈
+{1, 10, 100, 1000, 10000}. The optimal value in terms of validation error was C = 100.
+Figure 13 shows results in terms of primal and dual objective and in terms of accuracy.
+It can be seen that EG is considerably faster than SVM-Struct for most C values. The
+performance is comparable only for C = 1, where convergence is slow for both algorithms.
+
+9. Conclusion
+We have presented novel algorithms for large-scale learning of log-linear and max-margin
+models, which provably converge to the optimal value of the respective loss functions. Although the algorithms have both batch and online variants, the online version turns out to
+be much more eﬀective, both in theory and in practice. Our theoretical results (see Section 5.1) suggest that the online algorithm requires a factor of n less iterations to achieve
+a desired accuracy in the dual objective. This factor results from the fact that the online
+algorithm can use a learning rate η that is n times larger than the batch case to obtain
+updates that decrease the dual objective. Intuitively, this diﬀerence is associated with the
+fact that the batch algorithm updates all α values simultaneously. The dual objective has
+a term αT Aα which involves all the αi variables and second order interactions between
+them. It turns out that for batch updates only a relatively small change in the αi is allowed, if one still requires an improvement in the dual objective after the update. It is
+possible that our bounds for the batch convergence rate are more conservative than those
+for the online case. However, we have observed in practice that the batch algorithm is much
+slower to converge. Furthermore, we also observed that other batch-based algorithms such
+as L-BFGS and conjugate gradient converge more slowly than the online EG algorithm.
+Our results provide an O(log( 1 )) rate for the log-linear model, as opposed to O( 1 ) for
+max-margin. If these bounds are tight, they would imply that log-linear models have an
+advantage over max-margin ones in terms of training eﬃciency. However, it is possible that
+the analysis is not tight, and that improved rates may also be obtained for the max-margin
+model. In any case, this raises the interesting question of comparing classiﬁcation models
+not only in terms of accuracy but also in terms of optimization eﬃciency.
+Our convergence rates are with respect to accuracy in the dual objective. Some previous
+work (e.g. Shalev-Shwartz et al., 2007) has considered the accuracy with respect to the
+primal objective. It is relatively easy to show that in our case this still results in an
+O(log( 1 )) for the log-linear problem but a slower rate of O( 1 ) for the max-margin case. It
+2
+is possible that more reﬁned analysis will result in O( 1 ), but we leave this for further study.
+Most of our proofs rely on a relation between BQ and the KL divergence. This relation
+holds for max-margin learning as well, a fact that simpliﬁes previous results in this setting
+(Bartlett et al., 2005). We expect a similar analysis to hold for other functions Q.
+35
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+45
+
+45
+
+EG Primal, C=1000
+EG Dual, C=1000
+SVM-S Primal, C=1000
+SVM-S Dual, C=1000
+
+40
+35
+
+35
+30
+Objective
+
+Objective
+
+30
+25
+20
+
+25
+20
+
+15
+
+15
+
+10
+
+10
+
+5
+
+5
+
+0
+
+0
+0
+
+1
+
+2
+
+3
+
+4
+5
+6
+7
+CPU Time (hours)
+
+25
+
+8
+
+9
+
+10
+
+0
+
+5
+
+10
+15
+CPU Time (hours)
+
+25
+
+EG Primal, C=10
+EG Dual, C=10
+SVM-S Primal, C=10
+SVM-S Dual, C=10
+
+15
+10
+5
+
+20
+
+25
+
+EG Primal, C=1
+EG Dual, C=1
+SVM-S Primal, C=1
+SVM-S Dual, C=1
+
+20
+Objective
+
+20
+Objective
+
+EG Primal, C=100
+EG Dual, C=100
+SVM-S Primal, C=100
+SVM-S Dual, C=100
+
+40
+
+15
+10
+5
+
+0
+
+0
+0
+
+5
+
+10
+
+15
+
+20
+
+25
+
+30
+
+0
+
+5
+
+10
+
+CPU Time (hours)
+
+15
+
+20
+
+25
+
+30
+
+CPU Time (hours)
+
+82
+81
+Accuracy (%)
+
+80
+79
+78
+77
+76
+EG, C=100
+SVM-S, C=100
+SVM-S, C=10
+
+75
+74
+0
+
+5
+
+10
+15
+20
+CPU Time (hours)
+
+25
+
+30
+
+Figure 13: Results on the dependency-parsing task, comparing the EG algorithm to SVM-Struct.
+Both algorithms are trained on a max-margin model. The ﬁgures on the ﬁrst and second
+rows show the primal objective for both algorithms, for various values of C. The bottom
+curve shows validation accuracy (measured as the fraction of correctly predicted edges)
+for SVM-Struct for various values of C and for EG with C = 100 (the value that yielded
+the highest validation accuracy). The X axis on all curves is running time in hours.
+
+36
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+An interesting extension of our method is to using second order derivative information,
+or its approximations, as in L-BFGS (Byrd et al., 1995). Such information may be used to
+obtain more accurate minimization for each αi and may speed up convergence. Another
+possible improvement is to the line search method. In the experiments reported here we
+use a crude mechanism for adapting the learning rate, and it is possible that a more careful
+procedure will improve convergence rates in practice.
+Finally, our results show that the EG algorithms are highly competitive with stateof-the-art methods for training log-linear and max-margin models. We thus expect them
+to become useful as learning algorithms, particularly in the structured prediction setting,
+where some of the standard multi-class algorithms are not applicable.
+
+Acknowledgments
+The authors gratefully acknowledge the following sources of support. Amir Globerson was
+supported by a fellowship from the Rothschild Foundation - Yad Hanadiv. Terry Koo was
+funded by a grant from the NSF (DMS-0434222) and a grant from NTT, Agmt. Dtd.
+6/21/1998. Xavier Carreras was supported by the Catalan Ministry of Innovation, Universities and Enterprise, and by a grant from NTT, Agmt. Dtd. 6/21/1998. Michael Collins
+was funded by NSF grants 0347631 and DMS-0434222. Peter Bartlett was funded by a
+grant from the NSF (DMS-0434383).
+
+References
+J. Baker. Trainable grammars for speech recognition. In J.J. Wolf and D.H. Klatt, editors,
+97th meeting of the Acoustical Society of America, pages 547–550. Acoust. Soc. Am., New
+York, NY, 1979.
+P. L. Bartlett, M. Collins, B. Taskar, and D. McAllester. Exponentiated gradient algorithms
+for large–margin structured classiﬁcation. In L. K. Saul, Y. Weiss, and L. Bottou, editors,
+Advances in Neural Information Processing Systems 17, pages 113–120, Cambridge, MA,
+2005. MIT Press.
+A. Beck and M. Teboulle. Mirror descent and nonlinear projected subgradient methods for
+convex optimization. Operations Research Letters, 31:167–175, 2003.
+L.M. Bregman. The relaxation method of ﬁnding the common point of convex sets and its
+application to the solution of problems in convex programming. U.S.S.R. Computational
+Mathematics and Mathematical Physics, 7:200–217, 1967.
+S. Buchholz and E. Marsi. CoNLL-X shared task on multilingual dependency parsing.
+In Proceedings of the Tenth Conference on Computational Natural Language Learning
+(CoNLL-X), pages 149–164, 2006.
+R.H. Byrd, P. Lu, and J. Nocedal. A limited memory algorithm for bound constrained
+optimization. SIAM Journal on Scientiﬁc and Statistical Computing, 16(5):1190–1208,
+1995.
+Y. Censor and S.A. Zenios. Parallel optimization. Oxford University Press, 1997.
+37
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+M. Civit and M. Ant`nia Mart´ Design principles for a Spanish treebank. In Proceedings
+o
+ı.
+of the First Workshop on Treebanks and Linguistic Theories (TLT), 2002.
+T.M. Cover and J.A Thomas. Elements of Information Theory. Wiley, 1991.
+K. Crammer and Y. Singer. On the algorithmic implementation of multiclass kernel-based
+vector machines. Journal of Machine Learning Research, 2:265–292, 2002.
+N. Cristianini, C. Campbell, and J. Shawe-Taylor. Multiplicative updatings for supportvector learning. Technical report, NeuroCOLT2,, 1998.
+A. Globerson, T. Koo, , X. Carreras, and M. Collins. Exponentiated gradient algorithms
+for log-linear structured prediction. In Proceedings of the Twenty-Fourth International
+Conference on Machine Learning. ACM, New York, NY, 2007.
+D. Hush, P. Kelly, C. Scovel, and I. Steinwart. QP algorithms with guaranteed accuracy
+and run time for support vector machines. Journal of Machine Learning Research, 7:
+733–769, 2006.
+T. Jaakkola and D. Haussler. Probabilistic kernel regression models. In Proceedings of
+Seventh Workshop on Artiﬁcial Intelligence and Statistics. 1999.
+T. Joachims. Training linear SVMs in linear time. In KDD ’06: Proceedings of the 12th
+ACM SIGKDD international conference on Knowledge discovery and data mining, pages
+217–226. ACM Press, New York, NY, 2006.
+S.S. Keerthi, K.B. Duan, S.K. Shevade, and A. N. Poo. A fast dual algorithm for kernel
+logistic regression. Machine Learning, 61:151–165, 2005.
+J. Kivinen and M. Warmuth. Exponentiated gradient versus gradient descent for linear
+predictors. Information and Computation, 132(1):1–63, 1997.
+J. Kivinen and M. Warmuth. Relative loss bounds for multidimensional regression problems.
+Machine Learning, 45(3):301–329, 2001.
+K. Koh, S.J. Kim, and S. Boyd. An interior point method for large scale l1 -regularized
+logistic regression. Journal of Machine Learning Research, 8:1519–1555, 2007.
+T. Koo, A. Globerson, X. Carreras, and M. Collins. Structured prediction models via the
+matrix-tree theorem. In Proceedings of the Conference on Empirical Methods in Natural
+Language Processing (EMNLP). 2007.
+J. Laﬀerty, A. McCallum, and F. Pereira. Conditonal random ﬁelds: Probabilistic models
+for segmenting and labeling sequence data. In C.E. Brodley and A.P. Danyluk, editors,
+Proceedings of the Eighteenth International Conference on Machine Learning, pages 282–
+289, San Francisco, CA, 2001. Morgan Kaufmann.
+G. Lebanon and J. Laﬀerty. Boosting and maximum likelihood for exponential models. In
+T.G. Dietterich, S. Becker, and Z. Ghahramani, editors, Advances in Neural Information
+Processing Systems 14, pages 447–454. MIT Press, Cambridge, MA, 2002.
+38
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+Y. LeCun, L. Bottou, Y. Y. Bengio, and P. Haﬀner. Gradient-based learning applied to
+document recognition. Proceedings of the IEEE, 86(11):2278–2324, November 1998.
+R. McDonald, K. Crammer, and F. Pereira. Online large-margin training of dependency
+parsers. In Proceedings of the 43rd Annual Meeting of the ACL, pages 91–98. Association
+for Computational Linguistics, Morristown, NJ, 2005.
+R. Memisevic. Dual optimization of conditional probability models. Technical report, Univ.
+of Toronto, 2006.
+T. Minka. A comparison of numerical optimizers for logistic regression. Technical report,
+CMU, 2003.
+M. Mitzenmacher and E. Upfal. Probability and Computing: Randomized Algorithms and
+Probabilistic Analysis. Cambridge University Press, 2005.
+A. Nedic and D. P. Bertsekas. Incremental subgradient methods for nondiﬀerentiable optimization. SIAM J. on Optimization, 12(1):109–138, 2001.
+J. Platt. Fast training of support vector machines using sequential minimal optimization.
+In Advances in Kernel Methods - Support Vector Learning. MIT Press, 1998.
+F. Sha and F. Pereira. Shallow parsing with conditional random ﬁelds. In NAACL ’03:
+Proceedings of the 2003 Conference of the North American Chapter of the Association for
+Computational Linguistics on Human Language Technology, pages 134–141, Morristown,
+NJ, USA, 2003. Association for Computational Linguistics.
+F. Sha, Y. Lin, L.K. Saul, and D.D. Lee. Multiplicative updates for nonnegative quadratic
+programming. Neural Computation, 19(8):2004–2031, 2007.
+S. Shalev-Shwartz, Y. Singer, and N. Srebro. Pegasos: Primal estimated sub-gradient solver
+for SVM. In Proceedings of the Twenty-Fourth International Conference on Machine
+Learning. ACM, New York, NY, 2007.
+B. Taskar, C. Guestrin, and D. Koller. Max margin markov networks. In S. Thrun, L. Saul,
+and B. Sch¨lkopf, editors, Advances in Neural Information Processing Systems 16. MIT
+o
+Press, Cambridge, MA, 2004a.
+B. Taskar, D. Klein, M. Collins, D. Koller, and C. Manning. Max-margin parsing. In
+Proceedings of the Conference on Empirical Methods in Natural Language Processing
+(EMNLP). 2004b.
+C.H. Teo, Q. Le, A. Smola, and S.V.N. Vishwanathan. A scalable modular convex solver
+for regularized risk minimization. In KDD ’07: Proceedings of the 13th ACM SIGKDD
+international conference on Knowledge discovery and data mining, pages 727–736. ACM
+Press, New York, NY, USA, 2007.
+I. Tsochantaridis, T. Hofmann, T. Joachims, and Y. Altun. Support vector machine learning
+for interdependent and structured output spaces. In C.E. Brodley, editor, Proceedings of
+the Twenty-First International Conference on Machine Learning. ACM, New York, NY,
+2004.
+39
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+S.V. N. Vishwanathan, N. N. Schraudolph, M. W. Schmidt, and K. P. Murphy. Accelerated
+training of conditional random ﬁelds with stochastic gradient methods. In W.W. Cohen
+and A. Moore, editors, Proceedings of the Twenty-Third International Conference on
+Machine Learning, pages 969–976. ACM Press, New York, NY, 2006.
+T. Zhang. On the dual formulation of regularized linear systems with convex risks. Machine
+Learning, 46:91–129, 2002.
+J. Zhu and T. Hastie. Kernel logistic regression and the import vector machine. In T.G.
+Dietterich, S. Becker, and Z. Ghahramani, editors, Advances in Neural Information Processing Systems 14, pages 1081–1088. MIT Press, Cambridge, MA, 2001.
+
+40
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+Appendix A. O( 1 ) Rate for Batch Algorithms - Proof of Lemma 5
+We use a similar proof technique to that of Kivinen and Warmuth (2001). In particular, we
+need the following Lemma, which is very similar to results used by Kivinen and Warmuth
+(2001):
+Lemma 10 (See Kivinen and Warmuth (2001), Proof of Lemma 4) For any convex function Q(α) over ∆n , for any u ∈ ∆n , and any αt in the interior of ∆n , if αt+1 is derived
+from αt using the EG updates with a learning rate η, then
+ηQ(αt ) − ηQ(u) = D[u αt ] − D[u αt+1 ] + D[αt αt+1 ] − ηBQ [u αt ]
+
+(30)
+
+Proof: By the deﬁnition of Bregman divergence, we have
+ηQ(αt ) − ηQ(u) = −η Q(αt ) · (u − αt ) − ηBQ [u αt ]
+
+(31)
+
+Given that αt+1 is derived from αt using EG updates,
+t+1
+αi,y =
+
+t
+αi,y e−η
+Zit
+
+where Zit is a normalization constant, and
+
+i,y
+
+D[u αt ] − D[u αt+1 ] + D[αt αt+1 ] =
+
+=
+
+i,y
+
+∂Q(αt )
+∂αi,y .
+
+ui,y log
+i,y
+
+Simple algebra then shows that:
+
+t
+αi,y
+ui,y
+ui,y
+t
+− ui,y log t+1 + αi,y log t+1
+t
+αi,y
+αi,y
+αi,y
+
+t
+(ui,y − αi,y ) log
+
+=
+i,y
+
+t+1
+αi,y
+t
+αi,y
+
+t
+(ui,y − αi,y )(−η
+
+i,y
+
+t
+(ui,y − αi,y )(−η
+
+=
+
+− log Zit )
+
+i,y )
+
+i,y
+
+=
+i,y
+
+= −η Q(αt ) · (u − αt )
+
+(32)
+
+t
+Note that we have used i,y (ui,y − αi,y ) log Zit = 0, which follows because i,y ui,y log Zit =
+t
+t
+t
+i,y αi,y log Zi =
+i log Zi .
+Combining Eq. 31 and Eq. 32 gives Eq. 30, thus proving the Lemma.
+We can now prove Lemma 5:
+Proof of Lemma 5: Using −ηBQ [u αt ] ≤ 0, Lemma 10 implies that for all t
+
+ηQ(αt ) − ηQ(u) ≤ D[u αt ] − D[u αt+1 ] + D[αt αt+1 ]
+By the assumptions of Lemma 5, Q(α) is τ -upper-bounded, and 0 ≤ η ≤
+Lemma 3 we have
+1
+Q(αt ) − Q(αt+1 ) ≥ D[αt αt+1 ]
+η
+41
+
+(33)
+1
+τ,
+
+hence by
+(34)
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+Combining Eqs. 33 and 34 gives for all t
+ηQ(αt+1 ) − ηQ(u) ≤ D[u αt ] − D[u αt+1 ]
+Summing this over t = 1, . . . , T gives (the sum on the RHS telescopes)
+T
+
+Q(αt+1 ) − ηT Q(u) ≤ D[u α1 ] − D[u αT +1 ]
+
+η
+t=1
+
+Because Q(αt ) is monotone decreasing (by Eq. 34), we have T Q(αT +1 ) ≤
+and simple algebra gives
+Q(αT +1 ) ≤ Q(u) +
+
+T
+t+1 )
+t=1 Q(α
+
+D[u α1 ] − D[u αT +1 ]
+ηT
+
+Dropping the term D[u αT +1 ] (because −D[u αT +1 ] ≤ 0) we obtain
+Q(αT +1 ) ≤ Q(u) +
+
+D[u α1 ]
+ηT
+
+as required.
+
+Appendix B. O(log ( 1 )) Rate for Batch Algorithms - Proof of Lemma 6
+By the assumptions of Lemma 6, Q(α) is τ -upper-bounded, and 0 ≤ η ≤
+Lemma 3 we have for all t
+1
+Q(αt ) − Q(αt+1 ) ≥ D[αt αt+1 ]
+η
+Combining this result with Lemma 10 gives
+
+1
+τ,
+
+hence by
+(35)
+
+ηQ(αt+1 ) − ηQ(u) ≤ D[u αt ] − D[u αt+1 ] − ηBQ [u αt ]
+We can now make use of the assumption that Q(α) is (µ, τ )-bounded, and hence ηBQ [u αt ] ≥
+µηD[u αt ], to obtain
+ηQ(αt+1 ) − ηQ(u) ≤ D[u αt ] − D[u αt+1 ] − ηµD[u αt ]
+= (1 − ηµ) D[u αt ] − D[u αt+1 ]
+≤ (1 − ηµ) D[u αt ]
+
+(36)
+
+If there exists a t ≤ T such that Q(αt+1 ) − Q(u) ≤ 0 then because Q(αt ) decreases
+monotonically with t we have Q(αT +1 ) ≤ Q(αt+1 ) ≤ Q(u) and the Lemma trivially holds.
+Otherwise, it must be the case that Q(αt+1 ) − Q(u) ≥ 0 for all t ≤ T , and thus for all t ≤ T
+D[u αt+1 ] ≤ (1 − ηµ) D[u αt ] .
+
+(37)
+
+Using this inequality recursively for t = 1, . . . , T we get
+D[u αT +1 ] ≤ (1 − ηµ)T D[u α1 ]
+
+(38)
+
+Substituting back into Eq. 36 we obtain
+Q(αT +1 ) − Q(u) ≤
+
+(1 − ηµ)T
+e−ηµT
+D[u α1 ] ≤
+D[u α1 ]
+η
+η
+
+where we have used log(1 − x) ≤ −x.
+42
+
+(39)
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+Appendix C. Proof of Lemma 7
+For the regularized log-likelihood dual, for any β ∈ ∆
+Qα,i (β) =
+y
+
+1
+βy log βy + β T A(i, i)β+
+2
+
+αj,y log αj,y +
+j=i
+
+y
+
+1
+2
+
+αT A(j, k)αk +
+j
+j=i k=i
+
+αT A(j, i)β
+j
+j=i
+
+where A(j, k) is the |Y| × |Y| sub-matrix of A deﬁned as Ay,z (j, k) = A(j,y),(k,z) . To obtain
+the Bregman divergence BQα,i [p q], note that the last three terms in Qα,i (β) are either
+constant or linear in β and thus do not contribute to BQα,i [p q]. It follows that
+BQα,i [p q] = D[p q] + MA(i,i) [p q]
+By a similar argument to the proof of Lemma 3, it follows that BQα,i [p q] ≤ (1+|A(i, i)|∞ )D[p q].
+Because A(i, i) is a sub-matrix of A we have |A(i, i)|∞ ≤ |A|∞ , and the ﬁrst part of the
+Lemma follows. For the max-margin dual, a similar argument shows that
+BQα,i [p q] = MA(i,i) [p q]
+so we have BQα,i [p q] ≤ |A(i, i)|∞ D[p q] ≤ |A|∞ D[p q].
+
+Appendix D. Proof of Lemma 8
+(Note: this proof builds on notation and techniques given in the proof of Lemma 9, see
+Appendix E.)
+We begin with the following identity
+BQ [u||α] = Q(u) − Q(α) −
+
+Q(α) · (u − α)
+
+Rearranging yields for any u, α ∈ ∆n ,
+Q(α) − Q(u)
+
+Q(α) · (α − u) − BQ [u||α]
+
+=
+1
+η
+
+=
+
+n
+
+D[ui αi ] − D[ui γ i (α, i)] + D[αi γ i (α, i)] − BQ [u||α]
+i=1
+
+where the second line follows by a similar argument to the proof of Lemma 10.
+By applying similar arguments as those leading to Eq. 48 in Appendix E, we get for any
+u, α ∈ ∆n ,
+Q(α) − Q(u) ≤
+=
+≤
+
+1
+η
+
+n
+
+n
+
+D[u α] − D[u γ(α, i)] +
+i=1
+
+n
+n
+D[u α] −
+η
+η
+
+Q(α) − Q(γ(α, i)) − BQ [u||α]
+i=1
+
+n
+i=1
+
+1
+D[u γ(α, i)] +
+n
+
+n
+n
+− µ D[u α] −
+η
+η
+
+n
+i=1
+
+n
+
+Q(α) − Q(γ(α, i)) − BQ [u||α]
+i=1
+
+1
+D[u γ(α, i)] +
+n
+
+43
+
+n
+
+Q(α) − Q(γ(α, i))
+i=1
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+where in the third line, we have used the assumption from the Lemma that Q(α) is (µ, τ )online-bounded, and hence BQ [u||α] ≥ µD[u α]. The inequality above holds for all α, u ∈
+t−1
+t−1
+∆n , so we can take α = α(k1 ) for any sequence k1 . Taking expectations of both sides,
+and using similar arguments to those leading to Eq. 50 in Appendix E, we get
+t−1
+ET Q(α(k1 )) − Q(u) ≤
+
+n
+n
+t−1
+t
+− µ ET D[u α(k1 )] − ET D[u α(k1 )]
+η
+η
+t−1
+t
++ nET Q(α(k1 )) − nET Q(α(k1 ))
+
+(40)
+
+T
+where ET is again an expectation with respect to the sequence k1 being drawn from the
+uniform distribution over [1 . . . n]T . For convenience, deﬁne
+t
+˜
+Qt ≡ ET Q(α(k1 )) − Q(u)
+
+and
+
+1
+t
+˜
+Dt ≡ ET D[u||α(k1 )]
+η
+
+˜
+We may assume that Qt ≥ 0 for all t ≤ T since if this is not true the Lemma trivially
+16
+holds.
+Eq. 40 can be rearranged to give
+˜
+˜
+˜
+˜
+˜
+Qt−1 ≤ (n − ηµ)Dt−1 − nDt + nQt−1 − nQt
+˜
+˜
+˜
+˜
+˜
+˜
+nQt + nDt ≤ (n − 1)Qt−1 + (n − ηµ)Dt−1 ≤ (n − ηµ) Qt−1 + Dt−1
+ηµ
+˜
+˜
+˜
+˜
+Qt + Dt ≤
+1−
+Qt−1 + Dt−1
+n
+
+(41)
+
+where Eq. 41 uses the observation that n − ηµ ≥ n − 1 because ηµ ≤ 1 (this follows because
+η ≤ 1/τ and µ < τ for some τ > 0). By iterating this result, it follows that
+˜
+˜
+QT + DT
+T
+ET Q(α(k1 ))
+
+≤
+
+1−
+
+ηµ
+n
+
+T
+
+≤ Q(u) + 1 −
+
+˜
+˜
+Q0 + D0
+ηµ
+n
+
+≤ Q(u) + e−ηµT /n
+
+1
+Q(α1 ) − Q(u) + D[u||α1 ]
+η
+1
+Q(α1 ) − Q(u) + D[u||α1 ]
+η
+
+T
+
+(42)
+
+thus proving the Lemma.
+
+Appendix E. Proof of Lemma 9
+For the proof we will need some additional notation, which makes explicit the relationship between the sequence of dual variables α1 , α2 , . . . , αT +1 and the sequence of indices
+k1 , k2 , . . . , kT used in the algorithm in Figure 2. We will use the following deﬁnitions:
+t
+0
+• We use k1 to denote a sequence of indices k1 , k2 , . . . , kt . We take k1 to be the empty
+sequence.
+
+ˆ
+˜
+t
+16. Note that ET Q(α(k1 )) is monotone decreasing since every random sequence of updates results in
+monotone improvement. The Lemma then holds by an argument similar to Appendix B.
+
+44
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+• We write γ : ∆n × [1 . . . n] → ∆n to denote the function that corresponds to an EG
+update on a single example. More speciﬁcally, we have
+γ i (α, k) = αi for i = k
+γi,y (α, k) ∝ αi,y exp{−η
+
+i,y }
+
+where
+
+i,y
+
+=
+
+∂Q(α)
+∂αi,y
+
+for i = k, for all y.
+
+T
+• Finally, for any choice of index sequence k1 we will deﬁne a sequence of dual variables
+using the following iterative deﬁnition:
+0
+α(k1 ) = α1
+t−1
+t
+α(k1 ) = γ(α(k1 ), kt ) for t ≥ 1.
+
+Here α1 is the initial setting of the dual variables, as shown in the algorithm in
+Figure 2.
+T
+From these deﬁnitions it follows that if k1 is the sequence of indices chosen during a
+run of the algorithm in Figure 2, then the sequence of dual variables α1 , α2 , . . . , αT +1 is
+t
+such that αt+1 = α(k1 ) for t = 0 . . . T . We can now give the proof.
+
+Proof of Lemma 9. First, we have for any α, u ∈ ∆n
+Q(α) ≤ Q(u) + (α − u) ·
+= Q(u) +
+
+1
+η
+
+Q(α)
+
+n
+
+D[ui αi ] − D[ui γ i (α, i)] + D[αi γ i (α, i)]
+
+(43)
+
+i=1
+
+The second line again follows by similar arguments to those in the proof of Lemma 10.
+Next consider the terms on the right-hand-side of the inequality. For any i, we have
+D[ui αi ] − D[ui γ i (α, i)]
+= D[ui αi ] − D[ui γ i (α, i)] +
+
+D[uj αj ] −
+j=1...n,j=i
+
+= D[ui αi ] − D[ui γ i (α, i)] +
+
+D[uj αj ]
+
+D[uj αj ] −
+j=1...n,j=i
+
+(44)
+
+j=1...n,j=i
+
+D[uj γ j (α, i)] (45)
+j=1...n,j=i
+
+= D[u α] − D[u γ(α, i)]
+
+(46)
+
+Here Eq. 45 follows from Eq. 44 because γ j (α, i) = αj for j = i.
+In addition, for any i we have
+1
+D[αi γ i (α, i)] ≤ Q(α) − Q(γ(α, i))
+η
+
+(47)
+
+This follows because by the assumption in the Lemma, Q(α) is τ -online-upper-bounded, so
+we have BQα,i [γ i (α, i) αi ] ≤ τ D[γ i (α, i) αi ]. By an application of Lemma 2 to the convex
+function Qα,i , noting that by assumption η ≤ 1/τ , it follows that
+1
+D[αi γ i (α, i)] ≤ Qα,i (αi ) − Qα,i (γ i (α, i))
+η
+45
+
+Collins, Globerson, Koo, Carreras and Bartlett
+
+Finally, note that Qα,i (αi ) = Q(α), and Qα,i (γ i (α, i)) = Q(γ(α, i)), giving the result in
+Eq. 47.
+Combining Equations 43, 46 and 47 gives for any α,
+Q(α) ≤ Q(u) +
+
+1
+η
+
+n
+
+n
+
+D[u α] − D[u γ(α, i)] +
+i=1
+
+Q(α) − Q(γ(α, i))
+
+(48)
+
+i=1
+
+t−1
+Because Eq. 48 holds for any value of α, we have for all t = 1 . . . T , for all k1 ∈ [1 . . . n]t−1 ,
+
+1
+≤ Q(u) +
+η
+
+t−1
+Q(α(k1 ))
+
+n
+t−1
+t−1
+D[u α(k1 )] − D[u γ(α(k1 ), i)]
+i=1
+n
+t−1
+t−1
+Q(α(k1 )) − Q(γ(α(k1 ), i))
+
++
+
+(49)
+
+i=1
+
+We can now take an expectation of both sides of the inequality in Eq. 49. For any function
+t
+t
+t
+t
+f (k1 ), we use the notation Et [f (k1 )] to denote the expected value of f (k1 ) when k1 is drawn
+t ; more precisely
+uniformly at random from [1, 2, . . . , n]
+t
+Et [f (k1 )] =
+
+1
+nt
+
+t
+f (k1 )
+t
+k1 ∈[1,2,...,n]t
+
+We apply the operator Et−1 to both sides of Eq. 49. We consider the diﬀerent terms in
+turn. First,
+t−1
+t−1
+Et−1 [Q(α(k1 ))] = ET [Q(α(k1 ))]
+t−1
+This follows because Q(α(k1 )) does not depend on the values for kt , . . . , kT . Clearly,
+Et−1 [Q(u)] = Q(u). Next,
+
+Et−1
+
+1
+η
+
+n
+t−1
+t−1
+D[u α(k1 )] − D[u γ(α(k1 ), i)]
+i=1
+
+n
+n
+t−1
+D[u α(k1 )] − Et−1
+η
+η
+
+= Et−1
+
+n
+i=1
+
+1
+t−1
+D[u γ(α(k1 ), i)]
+n
+
+n
+n
+t−1
+t
+= Et−1
+D[u α(k1 )] − Et
+D[u α(k1 )]
+η
+η
+n
+n
+t−1
+t
+= ET
+D[u α(k1 )] − ET
+D[u α(k1 )]
+η
+η
+Finally, we consider the last term:
+n
+t−1
+t−1
+Q(α(k1 )) − Q(γ(α(k1 ), i))
+
+Et−1
+i=1
+
+n
+t−1
+= Et−1 nQ(α(k1 )) − n
+
+=
+=
+
+1
+t−1
+Q(γ(α(k1 ), i))
+n
+
+i=1
+t−1
+t
+Et−1 nQ(α(k1 )) − Et nQ(α(k1 ))
+t−1
+t
+ET nQ(α(k1 )) − ET nQ(α(k1 ))
+
+46
+
+Exponentiated Gradient Algorithms for CRFs and Max-Margin Markov Networks
+
+Combining these results with Eq. 49 gives
+t−1
+ET [Q(α(k1 ))] ≤ Q(u) + ET
+
+n
+n
+t−1
+t
+D[u α(k1 )] − ET
+D[u α(k1 )]
+η
+η
+
+t−1
+t
++ET nQ(α(k1 )) − ET nQ(α(k1 ))
+
+(50)
+
+Summing Eq. 50 over t = 1 . . . T gives
+T
+t−1
+ET [Q(α(k1 ))] ≤ T Q(u) + ET
+t=1
+
+n
+n
+0
+T
+D[u α(k1 )] − ET
+D[u α(k1 )]
+η
+η
+
+0
+T
++ET nQ(α(k1 )) − ET nQ(α(k1 ))
+n
+0
+0
+≤ T Q(u) + D[u α(k1 )] + n Q(α(k1 )) − Q(α∗ )
+η
+n
+= T Q(u) + D[u α1 ] + n Q(α1 ) − Q(α∗ )
+η
+
+(51)
+
+T
+t
+where α∗ = argminα∈∆n Q(α). Finally, note that for any value of k1 we have Q(α(k1 )) ≤
+t−1
+Q(α(k1 )) for t = 1 . . . T . Thus
+t−1
+t
+ET [Q(α(k1 ))] ≤ ET [Q(α(k1 ))]
+
+and
+
+T
+t−1
+ET [Q(α(k1 ))]
+
+T
+T ET [Q(α(k1 )] ≤
+t=1
+
+Combining this with Eq. 51 gives
+T
+T ET [Q(α(k1 )] ≤ T Q(u) +
+
+n
+D[u α1 ] + n Q(α1 ) − Q(α∗ )
+η
+
+thus proving the lemma.
+
+47
+
+

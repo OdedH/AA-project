@@ -1,0 +1,896 @@
+Factored A* Search for Models over Sequences and Trees
+Dan Klein
+Department of Computer Science
+Stanford University
+Stanford, CA 94305-9040
+
+Christopher D. Manning
+Department of Computer Science
+Stanford University
+Stanford, CA 94305-9040
+
+klein@cs.stanford.edu
+
+manning@cs.stanford.edu
+
+Abstract
+We investigate the calculation of A* bounds for
+sequence and tree models which are the explicit
+intersection of a set of simpler models or can be
+bounded by such an intersection. We provide a
+natural viewpoint which uniﬁes various instances
+of factored A* models for trees and sequences,
+some previously known and others novel, including multiple sequence alignment, weighted ﬁnitestate transducer composition, and lexicalized statistical parsing. The speciﬁc case of parsing with
+a product of syntactic (PCFG) and semantic (lexical dependency) components is then considered in
+detail. We show that this factorization gives a modular lexicalized parser which is simpler than comparably accurate non-factored models, and which
+allows efﬁcient exact inference with large treebank
+grammars.
+
+1 Introduction
+The primary challenge when using A* search is to ﬁnd heuristic functions that simultaneously are admissible, close to actual completion costs, and efﬁcient to calculate. In this paper, we describe a family of tree and sequence models in
+which path costs are either deﬁned as or bounded by a combination of simpler component models, each of which scores
+some projection of the full structure. In such models, we can
+exploit the decoupled behavior over each projection to give
+sharp heuristics for the combined space. While we focus
+on models of trees and sequences within NLP applications,
+the approach can be applied more generally (and already has
+been, in the case of biological sequence models). All the concrete cases we consider here involve search over spaces which
+are equivalent to dynamic programming lattices, though this
+detail, too, is somewhat peripheral to the basic ideas.
+
+2 Projection Models for Graphs
+The core idea of factored A* search can apply to any graph
+search. Assume that G = (N, A) is a very large graph, with
+a single source node s and a single goal node g, and that we
+wish to use A* search to efﬁciently ﬁnd a best path from s to
+g. For concreteness, assume also that the score of a path is the
+
+sum of the scores of the arcs along the path, and that lower
+scores are better.1 The particular assumption in this paper
+is that the arc scoring function has a special factored form.
+Speciﬁcally, there exists a set of projections {π1 , . . . πk } of
+nodes (and therefore also arcs and graphs) such that for any
+arc (x, y), its score σ is given by:
+σG (x, y) =
+
+k
+i=1
+
+σπi (πi (x), πi (y))
+
+Whenever the scoring function factors in this way, we have an
+immediate recipe for a factored A* bound, which we denote
+by h. Speciﬁcally, we can bound the shortest path in G from
+a node n to the goal g by the sum of the shortest paths inside
+each projection π(G). Formally, if αG (n, g) is the length of
+a shortest path from n to g in a graph G, then:
+αG (n, g) ≥ h(n, g) =
+
+k
+i=1
+
+απi (G) (πi (n), πi (g))
+
+This follows immediately from the optimality of the projected
+paths and the structure of the scoring function. These projections need not be mutually compatible, and therefore the
+bound may not be tight. Broadly speaking, the greater the degree to which each projection prefers similar paths, the better
+the bound will be, and the more efﬁcient our search will be.
+
+3 Projection Models for Sequences
+For intuition, we ﬁrst consider applications to sequence models before extending to the more complex case of tree models.
+
+3.1
+
+Example: Multiple Sequence Alignment
+
+A situation which ﬁts this framework perfectly is the alignment of multiple genome sequences in bioinformatics, where
+such multiple sequence alignments (MSAs) are standardly
+evaluated by sum-of-pairs scoring [Durbin et al., 1998]. MSA
+is a generalization of the longest-common-subsequence problem, in which one is given sequences like those in ﬁgure 1a,
+and asked to produce pointwise alignments. Alignments of
+d sequences {s1 , . . . sd } consist of t vertical timeslices which
+specify, for each sequence, either a successive element of the
+sequence or a gap (–), and are such that if the gaps are removed, the rows contain the original sequences. The score
+of a timeslice is the sum of the scores of each of the pairs
+1 We will talk about minimum sums, but other semirings work as
+well, speciﬁcally maximum products.
+
+r
+a
+y
+
+n
+y
+c
+
+c
+c
+
+w
+w
+w
+
+(a)
+
+r
+a
+–
+
+n
+y
+y
+
+1.0E+18
+
+c
+c
+c
+
+σ123 (ra–) = σ12 (ra) + σ13 (r–) + σ23 (a–)
+
+1.0E+10
+1.0E+08
+1.0E+06
+
+1.0E+02
+
+Figure 1: An example of a multiple sequence alignment. (a) The
+original sequences. (b) A multiple alignment with one timeslice distinguished. (c) The sum-of-pairs scoring function for that timeslice.
+
+– but it is easy to calculate the size of the lattice. There are also
+subtleties in running the uniform-cost search since the score of a
+timeslice can be negative (we add in a worst possible negative score).
+
+Dynamic Program
+
+1.0E+12
+
+1.0E+04
+
+(c)
+
+2 Note that the DP was never run – it would not have ﬁt in memory
+
+Uniform-Cost
+
+1.0E+14
+
+(b)
+
+in that slice (where each pair of symbols is assigned some
+experimental goodness value).
+The well-known dynamic program for calculating optimal multiple alignments involves a lattice of position nodes
+n = [i 1 , . . . i k ] which specify an index along each sequence
+[Durbin et al., 1998]. When each node is visited, each of
+its 2k − 1 successors p (where each position is either incremented or not) are relaxed with the best score through p
+combined with the score of the timeslice that the change from
+p to p represents. These nodes form a lattice of size O(n k ),
+where n is the maximum length of the sequences. This becomes extremely inefﬁcient as k grows.
+The speciﬁc following idea has been used before ([Ikeda
+and Imai, 1994] is the earliest reference we could ﬁnd) and
+it has been worked on recently ([Yoshizumi et al., 2000] inter alia), though perhaps it has not received the attention it
+deserves in the bioinformatics literature. We present it here
+because (1) it is a good example that can be cast into our
+framework and (2) it gives a good starting intuition for the
+novel cases below. Since the score of an arc (timeslice) is a
+sum of pairwise goodness scores, we can deﬁne a set {πab } of
+projections, one onto each pair of indices (i a , i b ). Under πab ,
+a node [i 1 , . . . , i k ] will project to its a and b indices, [i a , i b ].
+It is easy to see that the optimal path in this projection is just
+the optimal 2-way alignment of the portions of sequences a
+and b which are to the right of the indices i a and i b , respectively. We can therefore bound the total completion cost of
+the k-way alignment from n onward with the sum of the pairwise completion costs of the 2-way alignments inside each
+projection.
+Figure 2 shows some experimental speed-ups given by this
+method, compared to exhaustive search. We took several
+protein sequence groups from [McClure et al., 1994], and,
+for each set, we aligned as large a subset of each group as
+was possible using uniform-cost search with 1GB of memory. The left four runs show the cost (in nodes visited) of
+aligning these subsets with both uniform-cost search and A*
+search. In the right four runs, we added another sequence
+to the subsets and solved the multiple alignment using only
+the A* search. The A* savings are substantial, usually providing several orders of magnitude over uniform-cost search,
+and many orders of magnitude over the exhaustive dynamic
+programming approach.2 This veriﬁes previous ﬁndings, and
+
+A*
+
+1.0E+16
+
+Nodes Visited
+
+w
+w
+w
+
+1.0E+00
+pro-4
+
+rh-4
+
+kin-4 glob-7 pro-5
+
+rh-5
+
+kin-5 glob-8
+
+Figure 2: Effectiveness of the factored A* bound for the multiple
+alignment of several sequence sets. Numbers in the data set names
+give the number of sequences being aligned. Note the log scale:
+for example, on glob-7 the A* search is over a trillion times more
+efﬁcient than exhaustive search.
+
+shows that factored A* bounds can be highly effective.
+One potential worry with A* search is that the cost of computing heuristics can be substantial. In this case, the O(k 2 )
+pairwise alignments could be calculated very efﬁciently; in
+our experiments this pre-search phase took up much less than
+1% of the total time.
+
+3.2
+
+Example: Finite State Transducers
+
+We brieﬂy describe another potential application of factored
+A* search for sequence models: the intersection of weighted
+ﬁnite-state transducers (WFSTs).3 WFSTs are probabilistic
+mappings between sequences in one alphabet to sequences
+in another, for example a transducer might map an input of
+written text to an output of that text’s pronunciation as a
+phoneme sequence. Intersections of WFSTs have been applied to various tasks in speech and NLP [Mohri, 1997],
+such as text-to-speech, and, most famously in the NLP literature, modeling morphophonology [Kaplan and Kay, 1994;
+Albro, 2000]. In these cases, each transducer constrains some
+small portion of the overall output sequence. The case of ﬁnding the most likely intersected output of a set of WFSTs {Mi }
+for an input sequence w = 0 wn involves the following:
+1. For each Mi , create the projection πi of the full output
+space O onto Mi ’s output space (note that this can be
+the identity projection).4
+2. For each index j along w and each output in πi (O),
+compute optimal completion costs αi ( j, πi (O)) for Mi .
+3. Use h(i, O) = i αi ( j, πi (O)) as an A* heuristic.
+While transduction intersection ﬁts cleanly into the factored framework, the primary utility of transducers lies in
+their composition, not their intersection [Mohri, 1997]. In
+this case, transducers are chained together, with the output
+of one serving as the input to the next. In this case, it is
+worth switching from talk of summed distances to talk of
+multiplied probabilities. Say we have two transducers, M I X
+which gives a distribution P(X|I ) from sequences I to sequences X, and M X O , which gives P(O|X) from X to O.
+3 WFSTs are equivalent to HMMs which have emission weights
+assigned to their transitions (not states) and which may have epsilon
+transitions.
+4 For simplicity, we assume all history relevant to any transducer
+is encoded into the state space O.
+
+S
+
+S, fell-VBD
+fell-VBD
+
+NP
+
+NP, payrolls-NNS
+
+VP
+payrolls-NNS
+
+NN
+
+NNS
+
+VBD
+
+fell
+
+Factory-NN payrolls-NNS fell-VBD
+
+PP
+Factory-NN payrolls
+
+Factory payrolls
+
+fell
+
+IN
+
+VP, fell-VBD
+
+in-IN
+PP, in-IN
+
+in September-NN
+Factory
+
+NN
+Factory
+
+payrolls
+
+fell
+
+in-IN September-NN
+
+September
+
+in September
+
+in
+
+(a) PCFG Structure
+
+(b) Dependency Structure
+
+September
+
+(c) Combined Lexicalized Structure
+
+Figure 3: Three kinds of parse structures.
+goal
+[0,3]
+
+goal
+
+NP
+
+VERB
+
+[0,2]
+
+NP
+
+[2,3]
+
+VERB
+
+ARTICLE
+
+NOUN
+
+[0,1]
+
+ARTICLE
+
+[1,2]
+
+NOUN
+s
+
+(a)
+
+(b)
+
+Figure 4: Two representations of a parse: (a) a tree, (b) a path in the
+edge hypergraph.
+
+We then wish to answer questions about their composed behavior. For example, we might want to ﬁnd the output o
+which maximizes P(o|i ) according to this model. The common Viterbi approximation is to settle for the o from the
+pair (o, x) which maximizes P(o, x|i ). This problem would
+ﬁt neatly into the factored framework if the (usually false)
+conditional independence P(o, x|i ) = P(o|i )P(x|i )) where
+true – in fact it would then be WFST intersection. However, something close to this does trivially hold: P(o, x|i ) =
+P(o|x, i )P(x|i ). Given this, we can deﬁne another model
+R(o|i ) = maxx P(o|x, i ). R is not a proper probabilistic
+model – it might well assign probability one to every transduction – but its intersection with P(x|i ) does upper-bound
+the actual composed model. Hence these two projections provide a factored bound for a non-factored model, with the practical utility of this bound depending on how tightly R(o|i )
+typically bounds P(o|x, i ).
+
+4 Projection Models for Trees
+Search in the case of trees is not over standard directed
+graphs, but over a certain kind of directed hypergraph in
+which arcs can have multiple sources (but have a single target). This is because multiple sub-trees are needed to form a
+larger tree.5 Figure 4 shows a fragment of such a hypergraph
+for a small parse tree (note that all the lines going to one arrowhead represent a single hyperarc). We don’t give the full
+deﬁnitions of hypergraph search here (see [Gallo et al., 1993]
+for details), but the basic idea is that one cannot traverse an
+arc until all its source nodes have been visited. In the parse
+case, for example, we cannot build a sentence node until we
+build both a noun phrase node and an (adjacent) verb phrase
+node. The nodes in this graph are identiﬁed by a grammar
+5 These directed B-hypergraphs model what has been explored as
+AND/OR trees in AI.
+
+symbol, along with the region of the input it spans. The goal
+node is then a parse of the root symbol over the entire input. (Hyper)paths embody trees, and the score of a path is
+the combination of the scores of the arcs in the tree. One ﬁne
+point is that, while a standard path from a source s to a goal
+g through a node n breaks up into two smaller paths (s to n
+and n to g), in the tree case there will be an inside path and
+an outside path, as shown in the right of ﬁgure 5. In general,
+then, the completion structures that represent paths to the goal
+(marked by α in the ﬁgure) are speciﬁed not only by a node n
+and goal g, but also by the original source s.
+With this modiﬁcation, the recipe for the factored A*
+bound is now:
+αG (s, n, g) ≥ h(s, n, g) =
+
+i
+
+απi (G) (πi (s), πi (n), πi (g))
+
+Next, we present a concrete projection model for scoring lexicalized trees, and construct an A* parser using the associated
+factored A* bound.
+Generative models for parsing natural language typically
+model one of the kinds of structures shown in ﬁgure 3. While
+word-free syntactic conﬁgurations like those embodied by
+phrase structure trees (ﬁgure 3a) are good at capturing the
+broad linear syntax of a language [Charniak, 1996], wordto-word afﬁnities like those embodied by lexical dependency
+trees (ﬁgure 3b) have been shown to be important in resolving difﬁcult ambiguities [Hindle and Rooth, 1993]. Since
+both kinds of information are relevant to parsing, the trend
+has been to model lexicalized phrase structure trees like ﬁgure 3c.
+In our current framework, it is natural to think of a lexicalized tree as a pair L = (T, D) of a phrase structure tree
+T and a dependency tree D. In this view, generative models over lexicalized trees, of the sort standard in lexicalized
+PCFG parsing [Collins, 1999; Charniak, 2000], can be regarded as assigning mass P(T, D) to such pairs. In the standard approach, one builds a joint model over P(T, D), and,
+for a given word sequence 0 wn , one searches for the maximum posterior parse:
+L ∗ = max L=(T ,D) P(T, D|w)
+Since P(w) is a constant, one operationally searches instead
+for the maximizer of P(T, D, w).
+The naive way to do this is an O(n 5 ) dynamic program
+(often called a tabular parser or chart parser) that works as
+follows. The core declarative object is an edge, such as
+e = [X, i, j, h] which encapsulates all parses of the span i w j
+which are labeled with grammar symbol X and are headed by
+word wh (i ≤ h < j ). Edges correspond to the nodes in the
+
+1.
+2.
+3.
+4.
+5.
+6.
+7.
+
+Extract the PCFG projection and set up the PCFG parser.
+Use the PCFG parser to ﬁnd projection scores αPCFG (s, e, g) for each edge.
+Extract the dependency projection and set up the dependency parser.
+Use the dependency parser to ﬁnd projection scores αDEP (s, e, g) for each edge.
+Combine PCFG and dependency projections into the full model.
+Form the factored A* estimate h(s, e, g) = αPCFG (s, e, g) + αDEP (s, e, g)
+Use the combined parser, with h(s, e, g) as an A* estimate of α(s, e, g)
+
+g
+α
+e
+β
+words
+
+s
+
+Figure 5: The top-level algorithm (left) and an illustration of how paths decompose in the parsing hypergraph (right).
+
+parsing hypergraph. Two edges [X, i, j, h] and [Y, j, k, h ]
+can be combined whenever they are contiguous (the right
+one starts where the left one ends) and the grammar permits the combination. For example, if there were a rewrite
+Z [wh ] → X[wh ]Y [wh ], those two edges would combine to
+form [Z , i, k, h], and that combination would be scored by
+some joint model over the word and symbol conﬁguration:
+P(XY, h |Z , h).6 These weighted combinations are the arcs
+in the hypergraph.
+A natural projection of a lexicalized tree L is onto its components T and D (though, to our knowledge, this projection has not been exploited previously). In this case, the
+score for the combination above would be P(XY, h |Z , h) =
+P(XY |Z )P(h |h).7
+This kind of projected model offers two primary beneﬁts.
+First, since we are building component models over much
+simpler projections, they can be designed, engineered, and
+tested modularly, and easily. To underscore this point, we
+built three PCFG models of P(T ) and two lexical dependency
+models of P(T ). In section 4.2, we discuss the accuracy of
+these models, both alone and in combination.
+Second, our A* heuristic will be loose only to the degree
+that the two models prefer different structures. Therefore, the
+combined search only needs to ﬁgure out how to optimally
+reconcile these differences, not explore the entire space of
+legal structures. Figure 6 shows the amount of work done
+in the uniform-cost case versus the A* case. Clearly, the
+uniform-cost version of the parser is dramatically less efﬁcient; by sentence length 15 it extracts over 800K edges,
+while even at length 40 the A* heuristics are so effective that
+only around 2K edges are extracted. At length 10, the average number is less than 80, and the fraction of edges not
+suppressed is better than 1/10K (and it improves as sentence
+6 Most models, including ours, will also mention distance; we
+
+ignore this for now.
+7 As a probabilistic model, this formulation is mass deﬁcient, assigning mass to pairs which are incompatible, either because they
+do not generate the same terminal string or do not embody compatible bracketings. Therefore, the total mass assigned to valid structures will be less than one. We could imagine ﬁxing this by renormalizing. In particular, this situation ﬁts into the product-of-experts
+framework [Hinton, 2000], with one semantic expert and one syntactic expert that must agree on a single structure. However, since
+we are presently only interested in ﬁnding most-likely parses, no
+global renormalization constants need to be calculated. In any case,
+the question of mass deﬁciency impacts only parameter estimation,
+not inference, which is our focus here.
+
+length increases).8 The A* estimates were so effective that
+even with our object-heavy Java implementation of the combined parser, total parse time was dominated by the initial,
+array-based PCFG phase (see ﬁgure 6b).9
+
+4.1
+
+Speciﬁc Projection Models for Parsing
+
+To test our factored parser, we built several component models, which were intended to show the modularity of the approach. We merely sketch the individual models here; more
+details can be found in [Klein and Manning, 2003]. For P(T ),
+we built successively more accurate PCFGs. The simplest,
+PCFG - BASIC, used the raw treebank grammar, with nonterminals and rewrites taken directly from the training trees [Charniak, 1996]. In this model, nodes rewrite atomically, in a
+top-down manner, in only the ways observed in the training
+data. For improved models of P(T ), tree nodes’ labels were
+annotated with various contextual markers. In PCFG - PA, each
+node was marked with its parent’s label as in [Johnson, 1998].
+It is now well known that such annotation improves the accuracy of PCFG parsing by weakening the PCFG independence
+assumptions. For example, the NP in ﬁgure 3a would actually have been labeled NPˆS. Since the counts were not fragmented by head word or head tag, we were able to directly
+use the MLE parameters, without smoothing.10 The best
+PCFG model, PCFG - LING, involved selective parent splitting, order-2 rule markovization (similar to [Collins, 1999;
+Charniak, 2000]), and linguistically-derived feature splits.
+8 Note that the uniform-cost parser does enough work to exploit
+the shared structure of the dynamic program, and therefore edge
+counts appear to grow polynomially. However, the A* parser does
+so little work that there is minimal structure-sharing. Its edge counts
+therefore appear to grow exponentially over these sentence lengths,
+just like a non-dynamic-programming parser’s would. With much
+longer sentences, or a less efﬁcient estimate, the polynomial behavior would reappear.
+9 There are other ways of speeding up lexicalized parsing without sacriﬁcing search optimality. Eisner and Satta [Eisner and Satta,
+1999] propose a clever O(n 4 ) modiﬁcation which separates this process into two steps by introducing an intermediate object. However,
+even the O(n 4 ) formulation is impractical for exhaustive parsing
+with broad-coverage, lexicalized treebank grammars. The essential
+reason is that the non-terminal set is just too large. We did implement a version of this parser using their O(n 4 ) formulation, but, because of the effectiveness of the A* estimate, it was only marginally
+faster; as ﬁgure 6b shows, the combined search time is very small.
+10 This is not to say that smoothing would not improve performance, but to underscore how the factored model encounters less
+sparsity problems than a joint model.
+
+60
+50
+40
+
+1000
+100
+
+Dependency Phase
+PCFG Phase
+
+30
+20
+
+0
+10
+
+20
+
+30
+
+50
+
+1
+Combination
+PCFG
+Combination/PCFG
+
+10
+
+1
+0
+
+75
+
+25
+
+Uniform-Cost
+A-Star
+
+10
+
+1.5
+
+0
+
+0
+
+40
+
+5
+
+10
+
+15
+
+20
+
+25
+
+Length
+
+35
+
+40
+
+0.5
+0
+
+10
+
+20
+
+30
+
+40
+
+Length
+
+Length
+
+(a)
+
+30
+
+Relative F1
+
+10000
+
+100
+
+Combined Phase
+Absolute F1
+
+100000
+Time (sec)
+
+Edges Processed
+
+1000000
+
+(b)
+
+(c)
+
+Figure 6: (a) A* effectiveness measured by edges expanded, (b) time spent on each phase, and (c) relative F1 , all as sentence length increases.
+PCFG Model
+PCFG-BASIC
+PCFG-PA
+PCFG-LING
+
+Precision
+75.3
+78.4
+83.7
+
+Recall
+70.2
+76.9
+82.1
+
+F1
+72.7
+77.7
+82.9
+
+Exact Match
+11.0
+18.5
+25.7
+
+4.2
+
+(a) PCFG Models Alone
+Dependency Model
+DEP-BASIC
+DEP-VAL
+
+Dependency Acc
+76.3
+85.0
+
+(b) Dependency Models Alone
+Figure 7: Performance of the projection models alone.
+PCFG Model
+PCFG - BASIC
+PCFG - BASIC
+PCFG - PA
+PCFG - PA
+PCFG - LING
+PCFG - LING
+
+Dependency Model
+DEP - BASIC
+DEP - VAL
+DEP - BASIC
+DEP - VAL
+DEP - BASIC
+DEP - VAL
+
+Prec
+80.1
+82.5
+82.1
+84.0
+85.4
+86.6
+
+Rec
+78.2
+81.5
+82.2
+85.0
+84.8
+86.8
+
+F1
+79.1
+82.0
+82.1
+84.5
+85.1
+86.7
+
+Exact
+16.7
+17.7
+23.7
+24.8
+30.4
+32.1
+
+DepAcc
+87.2
+89.2
+88.0
+89.7
+90.3
+91.0
+
+Figure 8: The combined model, with various projection models.
+
+Models of P(D) were lexical dependency models, which
+deal with part-of-speech tagged words: pairs w, t . First
+the head wh , th of a constituent is generated, then successive right dependents wd , td until a STOP token is generated, then successive left dependents until is generated
+again. For example, in ﬁgure 3, ﬁrst we choose fell-VBD
+as the head of the sentence. Then, we generate in-IN to the
+right, which then generates September-NN to the right, which
+generates on both sides. We then return to in-IN, generate to the right, and so on. The dependency models required smoothing, as the word-word dependency data is very
+sparse. In our basic model, DEP - BASIC, we generate a dependent conditioned on the head and direction, requiring a
+model of P(wd , td |wh , th , dir ). This was estimated using a
+back-off model which interpolated the sparse bilexical counts
+with the denser but less speciﬁc counts given by ignoring
+the head word or by ﬁrst generating the dependent tag and
+then generating the dependent word given only the dependent
+tag. The interpolation parameters were estimated on held-out
+data. The resulting model can thus capture classical bilexical selection, such as the afﬁnity between payrolls and fell, as
+well as monolexical preferences, such as the tendency for of
+to modify nouns. In the enhanced dependency model, DEP VAL , we condition not only on direction, but also on distance
+and valence. Note that this is (intentionally) very similar to
+the generative model of [Collins, 1999] in broad structure, but
+substantially less complex.
+
+Parsing Performance
+
+In this section, we describe our various projection models and
+test their empirical performance. There are two ways to measure the accuracy of the parses produced by our system. First,
+the phrase structure of the PCFG and the phrase structure projection of the combination parsers can be compared to the
+treebank parses. The parsing measures standardly used for
+this task are labeled precision and recall.11 We also report
+F1 , the harmonic mean of these two quantities. Second, for
+the dependency and combination parsers, we can score the
+dependency structures. A dependency structure D is viewed
+as a set of head-dependent pairs h, d , with an extra dependency r oot, x where r oot is a special symbol and x is the
+head of the sentence. Although the dependency model generates part-of-speech tags as well, these are ignored for dependency accuracy. Punctuation is not scored. Since all dependency structures over n non-punctuation terminals contain n dependencies (n − 1 plus the root dependency), we
+report only accuracy, which is identical to both precision and
+recall. It should be stressed that the “correct” dependency
+structures, though generally correct, are generated from the
+PCFG structures by linguistically motivated, but automatic,
+and only heuristic rules.
+Figure 7 shows the relevant scores for the various PCFG
+and dependency parsers alone. The valence model increases
+the dependency model’s accuracy from 76.3% to 85.0%, and
+each successive enhancement improves the F1 of the PCFG
+models, from 72.7% to 77.7% to 82.9%. The combination
+parser’s performance is given in ﬁgure 8. As each individual model is improved, the combination F1 is also improved,
+from 79.1% with the pair of basic models to 86.7% with the
+pair of top models. The dependency accuracy also goes up:
+from 87.2% to 91.0%. Note, however, that even the pair of basic models has a combined dependency accuracy higher than
+the enhanced dependency model alone, and the top three have
+combined F1 better than the best PCFG model alone. For the
+top pair, ﬁgure 6c illustrates the relative F1 of the combination parser to the PCFG component alone, showing the unsurprising trend that the addition of the dependency model helps
+11 A tree T is viewed as a set of constituents c(T ). Constituents
+in the correct and the proposed tree must have the same start, end,
+and label to be considered identical. For this measure, the lexical
+heads of nodes are irrelevant. The actual measures used are detailed
+in [Magerman, 1995], and involve minor normalizations like the removal of punctuation in the comparison.
+
+more for longer sentences, which, on average, contain more
+attachment ambiguity. The top F1 of 86.7% is greater than
+that of the lexicalized parsers presented in [Magerman, 1995;
+Collins, 1996], but less than that of the newer, more complex, parsers presented in [Charniak, 2000; Collins, 1999],
+which reach as high as 90.1% F1 . However, it is worth pointing out that these higher-accuracy parsers incorporate many
+ﬁnely wrought enhancements which could presumably be applied to beneﬁt our individual models.12
+
+4.3
+
+Factored Bounds for Non-Projection Models
+
+Arbitrary tree models will not be factored projection models.
+For example, while our parsing model was expressly designed
+so that P(T, D) = P(T )P(D), to our knowledge no other
+model over lexicalized trees with this decomposition has been
+proposed. Nonetheless, non-factored models can still have
+factored bounds. Given any model P(A, B), we can imagine
+bounds R(A) and R(B) that obey:
+∀A, B : P(A, B) < R(A)R(B)
+Trivially, R(A) = R(B) = 1 will do.
+To
+get a non-trivial bound, consider a joint (local) model
+P(XY, h |Z , h) of lexicalized tree rewrites. Early lexicalized parsing work [Charniak, 1997] used models of exactly this form. We can use the chain rule to write
+P(XY, h |Z , h) = P(XY |Z , h)P(h |XY, Z , h). Then, we
+can form R(XY |Z ) = maxh P(XY |Z , h) and R(h |h) =
+max X Y,Z P(h |XY, Z , h). This technique allows one to use
+factored A* search for non-factored models, though one
+might reasonably expect such bounds to be much less sharp
+for non-factored models than for factored models. A particular application of this method for future work would be the exact parsing of the models in [Charniak, 1996; Collins, 1999;
+Charniak, 2000], as the details of their estimation suggest that
+their word dependency and phrase structure aspects would be
+approximately factorizable.
+
+5 Conclusion
+Not all models will factor, nor will all models which factor necessarily have tight factored bounds (for example MSA
+with many sequences or parsing if the component models do
+not prefer similar structures). However, when we can design
+factored models or ﬁnd good factored bounds, the method of
+factored A* search has proven very effective. For the MSA
+problem, A* methods allow exact alignment of up to 9 protein sequences (though 5–6 is more typical) of length 100–
+300, when even three-way exhaustive alignment can easily
+exhaust memory. For the parsing problem, we have presented
+here the ﬁrst optimal lexicalized parser which can exactly
+parse sentences of reasonable length using large real-world
+Penn Treebank grammars. The projected models can be designed and improved modularly, with improvements to each
+model raising the combined accuracy. Finally, we hope that
+this framework can be proﬁtably used on the other sequence
+12 For example, the dependency distance function of [Collins,
+
+1999] registers punctuation and verb counts, and both smooth the
+PCFG production probabilities.
+
+models we outlined, and on any large space which can naturally be viewed as a composition of (possibly overlapping)
+projections.
+Acknowledgements
+We would like to thank Lillian Lee, Fernando Pereira, and
+Dan Melamed for advice and discussion about this work.
+References
+[Albro, 2000] Daniel M. Albro. Taking primitive optimality theory
+beyond the ﬁnite state. In Proceedings of the Special Interest
+Group in Computational Phonology, 2000.
+[Charniak, 1996] Eugene Charniak. Tree-bank grammars. In AAAI
+13, pages 1031–1036, 1996.
+[Charniak, 1997] Eugene Charniak. Statistical parsing with a
+context-free grammar and word statistics. In AAAI 14, pages
+598–603, 1997.
+[Charniak, 2000] Eugene Charniak. A maximum-entropy-inspired
+parser. In NAACL 1, pages 132–139, 2000.
+[Collins, 1996] Michael John Collins. A new statistical parser
+based on bigram lexical dependencies. In ACL 34, pages 184–
+191, 1996.
+[Collins, 1999] Michael Collins. Head-Driven Statistical Models
+for Natural Language Parsing. PhD thesis, Univ. of Pennsylvania, 1999.
+[Durbin et al., 1998] R. Durbin, S. Eddy, A. Krogh, and G. Mitchison. Biological Sequence Analysis: Probabilistic Models of Proteins and Nucleic Acids. Cambridge University Press, 1998.
+[Eisner and Satta, 1999] Jason Eisner and Giorgio Satta. Efﬁcient
+parsing for bilexical context-free grammars and head-automaton
+grammars. In ACL 37, pages 457–464, 1999.
+[Gallo et al., 1993] G. Gallo, G. Longo, S. Pallottino, and Sang
+Nguyen. Directed hypergraphs and applications. Discrete Applied Mathematics, 42:177–201, 1993.
+[Hindle and Rooth, 1993] Donald Hindle and Mats Rooth. Structural ambiguity and lexical relations. Computational Linguistics,
+19(1):103–120, 1993.
+[Hinton, 2000] Geoffrey E. Hinton. Training products of experts by
+minimizing contrastive divergence. Technical Report GCNU TR
+2000-004, GCNU, University College London, 2000.
+[Ikeda and Imai, 1994] T. Ikeda and T. Imai. Fast A* algorithms for
+multiple sequence alignment. In Genome Informatics Workshop
+V, pages 90–99, 1994.
+[Johnson, 1998] Mark Johnson. PCFG models of linguistic tree
+representations. Computational Linguistics, 24:613–632, 1998.
+[Kaplan and Kay, 1994] Ron Kaplan and Martin Kay. Regular
+model of phonological rule systems. Computational Linguistics,
+20:331–378, 1994.
+[Klein and Manning, 2003] Dan Klein and Christopher D. Manning. Fast exact inference with a factored model for natural language parsing. In NIPS, volume 15. MIT Press, 2003.
+[Magerman, 1995] David M. Magerman. Statistical decision-tree
+models for parsing. In ACL 33, pages 276–283, 1995.
+[McClure et al., 1994] M.A McClure, T.K. Vasi, and W.M. Fitch.
+Comparative analysis of multiple protein-sequence alignment
+methods. Molecular Biology and Evolution, 11:571–592, 1994.
+[Mohri, 1997] Mehryar Mohri. Finite-state transducers in language
+and speech processing. Computational Linguistics, 23(4):269–
+311, 1997.
+[Yoshizumi et al., 2000] Takayuki Yoshizumi, Teruhisa Miura, and
+Toru Ishida. A* with partial expansion for large branching factor
+problems. In AAAI/IAAI, pages 923–929, 2000.
+
+

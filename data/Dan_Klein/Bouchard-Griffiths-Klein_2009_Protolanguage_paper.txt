@@ -1,0 +1,1406 @@
+Improved Reconstruction of Protolanguage Word Forms
+Alexandre Bouchard-Cˆ t´ ∗ Thomas L. Grifﬁths† Dan Klein∗
+oe
+∗
+Computer Science Division † Department of Psychology
+University of California at Berkeley
+Berkeley, CA 94720
+Abstract
+We present an unsupervised approach to reconstructing ancient word forms. The present
+work addresses three limitations of previous
+work. First, previous work focused on faithfulness features, which model changes between successive languages. We add markedness features, which model well-formedness
+within each language. Second, we introduce
+universal features, which support generalizations across languages. Finally, we increase
+the number of languages to which these methods can be applied by an order of magnitude by using improved inference methods.
+Experiments on the reconstruction of ProtoOceanic, Proto-Malayo-Javanic, and Classical
+Latin show substantial reductions in error rate,
+giving the best results to date.
+
+1
+
+Introduction
+
+A central problem in diachronic linguistics is the reconstruction of ancient languages from their modern
+descendants (Campbell, 1998). Here, we consider
+the problem of reconstructing phonological forms,
+given a known linguistic phylogeny and known cognate groups. For example, Figure 1 (a) shows a collection of word forms in several Oceanic languages,
+all meaning to cry. The ancestral form in this case
+has been presumed to be /taNis/ in Blust (1993). We
+are interested in models which take as input many
+such word tuples, each representing a cognate group,
+along with a language tree, and induce word forms
+for hidden ancestral languages.
+The traditional approach to this problem has been
+the comparative method, in which reconstructions
+are done manually using assumptions about the relative probability of different kinds of sound change
+(Hock, 1986). There has been work attempting to
+automate part (Durham and Rogers, 1969; Eastlack,
+1977; Lowe and Mazaudon, 1994; Covington, 1998;
+
+Kondrak, 2002) or all of the process (Oakes, 2000;
+Bouchard-Cˆ t´ et al., 2008). However, previous auoe
+tomated methods have been unable to leverage three
+important ideas a linguist would employ. We address these omissions here, resulting in a more powerful method for automatically reconstructing ancient protolanguages.
+First, linguists triangulate reconstructions from
+many languages, while past work has been limited to small numbers of languages. For example,
+Oakes (2000) used four languages to reconstruct
+Proto-Malayo-Javanic (PMJ) and Bouchard-Cˆ t´ et
+oe
+al. (2008) used two languages to reconstruct Classical Latin (La). We revisit these small datasets
+and show that our method signiﬁcantly outperforms
+these previous systems. However, we also show that
+our method can be applied to a much larger data
+set (Greenhill et al., 2008), reconstructing ProtoOceanic (POc) from 64 modern languages. In addition, performance improves with more languages,
+which was not the case for previous methods.
+Second, linguists exploit knowledge of phonological universals. For example, small changes in vowel
+height or consonant place are more likely than large
+changes, and much more likely than change to arbitrarily different phonemes. In a statistical system,
+one could imagine either manually encoding or automatically inferring such preferences. We show that
+both strategies are effective.
+Finally, linguists consider not only how languages
+change, but also how they are internally consistent.
+Past models described how sounds do (or, more often, do not) change between nodes in the tree. To
+borrow broad terminology from the Optimality Theory literature (Prince and Smolensky, 1993), such
+models incorporated faithfulness features, capturing the ways in which successive forms remained
+similar to one another. However, each language
+has certain regular phonotactic patterns which con-
+
+strain these changes. We encode such patterns using markedness features, characterizing the internal
+phonotactic structure of each language. Faithfulness
+and markedness play roles analogous to the channel
+and language models of a noisy-channel system. We
+show that markedness features improve reconstruction, and can be used efﬁciently.
+
+2
+
+Related work
+
+Our focus in this section is on describing the properties of the two previous systems for reconstructing ancient word forms to which we compare our
+method. Citations for other related work, such as
+similar approaches to using faithfulness and markedness features, appear in the body of the paper.
+In Oakes (2000), the word forms in a given protolanguage are reconstructed using a Viterbi multialignment between a small number of its descendant
+languages. The alignment is computed using handset parameters. Deterministic rules characterizing
+changes between pairs of observed languages are extracted from the alignment when their frequency is
+higher than a threshold, and a proto-phoneme inventory is built using linguistically motivated rules and
+parsimony. A reconstruction of each observed word
+is ﬁrst proposed independently for each language. If
+at least two reconstructions agree, a majority vote
+is taken, otherwise no reconstruction is proposed.
+This approach has several limitations. First, it is not
+tractable for larger trees, since the time complexity
+of their multi-alignment algorithm grows exponentially in the number of languages. Second, deterministic rules, while elegant in theory, are not robust
+to noise: even in experiments with only four daughter languages, a large fraction of the words could not
+be reconstructed.
+In Bouchard-Cˆ t´ et al. (2008), a stochastic model
+oe
+of sound change is used and reconstructions are inferred by performing probabilistic inference over an
+evolutionary tree expressing the relationships between languages. The model does not support generalizations across languages, and has no way to capture phonotactic regularities within languages. As a
+consequence, the resulting method does not scale to
+large phylogenies. The work we present here addresses both of these issues, with a richer model
+and faster inference allowing improved reconstruc-
+
+tion and increased scale.
+
+3
+
+Model
+
+We start this section by introducing some notation.
+Let τ be a tree of languages, such as the examples
+in Figure 3 (c-e). In such a tree, the modern languages, whose word forms will be observed, are the
+leaves of τ . All internal nodes, particularly the root,
+are languages whose word forms are not observed.
+Let L denote all languages, modern and otherwise.
+All word forms are assumed to be strings Σ∗ in the
+International Phonological Alphabet (IPA).1
+We assume that word forms evolve along the
+branches of the tree τ . However, it is not the case
+that each cognate set exists in each modern language. Formally, we assume there to be a known
+list of C cognate sets. For each c ∈ {1, . . . , C}
+let L(c) denote the subset of modern languages that
+have a word form in the c-th cognate set. For each
+set c ∈ {1, . . . , C} and each language ∈ L(c), we
+denote the modern word form by wc . For cognate
+set c, only the minimal subtree τ (c) containing L(c)
+and the root is relevant to the reconstruction inference problem for that set.
+From a high-level perspective, the generative process is quite simple. Let c be the index of the current cognate set, with topology τ (c). First, a word
+is generated for the root of τ (c) using an (initially
+unknown) root language model (distribution over
+strings). The other nodes of the tree are drawn incrementally as follows: for each edge → in τ (c) use
+a branch-speciﬁc distribution over changes in strings
+to generate the word at node .
+In the remainder of this section, we clarify the exact form of the conditional distributions over string
+changes, the distribution over strings at the root, and
+the parameterization of this process.
+3.1
+
+Markedness and Faithfulness
+
+In Optimality Theory (OT) (Prince and Smolensky,
+1993), two types of constraints inﬂuence the selection of a realized output given an input form: faithfulness and markedness constraints. Faithfulness en1
+
+The choice of a phonemic representation is motivated by
+the fact that most of the data available comes in this form. Diacritics are available in a smaller number of languages and may
+vary across dialects, so we discarded them in this work.
+
+x1 x2 x3 x4
+# t a ŋ
+
+x5 x6 x7
+i s #
+
+The yi ’s may be a single character, multiple characters, or even empty. In the example shown, all three
+Language
+Word form
+over an
+#
+a ferred by performing probabilistic inference occur.
+ng i
+#
+of these cases
+Proto Oceanic
+/taNis/
+y1 y2 y3 evolutionaryy7
+y4 y5 y6 tree expressing the relationships beLau
+/aNi/
+tween languages. Use of approximate inference i , we deﬁne a mutation Markov
+To generate y and
+(c) θ
+Kwara’ae
+/angi/
+S
+θI
+ŋstochastic rules addresses some of the limitations of
+chain that incrementally adds zero or more characTaiof
+/taNis/
+(Oakes, 2000), but the resulting method is computaters to an initially empty yi . First, we decide whether
+Table 1: A cognate set from the Austronesian dataset. All tionally demanding and consequently does not scale
+g
+nto large phylogenies. The high computational cost
+a
+? ..
+word forms mean to cry.
+the current phoneme in the top word t = xi will be
+(f) /taŋi/ (e) /taŋi/
+(d)
+of probabilistic inference also limits the features that
+deleted, in whichfea- yi = as in the example of
+case
+1[ŋ⟶g@Kw]
+can be included in the model (omitting global
+1[ŋ⟶g]
+ŋ
+constrain these changes. We encode such patterns
+1[Subst] generalizations across languages, t is not deleted, we chose a sin/s/ being deleted. If
+tures supporting
+/aŋi/
+1[(n)@Kw]
+using markedness/aŋi/
+features, characterizing the interand 1[(n g)@Kw] features within languages). character in the bottom word. This
+markedness
+gle substitution The
+1[Insert]
+nal phonotactic structure of each language. Faithwork we present here addresses both of these issues,
+1[(g)@Kw]
+g
+fulness and markedness play /angi/analogous tonthe
+roles
+is the case both when /a/ is unchanged and when /N/
+/angi/
+with faster inference and a richer model allowing inchannel and language models of a noisy-channel
+substitutes to
+creased scale and improved reconstruction. /n/. We write S = Σ ∪ {ζ} for this set
+system. We show that markedness features greatly
+Figure 1: (a) A quality, and wefrom the Austronesian dataset. of outcomes, where ζ is the special outcome indicognate set show how to 3 Model
+improve reconstruction
+work All wordefﬁciently.
+with them forms mean to cry. (b-d) The mutation model
+cating deletion. Importantly, the probabilities of this
+We start
+used in this paper. (b) The mutation of POc this section by introducing somecan depend on both the previous char/taNis/ to multinomial notation.
+Let τ be a tree of languages, such as the examples in
+2 Related Work
+Kw. /angi/. (c) Graphical model depicting the 4 (c-e). In such a tree, the generated so far (i.e. the rightmost character
+Figure dependenacter modern languages,
+Our focus in this section is on describing the of the mutation Markov
+cies among variables in one step prop- whose word forms will be observed, are the leaves
+p of yi−1 ) and the current character in the previous
+ertieschain. two previous systems for for one step 1 . . this. process. nodes, particularly the root,
+of the (d) Active features reconstructin . m All internal
+ing ancient word forms to which we compare our are languages whose word forms are not observed. As we will see shortly, this al(e-f) Comparison of two inference procedures on trees: generation string (t).
+method. Citations for other related work, such as Let L denote all languages, modern and otherwise.
+lows modelling markedness and faithfulness at every
+Single sequence resampling (e) draws
+similar approaches to using faithfulness and marked- one sequence at aassumed to be strings Σ∗ in the
+All word forms are
+branch, jointly. This multinomial decision acts as
+time, conditioned body of the paper.
+ness features, appear in the on its parent and children, while ancesInternational Phonological Alphabet (IPA).1
+In Oakes (2000), the worddrawsin a given prototry resampling (f) forms an aligned slice from ﬁrst words the initial distribution of the mutation Markov chain.
+As a all approximation, we assume that word
+language are reconstructed using atrees, the latter forms evolve along the branches of the tree τ . Howsimultaneously. In large Viterbi multi- is more efﬁcient
+We consider insertions only if a deletion was not
+alignment between a small number of its descendant ever, it is not the case that each cognate set exists
+than the former.
+selected in the ﬁrst
+languages. The alignment is computed using hand- in each modern langugage. Formally, we assume step. Here, we draw from a
+set parameters. Deterministic rules characterizing there to be a known list of C cognate sets.over S , where this time the special outmultinomial For each
+changes between pairs of observed languages are ex- c ∈ {1, . . . , C} let L(c) denote the subset of modcome ζ corresponds to stopping insertions, and the
+tracted from the alignment when their frequency is ern languages that have a word form in the c-th cogcourages similarity between the input and output other
+higher than a threshold, and a proto-phoneme inven- nate set. For each set c ∈ {1, . . .elements oflan- correspond to symbols that are
+, C} and each S
+while markedness favors well-formed output.
+tory is built using linguistically motivated rules and guage ∈ L(c), we denote the modern word form
+appended to yi . In this case, the conditioning enviparsimony. A reconstruction of each observed word by wc . computa- set c, only the minimal subtree
+Viewed from this perspective, previous For cognate ronment is t = x and the current rightmost symbol
+is ﬁrst proposed independently for each language. If τ (c) containing L(c) and the root is relevant toithe
+tional approaches to reconstruction reconstruction inference p in yifor Insertions continue until ζ is selected. In
+at least two reconstructions agree, a majority vote are based almost
+problem . that set.
+is taken, otherwise no reconstruction is proposed.
+exclusively on faithfulness, expressed through a mu- perspective, the generative proFrom a high-level
+the example, we follow the substitution of /N/ to /n/
+This approach has several limitations. First, it is cess is quite simple. Let c be the index of the curtation model. Only the words in the language at the with an insertion of /g/, followed by a decision to
+not tractable for larger trees since the complexity of rent cognate set, with topology τ (c). First, a word
+root of the algorithm grows exponentially encouraged to
+the multi-alignment tree, if any, are explicitlyis generated for the rootstop that yi .an (initially use θS,t,p, and θI,t,p, to denote
+of τ (c) using We will
+in the number of languages. In contrast, we incorporate conbe well-formed. Second, determinis- unknown) root languagethe probabilities over the substitution and insertion
+model (distribution over
+tic rules, while elegant in theory, are not robust to strings). The other nodes of the tree are drawn instraints on markedness for each language with both decisions
+→ .
+noise: even in experiments with only four daughter crementally as follows: for each edge in the current branch
+→ in τ (c)
+general and branch-speciﬁc constraints on faithfullanguages, a large fraction of the words could not be
+A similarmotivated by generates the word at the root
+process
+1
+The choice of a phonemic representation is
+reconstructed. This is done using a lexicalized that most of the data available comes in this form. Dianess.
+the fact stochastic
+of a tree, treating this word as a single string
+In Bouchard-Cˆ t´ et al. (2008), a stochastic model critics are available in a smaller number of languages and may
+oe
+string transducer reconstructions are in- vary across dialects, so we discartedgenerated from a dummy ancestor t = x1 . In
+(Varadarajan et al., 2008).
+y1 them in this work.
+of sound change is used and
+We now make precise the conditional distribu- this case, only the insertion probabilities matter, and
+tions over pairs of evolving strings, referring to Fig- we separately parameterize these probabilities with
+ure 1 (b-d). Consider a language evolving to
+θR,t,p, . There is no actual dependence on t at the
+for cognate set c. Assume we have a word form root, but this formulation allows us to unify the pax = wcl . The generative process for producing rameterization, with each θω,t,p, ∈ R|Σ|+1 where
+y = wcl works as follows. First, we consider ω ∈ {R, S, I}.
+x to be composed of characters x1 x2 . . . xn , with
+the ﬁrst and last being a special boundary symbol 3.2 Parameterization
+x1 = # ∈ Σ which is never deleted, mutated, or Instead of directly estimating the transition probacreated. The process generates y = y1 y2 . . . yn in bilities of the mutation Markov chain (as the paramn chunks yi ∈ Σ∗ , i ∈ {1, . . . , n}, one for each xi . eters of a collection of multinomial distributions) we
+(a)
+
+(b)
+
+express them as the output of a log-linear model. We
+used the following feature templates:
+OPERATION identiﬁes whether an operation in the
+mutation Markov chain is an insertion, a deletion,
+a substitution, a self-substitution (i.e. of the form
+x → y, x = y), or the end of an insertion event.
+Examples in Figure 1 (d): 1[Subst] and 1[Insert].
+MARKEDNESS consists of language-speciﬁc ngram indicator functions for all symbols in Σ. Only
+unigram and bigram features are used for computational reasons, but we show in Section 5 that this
+already captures important constraints. Examples in
+Figure 1 (d): the bigram indicator 1[(n g)@Kw] (Kw
+stands for Kwara’ae, a language of the Solomon
+Islands), the unigram indicators 1[(n)@Kw] and
+1[(g)@Kw].
+FAITHFULNESS consists of indicators for mutation events of the form 1[x → y], where x ∈ Σ,
+y ∈ S . Examples: 1[N → n], 1[N → n@Kw].
+Feature templates similar to these can be found
+for instance in Dreyer et al. (2008) and Chen (2003),
+in the context of string-to-string transduction. Note
+also the connection with stochastic OT (Goldwater
+and Johnson, 2003; Wilson, 2006), where a loglinear model mediates markedness and faithfulness
+of the production of an output form from an underlying input form.
+3.3
+
+Parameter sharing
+
+Data sparsity is a signiﬁcant challenge in protolanguage reconstruction. While the experiments we
+present here use an order of magnitude more languages than previous computational approaches, the
+increase in observed data also brings with it additional unknowns in the form of intermediate protolanguages. Since there is one set of parameters
+for each language, adding more data is not sufﬁcient
+for increasing the quality of the reconstruction: we
+show in Section 5.2 that adding extra languages can
+actually hurt reconstruction using previous methods.
+It is therefore important to share parameters across
+different branches in the tree in order to beneﬁt from
+having observations from more languages.
+As an example of useful parameter sharing, consider the faithfulness features 1[/p/ → /b/] and
+1[/p/ → /r/], which are indicator functions for the
+appearance of two substitutions for /p/. We would
+like the model to learn that the former event (a sim-
+
+ple voicing change) should be preferred over the latter. In Bouchard-Cˆ t´ et al. (2008), this has to be
+oe
+learned for each branch in the tree. The difﬁculty is
+that not all branches will have enough information
+to learn this preference, meaning that we need to deﬁne the model in such a way that it can generalize
+across languages.
+We used the following technique to address this
+problem: we augment the sufﬁcient statistics of
+Bouchard-Cˆ t´ et al. (2008) to include the current
+oe
+language (or language at the bottom of the current
+branch) and use a single, global weight vector instead of a set of branch-speciﬁc weights. Generalization across branches is then achieved by using
+features that ignore , while branch-speciﬁc features
+depend on .
+For instance, in Figure 1 (d), 1[N → n] is
+an example of a universal (global) feature shared
+across all branches while 1[N → n@Kw] is branchspeciﬁc. Similarly, all of the features in OPERA TION , MARKEDNESS and FAITHFULNESS have universal and branch-speciﬁc versions.
+3.4 Objective function
+Concretely, the transition probabilities of the mutation and root generation are given by:
+θω,t,p, (ξ) =
+
+exp{ λ, f (ω, t, p, , ξ) }
+× µ(ω, t, ξ),
+Z(ω, t, p, , λ)
+
+where ξ ∈ S , f : {S, I, R}×Σ×Σ×L×S → Rk
+is the sufﬁcient statistics or feature function, ·, ·
+denotes inner product and λ ∈ Rk is a weight vector.
+Here, k is the dimensionality of the feature space of
+the log-linear model. In the terminology of exponential families, Z and µ are the normalization function
+and reference measure respectively:
+exp{ λ, f (ω, t, p, , ξ ) }
+
+Z(ω, t, p, , λ) =
+ξ ∈S
+
+
+ 0
+
+
+0
+µ(ω, t, ξ) =
+ 0
+
+
+1
+
+if ω = S, t = #, ξ = #
+if ω = R, ξ = ζ
+if ω = R, ξ = #
+o.w.
+
+Here, µ is used to handle boundary conditions.
+We will also need the following notation: let
+Pλ (·), Pλ (·|·) denote the root and branch probability models described in Section 3.1 (with transition
+probabilities given by the above log-linear model),
+I(c), the set of internal (non-leaf) nodes in τ (c),
+pa( ), the parent of language , r(c), the root of τ (c)
+
+and W (c) = (Σ∗ )|I(c)| . We can summarize our objective function as follows:
+C
+X
+c=1
+
+log
+
+X
+w∈W (c)
+
+Pλ (wc,r(c) )
+
+Y
+
+Pλ (wc, |wc,pa( ) ) −
+
+∈I(c)
+
+The second term is a standard
+penalty (we used σ 2 = 1).
+
+4
+
+L2
+
+||λ||2
+2
+2σ 2
+
+regularization
+
+Learning algorithm
+
+Learning is done using a Monte Carlo variant of the
+Expectation-Maximization (EM) algorithm (Dempster et al., 1977). The M step is convex and computed using L-BFGS (Liu et al., 1989); but the E
+step is intractable (Lunter et al., 2003), so we used
+a Markov chain Monte Carlo (MCMC) approximation (Tierney, 1994). At E step t = 1, 2, . . . , we
+simulated the chain for O(t) iterations; this regime
+is necessary for convergence (Jank, 2005).
+In the E step, the inference problem is to compute an expectation under the posterior over strings
+in a protolanguage given observed word forms at the
+leaves of the tree. The typical approach in biology
+or historical linguistics (Holmes and Bruno, 2001;
+Bouchard-Cˆ t´ et al., 2008) is to use Gibbs samoe
+pling, where the entire string at a single node in the
+tree is sampled, conditioned on its parent and children. This sampling domain is shown in Figure 1 (e),
+where the middle word is completely resampled but
+adjacent words are ﬁxed. We will call this method
+Single Sequence Resampling (SSR). While conceptually simple, this approach suffers from problems
+in large trees (Holmes and Bruno, 2001). Consequently, we use a different MCMC procedure,
+called Ancestry Resampling (AR) that alleviates
+the mixing problems (Figure 1 (f)). This method
+was originally introduced for biological applications
+(Bouchard-Cˆ t´ et al., 2009), but commonalities beoe
+tween the biological and linguistic cases make it
+possible to use it in our model.
+Concretely, the problem with SSR arises when the
+tree under consideration is large or unbalanced. In
+this case, it can take a long time for information
+from the observed languages to propagate to the root
+of the tree. Indeed, samples at the root will initially be independent of the observations. AR addresses this problem by resampling one thin vertical
+slice of all sequences at a time, called an ancestry.
+For the precise deﬁnition, see Bouchard-Cˆ t´ et al.
+oe
+
+(2009). Slices condition on observed data, avoiding
+the problems mentioned above, and can propagate
+information rapidly across the tree.
+
+5
+
+Experiments
+
+We performed a comprehensive set of experiments
+to test the new method for reconstruction outlined
+above. In Section 5.1, we analyze in isolation the
+effects of varying the set of features, the number of
+observed languages, the topology, and the number
+of iterations of EM. In Section 5.2 we compare performance to an oracle and to three other systems.
+Evaluation of all methods was done by computing
+the Levenshtein distance (Levenshtein, 1966) between the reconstruction produced by each method
+and the reconstruction produced by linguists. We
+averaged this distance across reconstructed words to
+report a single number for each method. We show
+in Table 2 the average word length in each corpus;
+note that the Latin average is much larger, giving
+an explanation to the higher errors in the Romance
+dataset. The statistical signiﬁcance of all performance differences are assessed using a paired t-test
+with signiﬁcance level of 0.05.
+5.1
+
+Evaluating system performance
+
+We used the Austronesian Basic Vocabulary
+Database (Greenhill et al., 2008) as the basis for
+a series of experiments used to evaluate the performance of our system and the factors relevant to
+its success. The database includes partial cognacy
+judgments and IPA transcriptions, as well as a few
+reconstructed protolanguages. A reconstruction of
+Proto-Oceanic (POc) originally developed by Blust
+(1993) using the comparative method was the basis
+for evaluation.
+We used the cognate information provided in
+the database, automatically constructing a global
+tree2 and set of subtrees from the cognate set indicator matrix M ( , c) = 1[ ∈ L(c)], c ∈
+{1, . . . , C}, ∈ L. For constructing the global tree,
+we used the implementation of neighbor joining in
+the Phylip package (Felsenstein, 1989). We used
+a distance based on cognates overlap, dc ( 1 , 2 ) =
+C
+We bootstrapped 1000
+c=1 M ( 1 , c)M ( 2 , c).
+2
+
+The dataset included a tree, but it was out of date as of
+November 2008 (Greenhill et al., 2008).
+
+Pt
+
+2.6
+
+Nggela
+Bugotu
+Tape
+Avava
+Neveei
+Naman
+Nese
+SantaAna
+Nahavaq
+Nati
+KwaraaeSol
+Lau
+Kwamera
+Tolo
+Marshalles
+PuloAnna
+ChuukeseAK
+SaipanCaro
+Puluwatese
+Woleaian
+PuloAnnan
+Carolinian
+Woleai
+Chuukese
+Nauna
+PaameseSou
+Anuta
+VaeakauTau
+Takuu
+Tokelau
+Tongan
+Samoan
+IfiraMeleM
+Tikopia
+Tuvalu
+Niue
+FutunaEast
+UveaEast
+Rennellese
+Emae
+Kapingamar
+Sikaiana
+Nukuoro
+
+2.6
+Condition
+Unsupervised full system
+2.4
+-FAITHFULNESS
+-MARKEDNESS
+2.2
+-Sharing
+-Topology
+2
+Semi-supervised system
+
+2.2
+
+3.6
+
+Edit dist.
+1.87
+2.02
+2.18
+1.99
+2.06
+1.75
+
+Condition
+Unsupervised full system
+-FAITHFULNESS
+-MARKEDNESS
+-Sharing
+-Topology
+Semi-supervised system
+
+3.6
+
+3.4
+
+3.2
+
+3
+
+3
+
+Error
+
+Es
+
+Error
+
+La
+
+Error
+
+It
+
+POc
+
+2.8
+
+2.6
+
+1.8
+2.4
+Table 2: Effects of ablation of various aspects of our
+unsupervised system on mean edit distance to proto
+Oceanic. -Sharing corresponds to the subset of the feaetic trees for three language families.
+tures
+1.4
+1.8
+e top left: Romance, Austronesian andin OPERATION, FAITHFULNESS and MARKEDNESS
+EM Iteration
+Number30
+of modern languages
+that condition on 0 current language, -Topology correthe
+60
+0
+10
+20
+nic.
+sponds to using a ﬂat topology where the only edges in
+the tree connect modern languages to prototarget reconstruction of 5: Mean distance to the target reconstruction of
+Figure 4: Mean distance to the Oceanic. The Figure
+semi-supervised system as a function in the number of modern lan- a function of the EM iteration.
+text. All dif- POc as
+proto Oceanic is described of
+system and the factors relevant to
+ferences (compared toby the inference procedure.
+guages used the unsupervised full system) are
+database contained, as of Novemstatistically signiﬁcant.
+2.4
+
+1.8
+
+2.2
+
+1.6
+
+2
+
+1.4
+
+0
+
+10
+
+20
+
+30
+
+40
+
+50
+
+60
+
+N. of modern lang.
+
+70
+
+1.8
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+12
+
+14
+
+16
+
+18
+
+20
+
+EM iteration
+
+8 lexical items from 587 languages
+5.2 Comparisons against other methods
+Austronesian language family. The
+ones being confused with an improvement producedﬁrst two competing methods, PRAGUE and
+The
+s partial cognacy judgments and
+by for each the It is semi-supervised
+ical model) increasingrun. number of languages. in BCLKG, are described in Oakes (2000) and
+s, as well as a few reconstructed
+the sense that gold reconstruction for many internal Bouchard-Cˆ t´ et al. (2008) respectively and sumoe
+The results are reported in Figure 4. They conA reconstruction of Proto Oceanic
+nodes are not available (such as the common ancesautodeveloped by (Blust, 1993) using ﬁrm that large-scale inference is desirable for marized them in Section 1. Neither approach scales
+tor of Kw. and proto-language reconstruction: going from 2- large datasets. In the ﬁrst case, the bottleneck
+well to
+matic Lau in Figure 6).3
+method was the basis for evaluation.
+is the complexity of computing multi-alignments
+gnate information provided in the to-4, 4-to-8, 8-to-16,of a concrete run over signiﬁFigure 6 shows the results 16-to-32 languages all
+without guide trees and the vanishing probability
+tically constructing a global 32 languages, zoomingreconstruction.the Solomonic an avtree2 cantly helped in to a pair of There was still
+erage edit cognate set from Table of 0.05 from thatto
+distance improvement 1. In the
+32 independent reconstructions agree. In the seclanguages and the
+es from the cognate set indicator
+64 languages, altough thisis as good as the ond case, the problem comes from slow mixing of
+was not statistically sigexample
+1[ ∈ L(c)], c ∈ {1, . . . , C}, ∈ shown, the reconstruction
+the inference algorithm and the unregularized prooracle, niﬁcant.
+ing the global tree, we used the though off by one character (the ﬁnal /s/ is
+liferation of parameters. For this reason, we built a
+not presentWe then of the 32 inputs and of experiments inin any conducted a number therefore
+f neighbor joining in the Phylip
+third
+tended to assess the robustness of the system, and tobaseline that scales well in large datasets.
+not
+tein, 1989). The distanceisma- reconstructed). The diagrams show, for both
+This
+mming distance of cognate the global and the local features, the expectations factors it third baseline, CENTROID, computes the
+indi- identify the contribution made by different
+C
+incorporates. First, we ran the IPA sound centroid of the observed word forms in Leveneach substitution superimposed on an system with 20 dif=
+c=1 M ( 1 , c)M ( 2 , c).ofWe
+Let L(x, y) denote the Levferent as a list seeds and assessed the stability of the distance.
+random of the top changes. Darker shtein
+chart,
+0 samples and formed an accurate as well
+solution found. In This run learning was enshtein distance between word forms x and
+lines
+tree. The tree obtained is not bi- indicate higher counts.each cases, did not use stable
+y.
+Ideally, we would like the baseline to
+natural and constraints, but it can be Figure 5.
+nference algorithm scales linearly class helded performances. Seeseen that linplausible substitutions of learned. The return argminx∈Σ∗ y∈O L(x, y), where O =
+actor of the tree (in contrast,guistically Next, we found that all arethe following ablations
+SSR
+global features preferhurts reconstruction: changes, ﬂat tree . . , y|O| } is the set of observed word forms.
+a range of voicing using a {y1 , .
+signiﬁcantly
+lly (Lunter et al., 2003)).
+manner in which all languages motion, and so on, Note that the optimum is not changed if we restrict
+we veriﬁed experimentally is that changes, adjacent vowel are equidistant from the re∗
+including mutations root and from each other instead the minimization to be taken on x ∈ Σ(O) such
+rved languages aids reconstruction constructedlike /s/ to /h/ which are common of the
+that m ≤ |x| ≤ M where m = mini |yi |, M =
+but poorly represented in dropping the markedness
+s. To test this hypothesis we added consensus tree, a naive attribute-based nat- features,
+maxi
+ural class scheme. sharing across branches and dropping the |yi | and Σ(O) is the set of characters occurring
+languages in increasing order of disabling On the other hand, the features local to
+language Kwara’ae (Kw.) results of these in O. Even with this restriction, this optimization
+e target reconstruction of POc so thefaithfulness features. Thepick out the sub- experiis intractable. As an approximation, we considered
+set of ments are shown in Table 2.
+s that are most useful for POc re- these changes which are active in that branch,
+only strings built by at most k contiguous substrings
+such
+added ﬁrst. This prevents the ef-as /s/→/t/ fortition.
+For comparison, we also included in the same
+taken from the word forms in O. If k = 1, then it
+close language after several distant table the performance of a semi-supervised system
+is equivalent to taking the min over x ∈ O. At the
+trained by K-fold validation. The system was ran
+uded a tree, but as of November 2008, it
+other end of the spectrum, if k = M , it is exact.
+3
+We also tried a fully supervised systemK −1 ofﬂat topol- words
+K time, with disjoint 1 − where a the POc.
+atically and “has [not] been updated in a
+This scheme is exponential in k, but since words are
+ogy is used so that all of these latent internal nodes are avoided;
+given to the system (as observations in the graphrelatively short, we found that k = 2 often ﬁnds the
+but it did not perform as well.
+
+Figure 2: Left: Mean distance to the target reconstruction
+of POc as a function of the number of modern languages
+used by the inference procedure. Right: Mean distance
+and conﬁdence intervals as a function of the EM iteration,
+averaged over 20 random seeds and ran on 4 languages.
+
+samples and formed an accurate (90%) consensus
+tree. The tree obtained is not binary, but the AR
+inference algorithm scales linearly in the branching
+factor of the tree (in contrast, SSR scales exponentially (Lunter et al., 2003)).
+The ﬁrst claim we veriﬁed experimentally is that
+having more observed languages aids reconstruction
+of protolanguages. To test this hypothesis we added
+observed modern languages in increasing order of
+distance dc to the target reconstruction of POc so
+that the languages that are most useful for POc reconstruction are added ﬁrst. This prevents the effects of adding a close language after several distant
+ones being confused with an improvement produced
+by increasing the number of languages.
+The results are reported in Figure 2 (a). They conﬁrm that large-scale inference is desirable for automatic protolanguage reconstruction: reconstruction improved statistically signiﬁcantly with each increase except from 32 to 64 languages, where the
+average edit distance improvement was 0.05.
+We then conducted a number of experiments intended to assess the robustness of the system, and to
+identify the contribution made by different factors it
+incorporates. First, we ran the system with 20 different random seeds to assess the stability of the solutions found. In each case, learning was stable and
+accuracy improved during training. See Figure 2 (b).
+Next, we found that all of the following ablations
+signiﬁcantly hurt reconstruction: using a ﬂat tree (in
+which all languages are equidistant from the reconstructed root and from each other) instead of the consensus tree, dropping the markedness features, drop-
+
+Edit dist.
+1.87
+2.02
+2.18
+1.99
+2.06
+1.75
+
+Table 1: Effects of ablation of various aspects of our
+unsupervised system on mean edit distance to POc.
+-Sharing corresponds to the restriction to the subset of the
+features in OPERATION, FAITHFULNESS and MARKED NESS that are branch-speciﬁc, -Topology corresponds to
+using a ﬂat topology where the only edges in the tree connect modern languages to POc. The semi-supervised system is described in the text. All differences (compared to
+the unsupervised full system) are statistically signiﬁcant.
+
+ping the faithfulness features, and disabling sharing
+across branches. The results of these experiments
+are shown in Table 1.
+For comparison, we also included in the same
+table the performance of a semi-supervised system
+trained by K-fold validation. The system was ran
+K = 5 times, with 1 − K −1 of the POc words given
+to the system as observations in the graphical model
+for each run. It is semi-supervised in the sense that
+gold reconstruction for many internal nodes are not
+available in the dataset (for example the common ancestor of Kwara’ae (Kw.) and Lau in Figure 3 (b)),
+so they are still not ﬁlled.3
+Figure 3 (b) shows the results of a concrete run
+over 32 languages, zooming in to a pair of the
+Solomonic languages and the cognate set from Figure 1 (a). In the example shown, the reconstruction is as good as the ORACLE (described in Section 5.2), though off by one character (the ﬁnal /s/
+is not present in any of the 32 inputs and therefore
+is not reconstructed). In (a), diagrams show, for
+both the global and the local (Kwara’ae) features,
+the expectations of each substitution superimposed
+on an IPA sound chart, as well as a list of the top
+changes. Darker lines indicate higher counts. This
+run did not use natural class constraints, but it can
+3
+
+We also tried a fully supervised system where a ﬂat topology is used so that all of these latent internal nodes are avoided;
+but it did not perform as well—this is consistent with the
+-Topology experiment of Table 1.
+
+be seen that linguistically plausible substitutions are
+learned. The global features prefer a range of voicing changes, manner changes, adjacent vowel motion, and so on, including mutations like /s/ to /h/
+which are common but poorly represented in a naive
+attribute-based natural class scheme. On the other
+hand, the features local to the language Kwara’ae
+pick out the subset of these changes which are active in that branch, such as /s/→/t/ fortition.
+5.2
+
+Comparisons against other methods
+
+The ﬁrst two competing methods, PRAGUE and
+BCLKG , are described in Oakes (2000) and
+Bouchard-Cˆ t´ et al. (2008) respectively and sumoe
+marized in Section 1. Neither approach scales well
+to large datasets. In the ﬁrst case, the bottleneck is
+the complexity of computing multi-alignments without guide trees and the vanishing probability that independent reconstructions agree. In the second case,
+the problem comes from the unregularized proliferation of parameters and slow mixing of the inference
+algorithm. For this reason, we built a third baseline
+that scales well in large datasets.
+This third baseline, CENTROID, computes the
+centroid of the observed word forms in Levenshtein distance.
+Let L(x, y) denote the Levenshtein distance between word forms x and
+y.
+Ideally, we would like the baseline to
+return argminx∈Σ∗ y∈O L(x, y), where O =
+{y1 , . . . , y|O| } is the set of observed word forms.
+Note that the optimum is not changed if we restrict
+the minimization to be taken on x ∈ Σ(O)∗ such
+that m ≤ |x| ≤ M where m = mini |yi |, M =
+maxi |yi | and Σ(O) is the set of characters occurring
+in O. Even with this restriction, this optimization
+is intractable. As an approximation, we considered
+only strings built by at most k contiguous substrings
+taken from the word forms in O. If k = 1, then it
+is equivalent to taking the min over x ∈ O. At the
+other end of the spectrum, if k = M , it is exact.
+This scheme is exponential in k, but since words are
+relatively short, we found that k = 2 often ﬁnds the
+same solution as higher values of k. The difference
+was in all the cases not statistically signiﬁcant, so we
+report the approximation k = 2 in what follows.
+We also compared against an oracle, denoted OR ACLE , which returns argminy∈O L(y, x∗ ), where x∗
+is the target reconstruction. We will denote it by OR -
+
+Comparison
+Protolanguage
+Heldout (prop.)
+Modern languages
+Cognate sets
+Observed words
+Mean word length
+
+CENTROID
+
+PRAGUE
+
+BCLKG
+
+POc
+243 (1.0)
+70
+1321
+10783
+4.5
+
+PMJ
+79 (1.0)
+4
+179
+470
+5.0
+
+La
+293 (0.5)
+2
+583
+1463
+7.4
+
+Table 2: Experimental setup: number of held-out protoword from (absolute and relative), of modern languages,
+cognate sets and total observed words. The split for
+BCLKG is the same as in Bouchard-Cˆ t´ et al. (2008).
+oe
+
+ACLE . This is superior to picking a single closest
+language to be used for all word forms, but it is possible for systems to perform better than the oracle
+since it has to return one of the observed word forms.
+We performed the comparison against Oakes
+(2000) and Bouchard-Cˆ t´ et al. (2008) on the same
+oe
+dataset and experimental conditions as those used in
+the respective papers (see Table 2). Note that the
+setup of Bouchard-Cˆ t´ et al. (2008) provides superoe
+vision (half of the Latin word forms are provided);
+all of the other comparisons are performed in a completely unsupervised manner.
+The PMJ dataset was compiled by Nothofer
+(1975), who also reconstructed the corresponding
+protolanguage. Since PRAGUE is not guaranteed to
+return a reconstruction for each cognate set, only 55
+word forms could be directly compared to our system. We restricted comparison to this subset of the
+data. This favors PRAGUE since the system only proposes a reconstruction when it is certain. Still, our
+system outperformed PRAGUE, with an average distance of 1.60 compared to 2.02 for PRAGUE. The
+difference is marginally signiﬁcant, p = 0.06, partly
+due to the small number of word forms involved.
+We also exceeded the performance of BCLKG on
+the Romance dataset. Our system’s reconstruction
+had an edit distance of 3.02 to the truth against 3.10
+for BCLKG. However, this difference was not signiﬁcant (p = 0.15). We think this is because of the high
+level of noise in the data (the Romance dataset is the
+only dataset we consider that was automatically constructed rather than curated by linguists). A second
+factor contributing to this small difference may be
+that the the experimental setup of BCLKG used very
+few languages, while the performance of our system
+improves markedly with more languages.
+
+Universal
+a −→ e
+
+Universal
+
+(a)
+
+h
+e
+g
+r
+l
+h
+
+k −→ g
+
+Kwa
+
+r −→ l
+
+N −→ n
+
+Kwa
+
+Snd
+
+l −→ r
+
+s −→
+a −→
+k −→
+l −→
+r −→
+s −→
+
+g −→ k
+t
+n
+i
+k
+a
+t
+
+e −→ i
+
+o −→ a
+
+8
+
+n
+
+pb
+=#
+
+!C
+
+r
+n
+>
+t d
+
+8
+
+f v
+&
+
+-
+
+!C
+
+sz
+<
+
+?
+
+cB
+
+kg
+
+q3
+
+*1
+
+ç,
+
+x4
+
+'
+
+j
+
+/
+
++"
+
+h5
+
+7
+
+?
+
+cB
+
+kg
+
+q3
+
+*1
+
+ç,
+
+x4
+
+'
+
+;
+
+j
+
+Jv
+Mad
+
+(d)
+
+POc
+
+Mal
+
+....
+
+$
+.0
+
+(e)
+
+It
+
+La
+
+Es
+Pt
+
+/
+
++"
+
+h5
+
+/angi/ (Kw.)
+
+9
+
+PMJ
+
+/a!i/
+
+(
+:
+
+r
+>
+
+$
+.0
+
+(c)
+
+/ta!i/ (POc)
+
+9
+
+6
+@
+% A
+) 2
+
+(b)
+
+:
+
+;
+
+) 2
+
+<
+
+pb
+=#
+
+sz
+
+7
+
+% A
+
+t d
+f v
+&
+
+m
+
+6
+
+/a!i/ (Lau)
+
+(
+
+Nggela
+Bugotu
+Tape
+Avava
+Neveei
+Naman
+Nese
+SantaAna
+Nahavaq
+Nati
+KwaraaeSol
+Lau
+Kwamera
+Tolo
+Marshalles
+PuloAnna
+ChuukeseAK
+SaipanCaro
+Puluwatese
+Woleaian
+PuloAnnan
+Carolinian
+Woleai
+Chuukese
+Nauna
+PaameseSou
+Anuta
+VaeakauTau
+Takuu
+Tokelau
+Tongan
+Samoan
+IfiraMeleM
+Tikopia
+Tuvalu
+Niue
+FutunaEast
+UveaEast
+Rennellese
+Emae
+Kapingamar
+Sikaiana
+Nukuoro
+Luangiua
+Hawaiian
+Marquesan
+Tahitianth
+Rurutuan
+Maori
+Tuamotu
+Mangareva
+Rarotongan
+Penrhyn
+RapanuiEas
+Pukapuka
+Mwotlap
+Mota
+FijianBau
+Namakir
+Nguna
+ArakiSouth
+Saa
+Raga
+PeteraraMa
+
+s −→
+N −→
+e
+g
+o −→
+s −→
+
+m
+
+@
+
+Figure 3: (a) A visualization of two learned faithfulness parameters: on the top, from the universal features, on
+the bottom, for one particular branch. Each pair of phonemes have a link with grayscale value proportional to the
+expectation of a transition between them. The ﬁve strongest links are also included at the right. (b) A sample taken
+from our POc experiments (see text). (c-e) Phylogenetic trees for three language families: Proto-Malayo-Javanic,
+Austronesian and Romance.
+
+We conducted another experiment to verify this
+by running both systems in larger trees. Because the
+1
+Romance dataset had only three modern languages
+transcribed in IPA, we used the Austronesian dataset
+1
+to perform the test. The results were all signiﬁcant in
+this setup: while our method went from an edit distance of 2.01 to 1.79 in the 4-to-8 languages experiment described in Section 5.1, BCLKG went from
+3.30 to 3.38. This suggests that more languages can
+actually hurt systems that do not support parameter
+sharing.
+Since we have shown evidence that PRAGUE and
+BCLKG do not scale well to large datasets, we
+also compared against ORACLE and CENTROID in a
+large-scale setting. Speciﬁcally, we compare to the
+experimental setup on 64 modern languages used to
+reconstruct POc described before. Encouragingly,
+while the system’s average distance (1.49) does not
+attain that of the ORACLE (1.13), we signiﬁcantly
+outperform the CENTROID baseline (1.79).
+5.3
+
+Incorporating prior linguistic knowledge
+
+The model also supports the addition of prior linguistic knowledge. This takes the form of feature
+templates with more internal structure. We performed experiments with an additional feature template:
+STRUCT-FAITHFULNESS is a structured version of
+FAITHFULNESS , replacing x and y with their natural classes Nβ (x) and Nβ (y) where β indexes types
+of classes, ranging over {manner, place, phonation,
+isOral, isCentral, height, backness, roundedness}.
+This feature set is reminiscent of the featurized rep-
+
+resentation of Kondrak (2000).
+We compared the performance of the system with
+and without STRUCT- FAITHFULNESS to check if the
+algorithm can recover the structure of natural classes
+in an unsupervised fashion. We found that with
+2 or 4 observed languages, FAITHFULNESS underperformed STRUCT- FAITHFULNESS, but for larger
+trees, the difference was not signiﬁcant. FAITH FULNESS even slightly outperformed its structured
+cousin with 16 observed languages.
+
+6
+
+Conclusion
+
+By enriching our model to include important features like markedness, and by scaling up to much
+larger data sets than were previously possible, we
+obtained substantial improvements in reconstruction quality, giving the best results on past data
+sets. While many more complex phenomena are
+still unmodeled, from reduplication to borrowing to
+chained sound shifts, the current approach signiﬁcantly increases the power, accuracy, and efﬁciency
+of automatic reconstruction.
+
+Acknowledgments
+We would like to thank Anna Rafferty and our reviewers for their comments. This work was supported by a NSERC fellowship to the ﬁrst author and
+NSF grant number BCS-0631518 to the second author.
+
+References
+R. Blust. 1993. Central and central-Eastern MalayoPolynesian. Oceanic Linguistics, 32:241–293.
+A. Bouchard-Cˆ t´ , P. Liang, D. Klein, and T. L. Grifﬁths.
+oe
+2008. A probabilistic approach to language change. In
+Advances in Neural Information Processing Systems
+20.
+A. Bouchard-Cˆ t´ , M. I. Jordan, and D. Klein. 2009.
+oe
+Efﬁcient inference in phylogenetic InDel trees. In Advances in Neural Information Processing Systems 21.
+L. Campbell. 1998. Historical Linguistics. The MIT
+Press.
+S. F. Chen. 2003. Conditional and joint models for
+grapheme-to-phoneme conversion. In Proceedings of
+Eurospeech.
+M. A. Covington. 1998. Alignment of multiple languages for historical comparison. In Proceedings of
+ACL 1998.
+A. P. Dempster, N. M. Laird, and D. B. Rubin. 1977.
+Maximum likelihood from incomplete data via the EM
+algorithm. Journal of the Royal Statistical Society. Series B (Methodological), 39(1):1–38.
+M. Dreyer, J. R. Smith, and J. Eisner. 2008. Latentvariable modeling of string transductions with ﬁnitestate methods. In Proceedings of EMNLP 2008.
+S. P. Durham and D. E. Rogers. 1969. An application
+of computer programming to the reconstruction of a
+proto-language. In Proceedings of the 1969 conference on Computational linguistics.
+C. L. Eastlack. 1977. Iberochange: A program to
+simulate systematic sound change in Ibero-Romance.
+Computers and the Humanities.
+J. Felsenstein. 1989. PHYLIP - PHYLogeny Inference
+Package (Version 3.2). Cladistics, 5:164–166.
+S. Goldwater and M. Johnson. 2003. Learning OT
+constraint rankings using a maximum entropy model.
+Proceedings of the Workshop on Variation within Optimality Theory.
+S. J. Greenhill, R. Blust, and R. D. Gray. 2008. The
+Austronesian basic vocabulary database: From bioinformatics to lexomics. Evolutionary Bioinformatics,
+4:271–283.
+H. H. Hock. 1986. Principles of Historical Linguistics.
+Walter de Gruyter.
+I. Holmes and W. J. Bruno. 2001. Evolutionary HMM:
+a Bayesian approach to multiple alignment. Bioinformatics, 17:803–820.
+W. Jank. 2005. Stochastic variants of EM: Monte Carlo,
+quasi-Monte Carlo and more. In Proceedings of the
+American Statistical Association.
+G. Kondrak. 2000. A new algorithm for the alignment of
+phonetic sequences. In Proceedings of NAACL 2000.
+
+G. Kondrak. 2002. Algorithms for Language Reconstruction. Ph.D. thesis, University of Toronto.
+V. I. Levenshtein. 1966. Binary codes capable of correcting deletions, insertions and reversals. Soviet Physics
+Doklady, 10, February.
+D. C. Liu, J. Nocedal, and C. Dong. 1989. On the limited
+memory BFGS method for large scale optimization.
+Mathematical Programming, 45:503–528.
+J. B. Lowe and M. Mazaudon. 1994. The reconstruction
+engine: a computer implementation of the comparative
+method. Comput. Linguist., 20(3):381–417.
+G. A. Lunter, I. Mikl´ s, Y. S. Song, and J. Hein. 2003.
+o
+An efﬁcient algorithm for statistical multiple alignment on arbitrary phylogenetic trees. Journal of Computational Biology, 10:869–889.
+B. Nothofer. 1975. The reconstruction of Proto-MalayoJavanic. M. Nijhoff.
+M. P. Oakes. 2000. Computer estimation of vocabulary in a protolanguage from word lists in four daughter languages. Journal of Quantitative Linguistics,
+7(3):233–244.
+A. Prince and P. Smolensky. 1993. Optimality theory:
+Constraint interaction in generative grammar. Technical Report 2, Rutgers University Center for Cognitive
+Science.
+L. Tierney. 1994. Markov chains for exploring posterior
+distributions. The Annals of Statistics, 22(4):1701–
+1728.
+A. Varadarajan, R. K. Bradley, and I. H. Holmes. 2008.
+Tools for simulating evolution of aligned genomic regions with integrated parameter estimation. Genome
+Biology, 9:R147.
+C. Wilson. 2006. Learning phonology with substantive
+bias: An experimental and computational study of velar palatalization. Cognitive Science, 30.5:945–982.
+
+

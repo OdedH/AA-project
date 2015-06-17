@@ -1,0 +1,1289 @@
+Using Feature Conjunctions across Examples
+for Learning Pairwise Classiﬁers
+Satoshi Oyama1 and Christopher D. Manning2
+1
+
+2
+
+Department of Social Informatics, Kyoto University,
+Kyoto 606-8501, Japan
+oyama@kuis.kyoto-u.ac.jp
+http://www.dl.kuis.kyoto-u.ac.jp/~oyama/
+Department of Computer Science, Stanford University,
+Stanford, CA 94305-9040, USA
+manning@cs.stanford.edu
+http://www-nlp.stanford.edu/~manning/
+
+Abstract. We propose a kernel method for using combinations of features across example pairs in learning pairwise classiﬁers. Identifying two
+instances in the same class is an important technique in duplicate detection, entity matching, and other clustering problems. However, it is a
+diﬃcult problem when instances have few discriminative features. One
+typical example is to check whether two abbreviated author names in different papers refer to the same person or not. While using combinations
+of diﬀerent features from each instance may improve the classiﬁcation
+accuracy, doing this straightforwardly is computationally intensive. Our
+method uses interaction between diﬀerent features without high computational cost using a kernel. At medium recall levels, this method can
+give a precision 4 to 8 times higher than that of previous methods in
+author matching problems.
+
+1
+
+Introduction
+
+Pairwise classiﬁers, which identify whether two instances belong to the same
+class or not, are important components in duplicate detection, entity matching,
+and other clustering applications. For example, in citation matching [8], two
+citations are compared and determined whether they refer to the same paper or
+not (Figure 1).
+In early work, these classiﬁers were based on ﬁxed or manually tuned distance metrics. In recent years, there have been several attempts to make pairwise
+classiﬁers automatically from labeled training data using machine learning techniques [1, 2, 11, 13]. Most of them are based on string edit distance or common
+features between two examples.
+These methods are eﬀective when two instances from the same class have
+many common features like two variant citations to the same paper. However,
+if two instances from the same class have few common features, these methods
+have diﬃculties in ﬁnding these pairs and achieving high recall. An instance of
+this is trying to identify the same author across diﬀerent papers.
+
+2
+
+Satoshi Oyama and Christopher D. Manning
+
+Gupta, A., Mumick, I, Subrahmanian, V. 1993. Maintaining Views Incrementally. In Proc. of ACM SIGMOD, pp. 157-166
+
+A. Gupta, I. S. Mumick, V. S. Subrahmanian: Maintaining Views Incrementally. SIGMOD Conference 1993: 157-166
+
+A. Gupta, I. S. Mumick, K. A. Ross: Adapting Materialized Views after Redefinitions. SIGMOD Conference 1995: 211-222
+
+Fig. 1. Matching citations
+A. Gupta, V. Harinarayan, D. Quass: Aggregate-Query Processing in Data Warehousing Environments. VLDB 1995: 358-369
+
+A. Gupta, I. S. Mumick, V. S. Subrahmanian: Maintaining Views Incrementally. SIGMOD Conference 1993: 157-166
+
+A. Gupta, M. Tambe: Suitability of Message Passing Computers for Implementing Production Systems. AAAI 1988: 687-692
+
+Fig. 2. Matching authors
+
+First names of authors are abbreviated to initials in many citations. As
+shown in Figure 2, identifying the same authors among abbreviated names is
+another important problem in citation analysis or evaluating researchers. However, ﬁelded citation databases such as ISI Citation Index3 or “Most Cited Authors in Computer Science” in CiteSeer4 cannot distinguish diﬀerent authors
+with the same ﬁrst initial and the same last name. Distinguishing these authors
+is important for treating people as ﬁrst class entities in citation databases.
+Matching authors is a harder problem than matching citations. As we can
+see in Figure 1, two citations to the same paper have many common keywords.
+Conversely, if two citation strings are the same or have many common keywords,
+we can suspect the two citations refer to the same paper. On the other hand,
+even if two strings of author names are exactly same, we cannot conclude these
+names refer to the same person in the real world. To disambiguate author names,
+we have to look into other ﬁelds in citations than author names themselves.
+However, there is another diﬃculty in this problem. The ﬁrst two records in
+Figure 2 have no common words other than the names of the ﬁrst authors even
+though these two authors are the same person. Humans can somehow infer the
+identity of these two persons by considering the strong connection between the
+two conferences and the topical similarity between words in the titles. However,
+in such a case, where pairs from the same class have few common features, it is
+diﬃcult to automatically determine these pairs using pairwise classiﬁers based
+on string similarity or common features.
+One approach to solving this problem is using conjunctions of features across
+examples. In the case of Figure 2, we could give similarities to diﬀerent words
+across examples like “SIGMOD” and “VLDB”, and compute the overall similarity based on them. This helps avoiding zero similarity and breaking orthogonal3
+4
+
+http://isiknowledge.com/
+http://citeseer.ist.psu.edu/mostcited.html
+
+Learning Pairwise Classiﬁers
+
+3
+
+ity. If there are many pairs where one paper is published in VLDB and the other
+paper is published in SIGMOD in labeled positive data (pairs of papers authored
+by the same person), we can expect that the learning algorithm incorporates this
+feature into the classiﬁer. However, if we straightforwardly make all pairs from
+original features, the dimension of the resulting feature space become large and
+we cannot apply learning algorithms to real problems with many features.
+In this paper, we propose a method for using feature conjunctions across
+examples in learning pairwise classiﬁers without causing excessive computational
+cost by using kernel methods [12]. By using our kernel, learning algorithms can
+use feature conjunctions across examples without actually computing them. This
+results in high classiﬁcation accuracy for problems with few common features,
+which are diﬃcult for existing methods.
+
+2
+2.1
+
+Pairwise Classiﬁcation
+Problem Deﬁnition
+
+Pairwise classiﬁcation is the problem of determining whether a pair of instances,
+xα and xβ , belong to the same class or not. In a binary classiﬁcation case, we
+look for the following function:
+f(xα , xβ ) =
+
+1
+−1
+
+(if xα and xβ belong to the same class),
+(otherwise).
+
+Pairwise classiﬁcation and pairwise similarity have a close relation. We can
+also consider a problem where the function f outputs continuous values such as
+f(xα , xβ ) ∈ [0, 1], which give similarities between instances. We can change this
+into a binary classiﬁer by introducing a certain threshold. On the other hand,
+many binary classiﬁers can be converted to a classiﬁer that outputs continuous
+values [2]. Therefore, we will sometimes use the terms pairwise classiﬁcation and
+pairwise similarity interchangeably.
+Pairwise classiﬁcation is an important component in duplicate detection,
+identity matching, and many other clustering problems. We make a global clustering decision based on pairwise classiﬁcations, for instance, by making the
+transitive closure of guessed positive pairs [2].
+2.2
+
+Making Pair Instances from the Original Data
+
+It is a diﬃcult problem to deﬁne accurate pairwise classiﬁers by hand. Thus there
+have been many works on inducing classiﬁers automatically from data using
+machine learning techniques. Many earlier methods ﬁrst sample pair instances
+from the data and have humans label them according to whether they belong to
+the same class or not. Then these training examples are fed to binary classiﬁer
+learning algorithms such as Support Vector Machines (SVMs) [14].
+For example, Bilenko and Mooney [2] represent an original instance by a
+feature vector xα = (xα , xα , . . . , xα ), where each feature corresponds to whether
+1
+2
+n
+
+4
+
+Satoshi Oyama and Christopher D. Manning
+
+a word in a vocabulary appears in the string representation of the instance and
+the dimension of feature vectors n is the number of words in the vocabulary.
+From two original instances xα = (xα , xα , . . . , xα ) and xβ = (xβ , xβ , . . . , xβ ),
+1
+2
+n
+n
+1
+2
+ˆ
+they make a pair instance x = (xα , xβ ) and represent it as a vector in an n
+dimensional feature space:
+ˆ
+xcommon = (xα xβ , xαxβ , . . . , xα xβ ) .
+1 1
+2 2
+n n
+
+(1)
+
+(They also do normalization by dividing the value of each feature by |xα ||xβ |.)
+This method is eﬀective for a problem like citation matching, where two
+instances from the same class have many common features. However, in the
+problem where two instances from the same class have few common features, this
+method cannot achieve high classiﬁcation accuracy. For example, in Figure 2, the
+ﬁrst and the second papers have no common words other than “A. Gupta” even
+though they are actually written by the same person. The representation of this
+pair instance by Equation (1) becomes a zero vector. This phenomenon is not
+rare in papers written by the same author, and the method based on common
+features cannot distinguish these pairs from the many negative examples that
+also have zero vectors as their representation.
+One approach to avoiding the problem of zero vectors is using conjunctions
+of diﬀerent features across examples xα xβ and representing a pair instance as
+i j
+ˆ
+xCartesian = (xα xβ , . . . , xα xβ , xα xβ , . . . , xαxβ , . . . , xαxβ , . . . , xα xβ ) .
+1 1
+1 n
+2 1
+2 n
+n 1
+n n
+
+(2)
+
+That is, the set of mapped features, {xα xβ |i = 1, . . . , n; j = 1, . . . , n}, is a Cartei j
+sian product between the sets of original features of xα and xβ . In this feature
+space, a pair instance does not become a zero vector unless one of the original
+instances is a zero vector. If there are many positive pairs in which “VLDB”
+appears in one citation and “SIGMOD” appears in the other, we can expect
+that a learning algorithm incorporates the conjunction of these two features into
+the learned classiﬁer, and it successfully classiﬁes the case of Figure 2.
+However, implementing this idea straightforwardly causes the following problems. One is that the dimension of the feature space becomes n2 and the computational cost becomes prohibitive for practical problems with many features.
+Moreover, learning in a high dimensional feature space is in danger of overﬁtting,
+that is, the “curse of dimensionality.”
+
+3
+
+3.1
+
+Kernel Methods for Using Feature Conjunctions across
+Examples
+Kernel Methods
+
+Some learning algorithms such as SVMs can be written in forms where examples
+always appear as inner products x · z of two examples and never appear individually [12]. Kernel methods enable classiﬁcation in higher dimensional space
+
+Learning Pairwise Classiﬁers
+
+5
+
+by substituting kernel functions K(x, z) for inner products x · z in these algorithms.
+Let us consider the following kernel function:
+K(x, z) = x · z
+
+2
+
+.
+
+(3)
+
+Learning with this kernel function is equivalent to mapping examples into the
+following higher dimensional feature space,
+φ(x) = (x1 x1 , . . . , x1 xn , x2 x1 , . . . , x2 xn , . . . , xn x1 , . . . , xn xn ) ,
+and then applying the learning algorithm. We can show this as follows:
+
+
+x·z
+
+2
+
+n
+
+xi zi
+
+=
+i=1
+n
+
+
+
+n
+
+j=1
+
+xj zj  =
+
+n
+
+n
+
+xi zi xj zj
+i=1 j=1
+
+n
+
+(xi xj )(zi zj ) = φ(x) · φ(z) .
+
+=
+i=1 j=1
+
+The kernel above is called a quadratic polynomial kernel. Previous work has
+2
+,
+also used another popular kernel, the Gaussian kernel, K(x, z) = exp − x−z
+2σ2
+which corresponds to a feature mapping into an inﬁnite dimensional space. Using
+kernels, the algorithms can learn classiﬁers in a high dimensional feature space
+without actually doing feature mappings, which are computationally expensive.
+Moreover, SVMs with kernels are known to be robust against the overﬁtting
+problem of learning in a high dimensional feature space.
+3.2
+
+Using Kernels for Feature Conjunctions
+
+A straightforward way to conjoin diﬀerent features across examples is using the
+polynomial kernel mentioned above. We represent a pair instance as a vector
+with 2n dimensions,
+ˆ
+x = (xα , xβ ) = (xα , . . . , xα , xβ , . . . , xβ ) ,
+1
+n
+n
+1
+
+(4)
+
+and then apply the kernel of Equation (3) on this feature space.
+The set of conjoined features resulting from the corresponding feature mapping is {xα xα } ∪ {xα xβ } ∪ {xβ xα } ∪ {xβ xβ } and it includes the set of features in
+i j
+i j
+i j
+i j
+Equation (2). However, it also includes features from the same example, {xα xα }
+i j
+and {xβ xβ }. These features are clearly irrelevant to pairwise classiﬁcation bei j
+cause they are related to only one party of the pair. When the frequencies of
+original instances are diﬀerent between the set of positive pairs and the set of
+negative pairs, there is a possibility that a learning algorithm give weight to joint
+features from single parties and the generalization performance deteriorates.
+
+6
+
+Satoshi Oyama and Christopher D. Manning
+
+What we want is the following feature mapping, which generates conjunctions
+of features only across the two original instances:
+ˆ
+φ(x) = φ((xα , xβ ))
+= (xα xβ , . . . , xα xβ , xαxβ , . . . , xα xβ , . . . , xα xβ , . . . , xα xβ ) .
+1 1
+1 n
+2 1
+2 n
+n 1
+n n
+
+(5)
+
+So we propose using the following kernel for pair instances:
+ˆ ˆ
+K(x, z) = K((xα , xβ ), (z α , z β )) = xα · z α xβ · z β .
+
+(6)
+
+This kernel ﬁrst computes the inner product of xα and z α and that of xβ and
+z β respectively, then computes the product of these two real values.
+We can show that this kernel does the feature mapping of Equation (5):
+
+
+α
+
+x ·z
+
+α
+
+β
+
+x ·z
+
+β
+
+n
+
+=
+i=1
+
+n
+
+n
+
+=
+i=1 j=1
+
+α
+xα zi
+i
+
+
+
+n
+
+j=1
+
+β
+xβ zj 
+j
+
+n
+
+n
+
+=
+
+β
+α
+xα zi xβ zj
+i
+j
+
+i=1 j=1
+
+α β
+ˆ
+ˆ
+(xα xβ )(zi zj ) = φ((xα , xβ )) · φ((z α , z β )) = φ(x) · φ(z) .
+i j
+
+This kernel is a tensor product [6] of two linear kernels (inner products) on
+the original feature space. An intuitive explanation of this kernel is the following.
+A kernel deﬁnes similarity in an input space. In our case, the input space is the
+space of pair instances. The kernel of Equation (6) deﬁnes the similarity between
+pair instances so that it yields a high value only if each of the original instances
+in one pair has high similarity (a large value for the inner product) with the
+corresponding original instance in the other pair. For example, if the value of
+xα ·z α is 0, the overall value of Equation (6) always becomes 0 even if the value
+of xβ · z β is large. This is a desirable property because a pairwise classiﬁcation
+decision should be based on both examples in a pair.
+The feature mapping of Equation (5) depends on the order of instances,
+that is, φ((xα , xβ )) = φ((xβ , xα )). We can also make a product between two
+pair instances by making inner products between instances with diﬀerent superscripts as xα · z β xβ · z α . However, if we have both (xα , xβ ) and (xβ , xα )
+in the training set, both deﬁnitions of kernels are equivalent in terms of learned
+classiﬁers.
+
+4
+
+Experiments
+
+4.1
+
+Datasets and Code
+
+We show experimental results on the following two datasets. One is the DBLP
+dataset which is a bibliography of more than 400,000 computer science papers.5
+The data is publicly available in XML format. We used journal papers and
+5
+
+http://dblp.uni-trier.de/
+
+Learning Pairwise Classiﬁers
+
+7
+
+conference papers as the data for our experiments. Bibliographic entries in DBLP
+were entered by humans and many author names are given as their full names.
+To make a training set and a test set for the author matching problem, we
+abbreviated ﬁrst names into initials and removed middle names. We used words
+in titles, journal names, and names of coauthors as features.
+The other is the Cora Citation Matching dataset provided by Andrew McCallum.6 We used these data for citation matching problems. They are also used
+in [2] and [3]. The dataset is composed of 1,879 citations to 191 papers in Cora,
+a computer science research paper search engine. We used each word appearing
+in citations as a feature.
+We used SVMlight , an implementation of an SVM learning algorithm developed by Thorsten Joachims [7]. SVMlight provides basic kernels such as polynomial and Gaussian, and allow use of user-deﬁned kernels. We implemented the
+kernel of Equation (6) for our experiments.
+4.2
+
+Results
+
+From among the top 20 “Most Cited Authors in Computer Science,”7 we selected
+four cases of ﬁrst-initial-plus-surname names which involve a collapsing of many
+distinct authors (that is, we select names like J. Smith but not J. Ullman). To
+make a training set and a test set for each abbreviated name, we retrieved papers
+written by authors with the same last name and the same ﬁrst initial from the
+DBLP data. If we make all pairs of instances, the number of negative examples
+becomes much larger than that of positive examples because the number of pairs
+from diﬀerent classes is larger than that of pairs from same classes. To assess the
+eﬀect of the imbalance between the numbers of positive and negative data, we
+prepared two diﬀerent datasets. One is the imbalanced data sets, for which we
+generated pair instances from all combinations of two papers. The other is the
+balanced data sets, for which we ﬁrst generated positive examples by making all
+combinations of papers in same classes, and then we generated negative examples by randomly sampling pairs from diﬀerent classes. We evaluated classiﬁers
+learned from (im)balanced training sets by (im)balanced test sets respectively.
+We trained classiﬁers on the training sets and evaluated them on the test
+sets in terms of precision and recall. In [2], the precision and recall are evaluated
+after making the transitive closure of guessed positive pairs. To make evaluation
+focused on the accuracy of pairwise classiﬁers, we calculated the precision and
+recall simply based on how many positive pairs classiﬁers can ﬁnd. As suggested
+in [3], we drew precision-recall curves by shifting the decision boundary induced
+by SVMs and evaluating precision values on 20 diﬀerent recall levels.
+We evaluated the performance of classiﬁers with three diﬀerent kernels.
+Common The Gaussian kernel applied to pair instances of Equation (1), which
+uses only common features across examples. The parameter of the Gaussian
+kernel is set to σ = 10, according to the preceding work [2].
+6
+7
+
+http://www.cs.umass.edu/˜mccallum/code-data.html
+http://citeseer.ist.psu.edu/mostcited.html
+
+8
+
+Satoshi Oyama and Christopher D. Manning
+D. Johnson
+
+Common
+Polynomial
+Cartesian
+
+0.7
+0.6
+0.5
+
+0.8
+
+Common
+Polynomial
+Cartesian
+
+0.7
+0.6
+0.5
+
+0.4
+
+0.4
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+0.5
+Recall
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+0
+
+J. Smith
+
+1
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+0.5
+Recall
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+R. Johnson
+
+1
+0.9
+
+0.8
+
+Precision
+
+0.9
+
+Precision
+
+A. Gupta
+
+1
+0.9
+
+Precision
+
+Precision
+
+1
+0.9
+0.8
+
+Common
+Polynomial
+Cartesian
+
+0.7
+0.6
+0.5
+
+0.8
+
+Common
+Polynomial
+Cartesian
+
+0.7
+0.6
+0.5
+
+0.4
+
+0.4
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+0.5
+Recall
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+0.5
+Recall
+
+Fig. 3. Results of author matching problems with the balanced data sets
+
+D. Johnson
+
+A. Gupta
+
+0.8
+
+0.7
+
+0.7
+
+Precision
+
+1
+0.9
+
+0.8
+
+Precision
+
+1
+0.9
+
+0.6
+0.5
+0.4
+0.3
+0.1
+
+0.5
+0.4
+0.3
+
+Common
+Polynomial
+Cartesian
+
+0.2
+
+0.6
+
+Common
+Polynomial
+Cartesian
+
+0.2
+0.1
+
+0
+
+0
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+0.5
+Recall
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+R. Johnson
+
+J. Smith
+1
+0.9
+
+0.8
+
+0.8
+
+0.7
+
+0.7
+
+Precision
+
+1
+0.9
+
+Precision
+
+0.4
+0.5
+Recall
+
+0.6
+0.5
+0.4
+0.3
+0.1
+
+0.5
+0.4
+0.3
+
+Common
+Polynomial
+Cartesian
+
+0.2
+
+0.6
+
+Common
+Polynomial
+Cartesian
+
+0.2
+0.1
+
+0
+
+0
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+0.5
+Recall
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+0.5
+Recall
+
+Fig. 4. Results of author matching problems with the imbalanced data sets
+
+Polynomial The quadratic polynomial kernel applied to pair instances of Equation (4)
+Cartesian Our kernel of Equation (6)
+Figure 3 shows the results with the balanced data sets. For low recall levels, Common yields high precision values. However, when recall levels become
+larger than a certain threshold, the precision start to decrease drastically. This
+
+Learning Pairwise Classiﬁers
+A. Gupta
+
+D. Johnson
+
+0.8
+
+0.7
+
+0.7
+
+Precision
+
+1
+0.9
+
+0.8
+
+Precision
+
+1
+0.9
+
+0.6
+0.5
+0.4
+0.3
+0.1
+
+0.6
+0.5
+0.4
+0.3
+
+Common
+Polynomial
+Cartesian
+
+0.2
+
+Common
+Polynomial
+Cartesian
+
+0.2
+0.1
+
+0
+
+0
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+0.5
+Recall
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+0.5
+Recall
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+R. Johnson
+
+J. Smith
+1
+
+0.9
+
+0.9
+
+0.8
+
+0.8
+
+0.7
+
+0.7
+
+Precision
+
+1
+
+Precision
+
+9
+
+0.6
+0.5
+0.4
+0.3
+0.1
+
+0.5
+0.4
+0.3
+
+Common
+Polynomial
+Cartesian
+
+0.2
+
+0.6
+
+Common
+Polynomial
+Cartesian
+
+0.2
+0.1
+
+0
+
+0
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+0.5
+Recall
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+0.5
+Recall
+
+Fig. 5. Results of author matching problems by a general classiﬁer
+
+seems to be because there are many (nearly) zero vectors among positive pairs
+generated by Equation (1) and these positive examples cannot be distinguished
+from negative pairs. On the other hand, Polynomial and Cartesian keep high
+precision in higher recall levels. Among the two kernels, Cartesian generally
+yields higher precision than Polynomial. Figure 4 shows the results with the
+imbalanced data sets. As in the case of the balanced data sets, the methods using
+feature conjunctions are much superior to the method using only common features. Cartesian can give a precision 4 to 8 times higher than that of Common
+at medium recall levels.
+In the above experiments, we trained diﬀerent classiﬁers for each abbreviated
+author name. A general classiﬁer, which can identify papers written by the same
+author, given any pair of papers, is preferable because we need not train many
+classiﬁers. It could also classify papers by new authors, for which we do not
+have enough training data. We trained a general classiﬁer in the following steps.
+First, we listed 50,000 authors who have more than one paper in the DBLP
+dataset, according to their alphabetical order. For each author, we chose two
+papers randomly and use the pair as a positive training example. Then we made
+pairs of papers written by diﬀerent authors and prepared the same number
+of negative training examples. We used the same test data that was used in
+the experiments in Figure 4. We present the results by a general classiﬁer in
+Figure 5. In the region where recall is smaller than 0.3, Common get better
+results than the others. For the higher recall levels, however, it gives worse results
+than Cartesian and Common, among which Cartesian generally yields better
+
+10
+
+Satoshi Oyama and Christopher D. Manning
+Training and test sets divided by citation
+
+Training and test sets divided by paper
+
+0.8
+
+0.7
+
+0.7
+
+Precision
+
+1
+0.9
+
+0.8
+
+Precision
+
+1
+0.9
+
+0.6
+0.5
+0.4
+0.3
+0.1
+
+0.5
+0.4
+0.3
+
+Common
+Polynomial
+Cartesian
+
+0.2
+
+0.6
+
+Common
+Polynomial
+Cartesian
+
+0.2
+0.1
+0
+
+0
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+0.5
+Recall
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+0.5
+Recall
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+Fig. 6. Results of citation matching problems with the Cora dataset
+
+precision. The overall results are not as good as those of speciﬁc classiﬁers.
+This seems to be because the word distributions in the test sets for the speciﬁc
+abbreviated names are diﬀerent from the distribution in the training set collected
+using many diﬀerent names. Similar phenomena are also reported in [2].
+Figure 6 shows the results of citation matching (as opposed to author matching) with the Cora dataset. We tried two diﬀerent methods for splitting the data
+into a training set and a test set according to [3]. One method simply assigns
+each citation into the training set or the test set without considering the paper it
+refers to. The other method ﬁrst assigns each paper into the training or the test
+set, then assigns all citations to the paper to the same set. For the Cora dataset,
+Common works as well as Cartesian. In citation matching, two citations to
+the same paper usually have many common words and the learning algorithm
+can ﬁnd clues to identify these examples by only using their common features.
+
+5
+
+Related Work
+
+A general deﬁnition of a tensor product between two kernels can be found in [6].
+A tensor product between kernels on input space and output space is used in [15]
+for inducing metrics both Euclidean and Fisher separable spaces, on which the
+triangle inequality is satisﬁed and a distance between examples from diﬀerent
+classes is always larger than a distance between examples from the same class.
+On the other hand, our work uses a tensor product between two kernels both on
+input space for solving the problem of zero similarities between examples, which
+has not been addressed in the preceding work.
+Duplicate detection and entity matching have been studied for a long time in
+the database community. Recently these problems have attracted interest from
+machine learning researchers. We refer to only recent literature using machine
+learning technologies. Other conventional approaches are summarized by Bilenko
+et al. [1].
+The work by Bilenko and Mooney [2] is most relevant to our research. They
+proposed using learnable domain-speciﬁc string similarities for duplicate detection and showed the advantage of their approach against ﬁxed general-purpose
+
+Learning Pairwise Classiﬁers
+
+11
+
+similarity measures. They trained a diﬀerent similarity metric for each database
+ﬁeld and calculated similarities between records composed of multiple ﬁelds by
+combining these ﬁeld level similarities. In our work, we treated examples as single
+ﬁeld datasets and focused on improving single level similarity measures. Sarawagi
+and Bhamidipaty [11] and Tejada et al. [13] used active learning for interactively
+ﬁnding informative training examples when learning classiﬁers that distinguish
+between duplicated pairs and non-duplicated ones. Their method need only a
+small number of training examples to obtain high accuracy classiﬁers. Bilenko
+and Mooney [3] advocated using precision-recall curves in evaluation of duplicate detection methods, and they also discussed diﬀerent methods of collecting
+training examples for learnable duplicate detection systems.
+
+6
+
+Future Work
+
+In this paper, we presented entity matching in citation databases as an application of our method. Entity matching has been also studied in natural language
+processing under the name of coreference resolution, where coreferent terms in
+texts are to be identiﬁed [9, 10]. Our future work includes application of the
+proposed method for this problem.
+Our approach is applicable to the problem of matching diﬀerent kinds of
+object. For example, English texts and Japanese texts have few common words.
+However, our method could learn a matching function between them without
+using external information sources like dictionaries. Our method can learn similarities between objects of diﬀerent kinds based on similarities between objects
+of the same kind. This indicates great potential of our approach because there
+is no straightforward way to deﬁne similarity between completely diﬀerent kinds
+of objects like texts and images while deﬁning similarities between two texts and
+similarities between two images is much easier.
+As mentioned in Section 4, learning pairwise classiﬁers faces the problem of
+imbalanced data. Employing techniques for handling imbalanced data [4] could
+improve the accuracy. We will also compare our supervised approach with unsupervised dimension reduction approaches such as LSI [5] for sparse data.
+
+7
+
+Conclusion
+
+Pairwise classiﬁcation is an important technique in entity matching. Preceding
+methods have diﬃculty in learning precise classiﬁers for problems where examples from the same class have few common features. Since similarities between
+examples from the same class become small, classiﬁers fail to distinguish positive
+pairs from negative pairs. To solve this problem, we proposed using conjunctions
+of features across examples in learning pairwise classiﬁers. Using a kernel on pair
+instances, our method can use feature conjunctions without causing a large computational cost. Our experiments on the author matching problem show that the
+new kernel introduced here yields higher precision than existing methods at middle to high recall levels.
+
+12
+
+Satoshi Oyama and Christopher D. Manning
+
+Acknowledgements
+This research was partially supported by the Informatics Research Center for Development of Knowledge Society Infrastructure (Kyoto University 21st Century
+COE Program) and by a Grants-in-Aid for Scientiﬁc Research (16700097) from
+the Ministry of Education, Culture, Sports, Science and Technology of Japan.
+
+References
+1. M. Bilenko, W. W. Cohen, S. Fienberg, R. J. Mooney, and P. Ravikumar. Adaptive
+name-matching in information integration. IEEE Intell. Syst., 18(5):16–23, 2003.
+2. M. Bilenko and R. J. Mooney. Adaptive duplicate detection using learnable string
+similarity measures. In Proc. KDD-2003, pages 39–48, 2003.
+3. M. Bilenko and R. J. Mooney. On evaluation and training-set construction for duplicate detection. In Proc. KDD-2003 Workshop on Data Cleaning, Record Linkage,
+and Object Consolidation, pages 7–12, 2003.
+4. N. Chawla, N. Japkowicz, and A. Kolcz, editors. Special issue on Learning from
+Imbalanced Datasets, SIGKDD Explorations, 6(1), 2004.
+5. S. C. Deerwester, S. T. Dumais, T. K. Landauer, G. W. Furnas, and R. A. Harshman. Indexing by latent semantic analysis. J. Am. Soc. Inf. Sci., 41(6):391–407,
+1990.
+6. D. Haussler. Convolution kernels on discrete structures. Technical Report UCSCCRL-99-10, Baskin School of Engineering, University of California, Santa Cruz,
+1999.
+7. T. Joachims. Making large-scale SVM learning practical. In B. Sch¨lkopf,
+o
+C. Burges, and A. Smola, editors, Advances in Kernel Methods - Support Vector
+Learning. MIT-Press, 1999.
+8. S. Lawrence, K. Bollacker, and C. L. Giles. Autonomous citation matching. In
+Proc. Third International Conference on Autonomous Agents, 1999.
+9. A. McCallum and B. Wellner. Toward conditional models of identity uncertainty
+with application to proper noun coreference. In Proc. IJCAI Workshop on Information Integration on the Web, pages 79–84, 2003.
+10. T. S. Morton. Coreference for NLP applications. In Proc. ACL-2000, 2000.
+11. S. Sarawagi and A. Bhamidipaty. Interactive deduplication using active learning.
+In Proc. KDD-2002, pages 269–278, 2002.
+12. J. Shawe-Taylor and N. Cristianini. Kernel Methods for Pattern Analysis. Cambridge University Press, 2004.
+13. S. Tejada, C. A. Knoblock, and S. Minton. Learning domain-independent string
+transformation weights for high accuracy object identiﬁcation. In Proc. KDD-2002,
+pages 350–359, 2002.
+14. V. N. Vapnik. The Nature of Statistical Learning Theory. Springer, 2nd edition,
+1999.
+15. Z. Zhang. Learning metrics via discriminant kernels and multidimensional scaling:
+Toward expected euclidean representation. In Proc. ICML-2003, pages 872–879,
+2003.
+
+

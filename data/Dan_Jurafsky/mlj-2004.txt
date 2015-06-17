@@ -1,0 +1,2360 @@
+Support Vector Learning for Semantic Argument Classiﬁcation ∗
+Sameer Pradhan (spradhan@cslr.colorado.edu), Kadri Hacioglu
+(hacioglu@cslr.colorado.edu), Valerie Krugler† ,
+(krugler@cslr.colorado.edu) Wayne Ward
+(whw@cslr.colorado.edu), James H. Martin
+(martin@cslr.colorado.edu) and Daniel Jurafsky ‡
+(jurafsky@cslr.colorado.edu)
+The Center for Spoken Language Research, University of Colorado, Boulder, CO 80303
+Abstract. The natural language processing community has recently experienced a growth of
+interest in domain independent shallow semantic parsing – the process of assigning a W HO
+did W HAT to W HOM, W HEN, W HERE, W HY, H OW etc. structure to plain text. This process
+entails identifying groups of words in a sentence that represent these semantic arguments and
+assigning speciﬁc labels to them. It could play a key role in NLP tasks like Information Extraction, Question Answering and Summarization. We propose a new machine learning algorithm
+for semantic role parsing, extending the work of Gildea and Jurafsky (2002), Surdeanu et al.
+(2003) and others. Our algorithm is based on Support Vector Machines which we show give
+large improvement in performance over earlier classiﬁers. We show performance improvements through a number of new features designed to improve generalization to unseen data,
+such as automatic clustering of verbs. We also report on various analytic studies examining
+which features are most important, comparing our classiﬁer to other machine learning algorithms in the literature, and testing its generalization to new test set from different genre. On
+the task of assigning semantic labels to the PropBank (Kingsbury et al., 2002) corpus, our ﬁnal
+system has a precision of 84% and a recall of 75%, which are the best results currently reported
+for this task. Finally, we explore a completely different architecture which does not requires
+a deep syntactic parse. We reformulate the task as a combined chunking and classiﬁcation
+problem, thus allowing our algorithm to be applied to new languages or genres of text for
+which statistical syntactic parsers may not be available.
+Keywords: Shallow Semantic Parsing, Support Vector Machines
+
+1. Introduction
+Automatic, accurate and wide-coverage techniques that can annotate naturally occurring text with semantic argument structure can facilitate the discovery of patterns of information in large text collections (Wallis and Nelson,
+2001; Hearst, 1999). Shallow semantic parsing – the process of assigning
+a simple W HO did W HAT to W HOM, W HEN , W HERE , W HY, H OW, etc.
+structure to sentences in text, is the process of producing such a markup.
+∗
+This research was partially supported by the ARDA AQUAINT program via contract
+OCG4423B and by the NSF via grant IIS-9978025
+†
+Currently at Stanford University, Stanford, CA, 94305 vkrugler@stanford.edu
+‡
+Currently at Stanford University, Stanford, CA, 94305 jurafsky@stanford.edu
+
+c 2004 Kluwer Academic Publishers. Printed in the Netherlands.
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.1
+
+2
+More speciﬁcally, when presented with a sentence, a parser should, for each
+predicate in the sentence, identify and label the predicate’s semantic arguments. This process entails identifying groups of words in a sentence that
+represent these semantic arguments and assigning speciﬁc labels to them.
+This notion of shallow semantic parsing, or case role analysis, has a long
+history in the computational linguistics literature. For a short review of this
+history, the reader is referred to Jurafsky and Martin (2000)
+In recent work, a number of researchers have cast this problem as a tagging, problem and have applied various supervised machine learning techniques to it (Gildea and Jurafsky, 2000; Blaheta and Charniak, 2000; Gildea
+and Jurafsky, 2002; Gildea and Palmer, 2002; Gildea and Hockenmaier, 2003;
+Surdeanu et al., 2003; Chen and Rambow, 2003; Fleischman and Hovy, 2003;
+Hacioglu and Ward, 2003; Thompson et al., 2003; Pradhan et al., 2003). In
+this paper, we report on a series of experiments exploring this approach.
+For the initial experiments, we adopted the approach described by Gildea
+and Jurafsky (2002) and evaluated a series of modiﬁcations to improve its
+performance. In the experiments reported here we ﬁrst replaced their statistical classiﬁcation algorithm with one that uses Support Vector Machines
+and then added some more features to the existing feature set. All of the
+experiments we report were conducted on PropBank, an approximately 300kword corpus annotated with semantic arguments of verbs. We evaluated the
+system on three main tasks: identifying words/phrases that represent semantic
+arguments, independently classifying words/phrases known to be semantic
+arguments into the speciﬁc categories, and the combined task of identifying
+the arguments and then assigning respective labels to them. We evaluated
+results using both hand-corrected syntactic parses, and actual parses from the
+Charniak parser.
+A fundamental assumption in this architecture is the presence of a full
+syntactic parse, which provides the bulk of the features used by the machine
+learning algorithm. This limits its applicability to the language and genre of
+text for which statistical syntactic parsers are available, or can be trained.
+Therefore, we reformulated the task as a combined chunking and classiﬁcation problem retaining the same classiﬁer and replacing some features that
+depend on the hierarchical structure of the syntactic parse, with ones derived
+from a ﬂat chunked representation.
+Finally, to test the sensitivity of both sets of features to change in corpus,
+we manually tagged about 400 sentences from the AQUAINT corpus (LDC,
+2002), which is a collection of text from the New York Times Inc., Associated
+Press Inc., and Xinhua News Service, compared to the Wall Street Journal
+corpus, on which the system is trained. Perhaps not surprisingly, there is a
+signiﬁcant drop in performance on this new source of text.
+Section 2 introduces the semantic annotation schema and corpora used for
+the task. In Section 3 we will discuss the semantic parsing system that makes
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.2
+
+3
+use of features extracted from a full syntactic parse, and which assumes that
+the semantic argument boundaries align with those of the syntactic parser. In
+Section 4 we will discuss in detail the system that does not depend on a full
+syntactic parse, by formulating the semantic parsing problem as a chunking
+and classiﬁcation task.
+
+2. Semantic Annotation and Corpora
+Two corpora are available for developing and testing semantic argument annotation – FrameNet1 (Baker et al., 1998) and PropBank2 (Kingsbury et al.,
+2002). FrameNet uses predicate speciﬁc labels such as J UDGE and J UDGEE.
+PropBank uses predicate independent labels – A RG 0, A RG 1, etc. In this paper, we will be reporting on results using PropBank, a 300k-word corpus in
+which predicate argument relations are marked for almost all occurrences of
+non-copula verbs in the Wall Street Journal (WSJ) part of the Penn TreeBank (Marcus et al., 1994). The arguments of a verb are labeled sequentially
+from A RG 0 to A RG 5, where A RG 0 is the P ROTO -AGENT (usually the subject
+of a transitive verb) A RG 1 is the P ROTO -PATIENT (usually its direct object),
+etc. PropBank does attempt to treat semantically related verbs consistently.
+In addition to these “core arguments,” additional “adjunctive arguments,” referred to as A RG Ms are also marked. Some examples are A RG M-L OC, for
+locatives, and A RG M-T MP, for temporals. We will refer to these as A RG Ms.
+Table I shows the argument labels associated with the predicate operate in
+PropBank.
+Table I. Argument labels associated with the predicate operate (sense: work) in the PropBank corpus.
+Tag
+
+Description
+
+A RG 0
+A RG 1
+A RG 2
+A RG 3
+A RG 4
+
+Agent, operator
+Thing operated
+Explicit patient (thing operated on)
+Explicit argument
+Explicit instrument
+
+Following is an example structure extracted from the PropBank corpus.
+The syntax tree representation along with the argument labels is shown in
+Figure 1.
+1
+2
+
+http://www.icsi.berkeley.edu/˜framenet/
+http://www.cis.upenn.edu/˜ace/
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.3
+
+4
+[ARG0 It] [predicate operates] [ARG1 stores] [ARGM−LOC mostly in Iowa
+and Nebraska].
+
+
+ 
+
+S
+
+XX
+
+XX
+X
+
+VP
+`
+
+NP
+PRP
+
+```
+`
+
+NP
+`
+
+VBZ
+
+It
+operates
+ARG0 predicate
+
+NP
+(
+(
+
+```
+`
+
+((
+((((
+
+PP
+(hhh
+
+hhhh
+
+h
+h
+
+NNS mostly in Iowa and N ebraska
+ARGM − LOC
+stores
+ARG1
+Figure 1. Syntax tree for a sentence illustrating the PropBank tags
+
+Table II. List of adjunctive arguments in PropBank – A RG M S
+Tag
+
+Description
+
+Examples
+
+A RG M-L OC
+A RG M-T MP
+A RG M-M NR
+A RG M-D IR
+A RG M-C AU
+A RG M-D IS
+A RG M-E XT
+A RG M-P RP
+A RG M-N EG
+A RG M-M OD
+A RG M-R EC
+A RG M-P RD
+A RG M
+A RG M-A DV
+
+Locative
+Temporal
+Manner
+Direction
+Cause
+Discourse
+Extent
+Purpose
+Negation
+Modal
+Reciprocals
+Secondary Predication
+Bare ArgM
+Adverbials
+
+the museum, in Westborough, Mass.
+now, by next summer
+heavily, clearly, at a rapid rate
+to market, to Bangkok
+In response to the ruling
+for example, in part, Similarly
+at $38.375, 50 points
+to pay for the plant
+not, n’t
+can, might, should, will
+each other
+to become a teacher
+with a police escort
+(none of the above)
+
+The adjunctive arguments are shown in Table II. Thus for example, A RG 0
+usually corresponds to a semantic agent, while A RG 1 typically corresponds
+to the argument most affected by the action, usually referred to as the theme.
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.4
+
+5
+The PropBank annotation scheme assumes that a semantic argument of
+a predicate aligns with one or more nodes in the “hand-corrected” (hence
+TreeBank hand-corrected) parses. Although, most frequently the arguments
+are identiﬁed by one node in the tree, there can be cases where the arguments
+are discontinuous and more than one nodes are required to identify parts of
+the arguments. Sometimes these nodes can be *trace* nodes which refer to
+another node in the tree, but do not have any words associated with them. The
+following examples can help clarify these two notions.
+EXAMPLE
+PropBank also contains arguments that are coreferential. Since traces are not
+reproduced by a syntactic parser, we decided not to consider them in our
+experiments – whether or not they represent arguments of a predicate.
+Most of the experiments in this paper are performed on the July 2002
+release of PropBank. For these set of experiments, we treated discontinuous
+arguments as two instances of the same argument. We also do not differentiate
+between coreferential and non-coreferential arguments. Recently, a newer,
+larger, completely adjudicated Feb 2004 version of PropBank was released.
+We also report our best system performance on this dataset. In this dataset, we
+treat discontinuous and coreferential arguments in accordance to the CoNLL
+2004 shared task on semantic role labeling. The ﬁrst part of a discontinuous
+argument is labeled as it is, while the second part of the argument is labeled
+with a preﬁx “C-” appended to it. All coreferential arguments are labeled with
+a preﬁx “R-” appended to them.
+We follow the standard convention of using Section 02 to Section 21 as the
+training set, Section-00 as the dev-test set and Section-23 as the test set. For
+the July 2002 release of PropBank, the training set comprises about 51,000
+sentences, instantiating about 132,000 arguments, and the test set comprises
+2,700 sentences instantiating about 7,000 arguments. The Feb 2004 release
+training set comprises about 85,000 sentences instantiating about 250,000 arguments and the test set comprises 5,000 sentences instantiating about 12,000
+arguments.
+
+3. Constituent-by-Constituent Semantic Parsing
+3.1. P ROBLEM D ESCRIPTION
+The problem of shallow semantic parsing can be viewed as a two step process.
+First, is the process of identifying the predicate whose arguments we plan to
+identify. In our case, this is any non-copula verb in the sentence. The second
+step is to identify and classify words or phrases that represent the semantic
+arguments of that predicate. This process can be evaluated on three distinct
+tasks:
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.5
+
+6
+• Argument Identiﬁcation – This is the process of identifying parse constituents in the sentence that represent valid semantic arguments of a
+given predicate.
+• Argument Classiﬁcation – Given constituents known to represent valid
+arguments of a predicate, assign the appropriate argument labels to them.
+• Argument Identiﬁcation and Classiﬁcation – A combination of the above
+two tasks, where the system ﬁrst identiﬁes probable constituents that
+represent arguments of a predicate, and then assigns them the most likely
+argument labels.
+
+
+ 
+
+NP
+
+S
+
+XX
+
+X
+X
+
+ 
+
+
+VP
+
+XX
+XX
+X
+
+PRP AUX
+I
+m
+ARG1
+
+VP
+`
+VBN
+inspired
+predicate
+
+```
+`
+
+
+
+
+IN
+
+PP
+
+XXX
+
+(
+( (
+
+X
+X
+NP
+((((hhhh
+
+hh
+h
+
+by
+the mood of the people
+NULL
+ARG0
+Figure 2. A sample sentence from the PropBank corpus
+
+Each node in the parse tree can be classiﬁed as either one that represents
+a semantic argument (i.e., a NON -N ULL node) or one that does not represent
+any semantic argument (i.e., a N ULL node). The NON -N ULL nodes can then
+be further classiﬁed into the set of argument labels. For example, in the tree
+of Figure 2, the PP that encompasses “by the mood of the people” is a N ULL
+node because it does not correspond to a semantic argument. The node NP
+that encompasses “the mood of the people” is a NON -N ULL node, since it
+does correspond to a semantic argument – A RG 0.
+3.2. BASELINE F EATURES
+Our baseline system uses the same set of features introduced by Gildea and
+Jurafsky (2002): predicate, path, phrase type, position, voice, head word, and
+verb sub-categorization. All these features (except one – the predicate) are
+extracted from the syntactic parse tree of the sentence. Some of the features,
+viz., predicate, voice and verb sub-categorization are shared by all the nodes
+in the tree. All the others change with the constituent under consideration. For
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.6
+
+7
+evaluation purposes only predicates for which the arguments were annotated
+in PropBank were considered. In the actual system, all non-copula verbs are
+considered as predicates.
+• Predicate – The predicate lemma is used as a feature.
+• Path – The syntactic path through the parse tree from the parse constituent to the predicate being classiﬁed.
+(
+( ((
+
+ 
+
+NP
+
+XX
+
+S
+
+((hhhh
+
+VP
+`
+
+X
+X
+
+T he lawyers
+ARG0
+
+h
+h
+L
+
+VBD
+
+```
+`
+
+PP
+
+NP
+
+went
+to
+work
+predicate NULL ARG4
+Figure 3. Illustration of path NP↑S↓VP↓VBD
+
+For example, in Figure 3, the path from A RG 0 – “The lawyers” to the
+predicate “went”, is represented with the string NP↑S↓VP↓VBD. ↑ and
+↓ represent upward and downward movement in the tree respectively.
+• Phrase Type – This is the syntactic category (NP, PP, S, etc.) of the
+phrase corresponding to the semantic argument.
+• Position – This is a binary feature identifying whether the phrase is
+before or after the predicate.
+• Voice – Whether the predicate is realized as an active or passive construction. We run a set of hand-written tgrep expressions on the syntax
+tree to identify passive voiced predicates. In approximately 11% of the
+sentences in PropBank, the predicate had a passive instantiation.
+• Head Word – The syntactic head of the phrase. This is calculated using a head word table described by Magerman (1994) and modiﬁed by
+Collins (1999) [Appendix. A]. This feature is not case sensitive.
+• Sub-categorization – This is the phrase structure rule expanding the
+predicate’s parent node in the parse tree. For example, in Figure 3, the
+sub-categorization for the predicate “went” is VP→VBD-PP-NP.
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.7
+
+8
+3.3. C LASSIFIER
+Support Vector Machines (SVMs) (Vapnik, 1998; Burges, 1998) have been
+shown to perform well on text classiﬁcation tasks, where data is represented
+in a high dimensional space using sparse feature vectors (Joachims, 1998;
+Kudo and Matsumoto, 2000; Lodhi et al., 2002). We formulate the parsing
+problem as a multi-class classiﬁcation problem and use a Support Vector Machine (SVM) classiﬁer (Hacioglu et al., 2003; Pradhan et al, 2003). However,
+SVMs are binary classiﬁers. There are two common approaches for extending
+SVMs to multi-class classiﬁcation problems (Allwein et al., 2000). The ﬁrst
+is known as the PAIRWISE approach, where a separate binary classiﬁer is
+trained for each of the class pairs and their outputs are combined to predict
+the classes. This approach requires the training of N (N −1) binary classiﬁers.
+2
+The second, known as the O NE vs A LL (OVA) approach, involves training n
+classiﬁers for a n-class problem. The classiﬁers are trained to discriminate
+between examples of each class, and those belonging to all other classes
+combined. During testing, the classiﬁer scores on an example are combined
+to predict its class label.
+While some experiments have been reported that the pairwise approach
+outperforms the OVA approach (Krebel, 1999), our initial experiments show
+better performance for OVA. Therefore, in this paper, all results are using the
+OVA classiﬁcation approach.
+3.4. S YSTEM I MPLEMENTATION
+The system can be viewed as comprising two stages – the training stage and
+the testing stage. We will ﬁrst discuss how the SVM is trained for this task.
+Since the training time taken by SVMs scales exponentially with the number
+of examples, and about 90% of the nodes in a syntactic tree have N ULL
+argument labels, we found it efﬁcient to divide the training process into two
+stages:
+1. Filter out the nodes that have a very high probability of being N ULL. A
+binary N ULL vs NON -N ULL classiﬁer is trained on the entire dataset. A
+sigmoid function is ﬁtted to the raw scores to convert the scores to probabilities as described by Platt (2000). All the training examples are run
+through this classiﬁer and the respective scores for N ULL and NON -N ULL
+assignments are converted to probabilities using the sigmoid function.
+Nodes that are most likely N ULL (probability > 0.90) are pruned from
+the training set. This reduces the number of N ULL nodes by about 90%.
+This is accompanied by a very negligible (about 1%) pruning of nodes
+that are NON -N ULL.
+2. The remaining training data is used to train a OVA classiﬁer that contains
+the all the classes along with the N ULL class.
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.8
+
+9
+With this strategy only one classiﬁer (N ULL vs NON -N ULL) has to be
+trained on all of the data. The remaining OVA classiﬁers are trained on the
+nodes passed by the ﬁlter (approximately 20% of the total), resulting in a
+considerable savings in training time.
+In the testing stage, we do not perform any ﬁltering of NULL nodes in a
+ﬁrst pass. Instead, all the nodes are classiﬁed directly as N ULL or one of the
+arguments using the classiﬁer trained in step 2 above. We observe a slight
+decrease in recall if we ﬁlter the test examples using a N ULL vs NON -N ULL
+classiﬁer in a ﬁrst pass, as we do in the training process.
+For our experiments, we used tinySVM3 along with YamCha4
+(Kudo and Matsumoto, 2000; Kudo and Matsumoto, 2001) as the SVM training and test software. The system uses a polynomial kernel with degree 2; the
+cost per unit violation of the margin, C=1; and, tolerance of the termination
+criterion, e=0.001.
+3.5. BASELINE S YSTEM P ERFORMANCE
+Table III shows the baseline performance numbers on all the three tasks
+mentioned earlier in Section 3.1 using the PropBank corpus with “handcorrected” parses, i.e., the parses from the hand-corrected Penn TreeBank 5
+The set features listed in Section 3.2 were used.
+Table III. Baseline performance on all the three tasks using “hand-corrected” parses
+P ROP BANK A RGUMENTS
+Identiﬁcation
+Classiﬁcation
+Identiﬁcation + Classiﬁcation
+
+P
+
+R
+
+F1
+
+A
+
+91.2
+83.3
+
+89.6
+78.5
+
+90.4
+80.8
+
+87.1
+
+For the argument identiﬁcation and the combined identiﬁcation and classiﬁcation tasks, we report the precision (P), recall (R) and the F β 6 scores,
+and for the argument classiﬁcation task we report the classiﬁcation accuracy
+(A). This test set and all test sets, unless noted otherwise are Section-23 of
+PropBank.
+3
+
+http://cl.aist-nara.ac.jp/˜talus-Au/software/TinySVM/
+http://cl.aist-nara.ac.jp/˜taku-Au/software/yamcha/
+5
+We report on hand-corrected parses because it is easier to compare with results from the
+literature; we will also report on performance using an actual errorful parser.
+6
+F1 = 2×P ×R
+P +R
+4
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.9
+
+10
+3.6. S YSTEM I MPROVEMENTS
+3.6.1. Disallowing Overlaps
+The system as described above might label two constituents even if they
+overlap in words. This is a problem since we would like to have each word to
+belong to at most one semantic argument as constrained by the PropBank labeling process. We propose to choose among the overlapping constituents by
+retaining the one for which the SVM has the highest conﬁdence, and labeling
+the others N ULL. Since we are dealing with strictly hierarchical trees, nodes
+overlapping in words always have a ancestor-descendent relationship, and
+therefore the overlaps are restricted to subsumptions only. The probabilities
+obtained by applying the sigmoid function to the raw SVM scores are used
+as the measure of conﬁdence. Table IV shows the performance improvement
+on the task of identifying and labeling semantic arguments using the “handcorrected” parses. In this system, the overlap-removal decisions are taken
+independently of each other. For this experiement and all other experiments
+where we report on performance improvement, we conduct a χ 2 test of signiﬁcance to determine whether the difference in number of responses over
+all the confusion categories (correct, wrong, false positive and false negative) are statistically signiﬁcant at p = 0.05. All the statistically signiﬁcant
+improvements are marked with an ∗ .
+
+Table IV. Improvements on the task of argument identiﬁcation and classiﬁcation upon disallowing overlapping constituents using hand
+P
+Baseline
+No Overlaps
+
+R
+
+83.3
+85.4
+
+78.5
+78.1
+
+F1
+
+∗
+
+80.8
+81.6
+
+3.6.2. New Features
+We tested several new features, two of which were obtained from the literature – named entities in constituents and head word part of speech. The others
+are novel features.
+Named Entities in Constituents
+Surdeanu et al. (2003) reported a performance improvement on classifying
+the semantic role of the constituent by relying on the presence of a named
+entity in the constituent. We expect that some of these entities such as location
+and time are particularly important for the adjunctive arguments A RG ML OC and A RG M-T MP. We evaluated a similar use of named entities in our
+system. We tagged 7 named entities (P ERSON , O RGANIZATION , L OCATION ,
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.10
+
+11
+P ERCENT, M ONEY, T IME , DATE) using Identiﬁnder (Bikel et al., 1999) and
+added them as 7 binary features.
+Head Word Part of Speech
+Surdeanu et al. (2003) showed that adding the part of speech of the head
+word of a constituent as a feature in the task of argument identiﬁcation gave a
+signiﬁcant performance boost to their decision tree based system. We experimented with this feature to our system. improvement in performance on the
+task
+Verb Clustering
+The predicate is one of the most salient features in predicting the argument
+class. Since our training data is relatively limited, any real world test set will
+contain predicates that have not been seen in training. In these cases, we
+can beneﬁt from some information about the predicate by using predicate
+cluster as a feature. The distance function used for clustering is based on the
+intuition that verbs with similar semantics will tend to have similar direct
+objects. For example, verbs such as “eat”, “devour”, “savor”, will tend to all
+occur with direct objects describing food. The clustering algorithm uses a
+database of verb-direct-object relations extracted by Lin (1998). The verbs
+were clustered into 64 classes using the probabilistic co-occurrence model of
+Hofmann Hofmann and Puzicha (1998). We then use the verb class of the
+current predicate as a feature.
+Generalizing the Path Feature
+As we will see in Section 3.11, for the argument identiﬁcation task, path is one
+of the most salient features. However, it is also the most data sparse feature.
+To overcome this problem, we tried generalizing the path in three different
+ways:
+1. Compressing sequences of identical labels into one following the intuition that successive embedding of the of the same phrase in the tree
+might not add additional information.
+2. Removing the direction in the path, thus making insigniﬁcant the point at
+which it changes direction in the tree, and
+3. Using only that part of the path from the constituent to the lowest common ancestor of the predicate and the constituent – “Partial Path”. For
+example, the partial path for the path illustrated in Figure 3 is NP↑S.
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.11
+
+12
+Verb Sense Information
+The arguments that a predicate can take depend on the word sense of the
+predicate. Each predicate tagged in the PropBank corpus is assigned a separate set of arguments depending on the sense in which it is used. Table V
+illustrates the argument sets for the predicate talk. Depending on the sense of
+the predicate talk, either A RG 1 or A RG 2 can identify the hearer. Absence of
+this information can be potentially confusing to the learning mechanism.
+Table V. Argument labels associated with the two senses of predicate talk in PropBank corpus.
+Talk
+
+sense 1: speak
+
+sense 2: persuade/dissuade
+
+Tag
+
+Description
+
+Tag
+
+Description
+
+A RG 0
+A RG 1
+A RG 2
+
+Talker
+Subject
+Hearer
+
+A RG 0
+A RG 1
+A RG 2
+
+Talker
+Talked to
+Secondary action
+
+We added the oracle sense information extracted from PropBank, to our
+features by treating each sense of a predicate as a distinct predicate.
+Head Word of Prepositional Phrases
+Many adjunctive arguments, such as temporals and locatives, occur as prepositional phrases in a sentence, and it is often the case that the head words
+of those phrases, which are always prepositions, are not very discriminative,
+eg., “in the city”, “in a few minutes”, both share the same head word “in”
+and neither contain a named entity, but the former is A RG M-L OC, whereas
+the latter is A RG M-T MP. Therefore, we tried replacing the head word of a
+prepositional phrase, with that of the ﬁrst noun phrase inside the prepositional
+phrase. We retained the preposition information by appending it to the phrase
+type, eg., “PP-in” instead of “PP”.
+First and Last Word/POS in Constituent
+Some arguments tend to contain discriminative ﬁrst and last words so we tried
+using them along with their part of speech as four new features.
+Ordinal constituent position
+In order to avoid false positives of the type where constituents far away from
+the predicate are spuriously identiﬁed as arguments, we added this feature
+which is a concatenation of the constituent type and its ordinal position from
+the predicate.
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.12
+
+13
+Constituent tree distance
+This is a ﬁner way of specifying the already present position feature.
+Constituent relative features
+These are nine features representing the phrase type, head word and head
+word part of speech of the parent, and left and right siblings of the constituent
+in focus. These were added on the intuition that encoding the tree context this
+way might add robustness and improve generalization.
+Temporal cue words
+There are several temporal cue words that are not captured by the named
+entity tagger and were considered for addition as a binary feature indicating
+their presence.
+Dynamic class context
+In the task of argument classiﬁcation, these are dynamic features that represent the hypotheses of at most previous two nodes belonging to the same tree
+as the node being classiﬁed.
+3.6.3. Alternative Pruning Strategies
+In the baseline system architecture, we opted for the two step training strategy mentioned in Section 3.4. To evaluate possible performance degradation accompanying the savings in training time, we tested two other pruning
+strategies. The three strategies in order of increased training time are:
+• Two-pass hard-prune strategy, which uses a N ULL vs NON -N ULL classiﬁer trained on the entire data in a ﬁrst pass. All nodes labeled N ULL are
+ﬁltered. And then, O NE vs A LL classiﬁers are trained on the data containing only NON -N ULL examples. There is no N ULL vs A LL classiﬁer
+in the second stage.
+• Two-pass soft-prune strategy (baseline), uses a N ULL vs NON -N ULL
+classiﬁer trained on the entire data, ﬁlters out nodes with high conﬁdence
+(probability > 0.90) of being N ULL in a ﬁrst pass and then trains O NE
+vs A LL classiﬁers on the remaining data including the N ULL class.
+• One-pass no-prune strategy that uses all the data to train O NE vs A LL
+classiﬁers – one for each argument including the N ULL argument. This
+has considerably higher training time as compared to the other two.
+Table VI shows performance on the task of identiﬁcation and classiﬁcation
+of PropBank arguments. These performance numbers are computed over the
+reference examples, and not just the ones that pass the ﬁlter. There is no
+statistically signiﬁcant difference between the two-pass soft-prune strategy,
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.13
+
+14
+and the one-pass no-prune strategy (χ2 ; p = 0.08). However, both are better
+than the two-pass hard-prune strategy. Our initial choice of training strategy
+was dictated by the following efﬁciency considerations: i) SVM training is
+a convex optimization problem that scales exponentially with the size of the
+training set, ii) On an average about 90% of the nodes in a tree are N ULL
+arguments, and iii) We have to optimize only one classiﬁer on the entire data.
+We continued to use the two-pass soft-prune strategy
+
+Table VI. Comparing pruning strategies on the task of argument identiﬁcation and classiﬁcation using hand-corrected treebank parses.
+No Overlaps
+P
+R
+F1
+Two-pass hard-prune
+Two-pass soft-prune
+One-pass no-prune
+
+84
+86
+87
+
+80
+81
+80
+
+∗
+
+81.9
+83.4
+83.3
+
+3.7. A RGUMENT S EQUENCE I NFORMATION
+In order to improve the performance of their statistical argument tagger, G&J
+used the fact that a predicate is likely to instantiate a certain set of arguments.
+We use a similar strategy, with some additional constraints: i) argument ordering information is retained, and ii) the predicate is considered as an argument
+and is part of the sequence. We achieve this by training a trigram language
+model on the argument sequences, so unlike G&J, we can also estimate the
+probability of argument sets not seen in the training data. We ﬁrst convert
+the raw SVM scores to probabilities using a sigmoid function. Then, for
+each sentence being parsed, we generate an argument lattice using the nbest hypotheses for each node in the syntax tree. We then perform a Viterbi
+search through the lattice using the probabilities assigned by the sigmoid as
+the observation probabilities, along with the language model probabilities, to
+ﬁnd the maximum likelihood path through the lattice, such that each node is
+either assigned a value belonging to the P ROP BANK A RGUMENTs, or N ULL.
+The search is constrained in such a way that no two NON -N ULL nodes
+overlap with each other. To simplify the search, we allowed only N ULL assignments to nodes having a N ULL likelihood above a threshold. While training the language model, we can either use the actual predicate to estimate the
+transition probabilities in and out of the predicate, or we can perform a joint
+estimation over all the predicates. We implemented both cases considering
+two best hypotheses, which always includes a N ULL (we add N ULL to the list
+if it is not among the top two). On performing the search, we found that the
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.14
+
+15
+
+Table VII. Improvements on the task of argument identiﬁcation and classiﬁcation using hand-corrected treebank parses, after performi
+C ORE A RGs/
+Hand-corrected parses
+Baseline w/o overlaps
+Common predicate
+Speciﬁc predicate lemma
+
+P
+
+R
+
+F1
+
+90.5
+91.2
+91.7
+
+87.4
+86.9
+87.2
+
+88.9
+89.0
+∗
+89.4
+
+overall performance improvement was not much different than that obtained
+by resolving overlaps as mentioned earlier. However, we found that there
+was an improvement in the C ORE A RGUMENT accuracy on the combined
+task of identifying and assigning semantic arguments, given hand-corrected
+parses, whereas the accuracy of the A DJUNCTIVE A RGUMENTS slightly deteriorated. This seems to be logical considering the fact that the A DJUNCTIVE
+A RGUMENTS are not linguistically constrained in any way as to their position
+in the sequence of arguments, or even the quantity. We therefore decided to
+use this strategy only for the C ORE A RGUMENTS. Although, there was an
+increase in F1 score when the language model probabilities were jointly estimated over all the predicates, this improvement is not statistically signiﬁcant.
+However, estimating the same using speciﬁc predicate lemmas, showed a signiﬁcant improvement in accuracy. The performance improvement is shown in
+Table VII.
+3.8. B EST S YSTEM P ERFORMANCE
+It was found that a subset of the features helped argument identiﬁcation and
+another subset helped argument classiﬁcation. We will look at the individual
+feature contribution in Section 3.11. The best system is trained by ﬁrst ﬁltering the most likely nulls using the best N ULL vs NON -N ULL classiﬁer trained
+using all the features whose argument identiﬁcation F1 score is marked in
+bold in Table XI, and then training a O NE vs A LL classiﬁer using the data
+remaining after performing the ﬁltering and using the features that contribute
+positively to the classiﬁcation task – ones whose accuracies are marked in
+bold in Table XI. Table VIII shows the performance of this system.
+3.9. U SING AUTOMATIC PARSES
+Thus far, we have reported results using hand-corrected “hand-corrected”
+parses. In real-word applications, the system will have to extract features
+from an automatically generated parse. To evaluate this scenario, we used
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.15
+
+16
+Table VIII. Best system performance on all tasks using hand-corrected parses.
+Classes
+
+Task
+
+Hand-corrected parses
+P
+R
+F1
+A
+
+A LL
+A RGs
+
+Id.
+Classiﬁcation
+Id. + Classiﬁcation
+
+95.2
+88.9
+
+92.5
+84.6
+
+93.8
+86.7
+
+91.0
+
+C ORE
+A RGs
+
+Id.
+Classiﬁcation
+Id. + Classiﬁcation
+
+96.2
+90.5
+
+93.0
+87.4
+
+94.6
+88.9
+
+93.9
+
+the Charniak parser (Charniak, 2001) to generate parses for PropBank training and test data. We chose Charniak parser over Collins’ parser for two
+reasons: i) At the time the source code only for Charniak parser was available and it could be modiﬁed to accept data from standard input required
+for the interactive parsing application that we were developing, and ii) Preliminary experiments indicated that the Charniak parser was faster than the
+Collins’ parser. The predicate lemma was extracted using the XTAG morphology database7 (Daniel et al., 1992).
+Table IX. Performance degradation when using automatic parses instead of hand-corrected ones.
+Classes
+
+Task
+P
+
+Automatic parses
+R
+F1
+
+A
+
+A LL
+A RGs
+
+Id.
+Classiﬁcation
+Id. + Classiﬁcation
+
+89.3
+84.0
+
+82.9
+75.3
+
+86.0
+79.4
+
+90.0
+
+C ORE
+A RGs
+
+Id.
+Classiﬁcation
+Id. + Classiﬁcation
+
+92.0
+86.4
+
+83.3
+78.4
+
+87.4
+82.2
+
+90.5
+
+In these generated parses, there are about 6% arguments whose boundaries
+do not align exactly with any of the hand-generated phrase boundaries. We
+tried to recover training information in such cases by automatically correcting
+the slight misalignment caused by a class of parser errors – as done before
+7
+
+ftp://ftp.cis.upenn.edu/pub/xtag/morph-1.5/morph-1.5.tar.gz
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.16
+
+17
+by Gildea and Jurafsky (2002). In order to align the automatically generated
+constituents with the hand generated ones, words were dropped one by one
+from the right end of a hand-generated constituent until it matched one of the
+automatically generated constituents, with which it was then aligned. This
+procedure was followed for both training and test data. Table IX shows the
+performance degradation when automatically generated parses are used.
+3.10. U SING L ATEST P ROP BANK DATA
+Owing to the Feb 2004 release of much more and completely adjudicated
+PropBank data, we have a chance to report our performance numbers on this
+data set. Table X shows the same information as in previous Tables VIII and
+IX, but generated using the new data. Owing to time limitations, we could not
+get the results on the argument identiﬁcation task and the combined argument
+identiﬁcation and classiﬁcation task using automatic parses.
+Table X. Best system performance on all tasks using hand-corrected parses using the latest PropBank data.
+A LL A RGs
+
+Task
+
+H AND
+
+Id.
+Classiﬁcation
+Id. + Classiﬁcation
+
+AUTOMATIC
+
+Classiﬁcation
+
+P
+
+R
+
+F1
+
+A
+
+96.2
+89.9
+
+95.8
+89.0
+
+96.0
+89.4
+
+93.0
+
+-
+
+-
+
+-
+
+90.1
+
+3.11. S YSTEM A NALYSIS
+Feature Performance
+Table XI shows the effect each feature has on the argument classiﬁcation
+and argument identiﬁcation tasks, when added individually to the baseline.
+Addition of named entities to the N ULL vs NON -N ULL classiﬁer degraded
+its performance. We attribute this to a combination of two things: i) there
+are a signiﬁcant number of constituents that contain named entities, but are
+not arguments of a particular predicate (the parent of an argument node will
+also contain the same named entity) therefore this provides a noisy feature
+for N ULL vs NON -N ULL classiﬁcation. We then tried using this as a feature
+solely in the task of classifying constituents known to represent arguments,
+using features extracted from “hand-corrected” parses. On this task, overall classiﬁcation accuracy increased from 87.1% to ∗ 88.1%. As expected,
+the most signiﬁcant improvement was for adjunct arguments like temporals
+(A RG M-T MP) and locatives (A RG M-L OC) as shown in Table XII. Since the
+number of locative and temporal arguments in the test set is quite low (<
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.17
+
+18
+
+Table XI. Effect of each feature on the argument classiﬁcation task and argument identiﬁcation task when added to the baseline system
+Features
+
+Classiﬁcation
+Accuracy
+
+A RGUMENT ID
+P
+
+Baseline
++ Named entities
++ Head POS
++ Verb cluster
++ Partial path
++ Verb sense
++ Noun head PP (only POS)
++ Noun head PP (only head)
++ Noun head PP (both)
++ First word in constituent
++ Last word in constituent
++ First POS in constituent
++ Last POS in constituent
++ Ordinal const. pos. concat.
++ Const. tree distance
++ Parent constituent
++ Parent head
++ Parent head POS
++ Right sibling constituent
++ Right sibling head
++ Right sibling head POS
++ Left sibling constituent
++ Left sibling head
++ Left sibling head POS
++ Temporal cue words
++ Dynamic class context
+
+87.9
+88.1
+∗
+88.6
+88.1
+88.2
+88.1
+∗
+88.6
+∗
+89.8
+∗
+89.9
+∗
+89.0
+∗
+89.4
+88.4
+88.3
+87.7
+88.0
+87.9
+85.8
+∗
+88.5
+87.9
+87.9
+88.1
+∗
+88.6
+86.9
+∗
+88.8
+∗
+88.6
+88.4
+
+R
+
+F1
+
+93.7
+94.4
+94.1
+93.3
+93.7
+94.4
+94.0
+94.7
+94.4
+93.8
+94.4
+93.6
+93.7
+93.7
+94.2
+94.2
+94.3
+94.0
+94.4
+94.1
+93.6
+93.9
+93.5
+-
+
+88.9
+90.1
+89.0
+88.9
+89.5
+90.0
+89.4
+90.5
+91.1
+89.4
+90.6
+89.1
+89.2
+89.5
+90.2
+90.5
+90.3
+89.9
+89.9
+89.9
+89.6
+86.1
+89.3
+-
+
+91.3
+∗
+92.2
+91.5
+91.1
+91.5
+∗
+92.2
+91.7
+∗
+92.6
+∗
+92.7
+91.6
+∗
+92.5
+91.3
+91.4
+91.5
+∗
+92.2
+∗
+92.3
+∗
+92.3
+91.9
+∗
+92.1
+92.0
+91.6
+89.9
+91.4
+-
+
+10%) as compared to the core arguments, the increase in performance on
+these does not boost the overall performance signiﬁcantly.
+Adding head word POS as a feature signiﬁcantly improves both the argument classiﬁcation and the argument identiﬁcation tasks. We tried two other
+ways of generalizing the head word: i) adding the head word cluster as a
+feature, and ii) replacing the head word with a named entity if it belonged to
+any of the seven named entities mentioned earlier. Neither method showed
+signiﬁcant improvement. The improvement on adding the verb cluster infor-
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.18
+
+19
+Table XII. Improvement in classiﬁcation accuracies after adding named entity information.
+A RG M-L OC
+P
+R
+F1
+Baseline
+With Named Entities
+
+61.8
+70.7
+
+56.4
+67.0
+
+∗
+
+59.0
+68.8
+
+A RG M-T MP
+P
+R
+F1
+76.4
+81.1
+
+81.4
+83.7
+
+∗
+
+78.8
+82.4
+
+mation was obtained despite of the fact that more than 99% of the predicates
+in the PropBank test set are present in the training set. Table XI also shows
+the contribution of replacing the head word and the head word POS separately in the feature where the head of a prepositional phrase is replaced by
+the head word of the noun phrase inside it. Apparently, a combination of
+relative features seem to have a signiﬁcant improvement on either or both the
+classiﬁcation and identiﬁcation tasks, and so do the ﬁrst and last words in the
+constituent.
+Feature Salience
+In analyzing the performance of the system, it is useful to estimate the relative
+contribution of the various feature sets used. Table XIII shows the argument
+classiﬁcation accuracies for combinations of features on the “hand-corrected”
+training and test set for all PropBank arguments.
+Table XIII. Performance of various feature combinations on the task of argument classiﬁcation.
+Features
+All
+All except P ath
+All except P hrase T ype
+All except HW and HW -P OS
+All except All P hrases
+All except P redicate
+All except HW and F W and LW -P OS
+Only P ath and P redicate
+Only P ath P hrase T ype
+Only Head W ord
+Only P ath
+
+Accuracy
+91.0
+90.8
+90.8
+90.7
+∗
+83.6
+∗
+82.4
+∗
+75.1
+74.4
+47.2
+37.7
+28.0
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.19
+
+20
+Table XIV. Performance of various feature combinations on the task of argument identiﬁcation
+Features
+
+P
+
+R
+
+F1
+
+All
+All except HW
+All except P redicate
+All except HW and F W and LW -P OS
+All except P ath and P artial P ath
+All except P ath and HW and P redicate Inf o.
+
+95.2
+95.1
+94.5
+91.8
+88.4
+
+92.5
+92.3
+91.9
+88.5
+88.9
+
+93.8
+93.7
+93.2
+90.1
+88.6
+
+Only P ath and HW
+Only P ath and P redicate
+Only HW
+
+88.5
+89.3
+33.0
+
+84.3
+81.2
+00.1
+
+86.3
+85.1
+00.2
+
+In the upper part of Table XIII we see the degradation in performance by
+leaving out one feature at a time. The features are arranged in the order of
+increasing salience. Removing all predicate related information has the most
+detrimental effect on the performance. The lower part of the table shows the
+performance of some feature combinations by themselves.
+Table XIV shows the feature salience on the task of argument identiﬁcation. As opposed to the argument classiﬁcation task, where removing the path
+has the least effect on performance, on the task of argument identiﬁcation,
+removing the path causes the convergence in SVM training to be prohibitively
+slow.
+
+Size of Training Data
+One important concern in any supervised learning method is the amount of
+training examples required for the near optimum performance of a classiﬁer.
+To address this issue, we trained the classiﬁer on varying amounts of training
+data. The resulting plots are shown in Figure 4. We approximate the curves
+by plotting the accuracies at six data sizes. The ﬁrst curve from the top indicates the change in F1 score on the task of argument identiﬁcation alone. The
+third curve indicates the F1 score on the task of argument identiﬁcation and
+classiﬁcation. Interestingly both the curves run almost parallel to each other
+indicating that there is constant loss due to classiﬁcation errors throughout
+the data range. We also plotted the recall values for the combined task of
+identiﬁcation and classiﬁcation to show the fact that most of the trend in the
+F1 score curve is contributed by the recall, whereas there is very little increase
+in precision with increasing data.
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.20
+
+21
+100
+90
+80
+70
+60
+50
+40
+30
+20
+10
+0
+012
+
+5
+
+10
+
+15
+
+30
+Number of sentences in training (K)
+
+50
+
+Labeled Recall (NULL and ARGs)
+Labeled PrecisionL (NULL and ARGs)
+Labeled F-Score (NULL and ARGs)
+Unlabeled F-Score (NULL vs NON-NULL)
+
+Figure 4. Learning Curve for the task of identifying and classifying arguments using
+hand-corrected parses.
+
+Performance Tuning
+The expectations of a semantic parser by a real-world application would vary
+considerably. Some applications might favor precision over recall, and others
+vice-versa. Since we have a mechanism of assigning conﬁdence to the hypothesis generated by the parser, we can tune its performance accordingly.
+Table XV shows the achievable increase in precision with some drop in recall for the task of identifying and classifying semantic arguments using the
+“hand-corrected” parses. The arguments that get assigned probability below
+the conﬁdence threshold are assigned a null label.
+3.12. C OMPARISON WITH S IMILAR S YSTEMS
+We evaluated our system in a number of ways. First, we compare it against
+4 other shallow parsers in the literature. In comparing the systems, results
+are reported for the three types of tasks mentioned earlier. Not all the systems
+report performance on all these tasks, so we could only compare against tasks
+for which performance numbers are reported by the different systems. This
+results in some of the cells in the comparison tables being empty.
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.21
+
+22
+Table XV. Precision/Recall table for the combined task of argument identiﬁcation and labeling using hand-corrected parses.
+Conﬁdence
+Threshold
+
+P
+
+R
+
+0.10
+0.25
+0.50
+0.75
+0.90
+0.95
+
+88.9
+89.0
+91.7
+96.7
+98.7
+98.5
+
+84.6
+84.6
+81.4
+65.2
+32.3
+12.3
+
+The Gildea and Palmer (G&P) System
+Gildea and Palmer (2002) use the same features used by Gildea and Jurafsky
+(2002), which are also our initial set of features. Two of the features – Head
+Word and Path – are found to be the most discriminative for argument identiﬁcation. Maximum likelihood probabilities that the constituent is an argument,
+based on these two features – P (is argument|P ath, P redicate) and
+P (is argument|Head, P redicate), are interpolated to calculate the probability that the constituent under consideration represents an argument.
+In the second step, the constituents that are retained are assigned a normalized probability that is calculated by interpolating distributions conditioned
+on various sets of features using a backoff lattice. The most probable argument is selected. They report results on the December 2001 release of
+PropBank.
+The Surdeanu et al. System
+Surdeanu et al. (2003) report results for a system that uses the same features as Gildea and Jurafsky (2002) (Surdeanu System I). They then report
+performance gains by adding additional features (Surdeanu System II) All
+the feature are combined with a decision tree classiﬁer – C5 (Quinlan, 1986;
+Quinlan, ). Using the built-in boosting capabilities of this classiﬁer show a
+slight improvement on their baseline performance. They use the July 2002
+release of PropBank.
+The additional features used by Surdeanu System II are:
+• Content Word – This is a lexicalized feature that selects the most informative word from a phrase using some heuristics.
+• Part of Speech of the Content Word
+• Named Entity class of the Content Word
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.22
+
+23
+• Boolean Named Entity Flags – The value of these features are set to
+true or false depending on whether the corresponding named entity is
+present in the phrase.
+• Phrasal verb collocations – This feature comprises frequency statistics
+related to the verb and the immediately following preposition.
+
+The Gildea and Hockenmaier (G&H) System
+This system is similar to the Gildea and Palmer (2002) system, but uses
+features extracted from a CCG grammar, which is a dependency grammer,
+instead of a phrase structure grammar. The features used are:
+• Path – This was replaced with the concatenation of the category that the
+head word belongs to, the slot that it ﬁlls and an indicator of whether
+the word is a categorical functor. When the category information is unavailable, the path through the binary tree from the constituent to the
+predicate is used.
+• Phrase type – This is the maximal projection of the PropBank argument’s head word in the CCG parse tree.
+• Voice
+• Head Word
+Gildea and Hockenmaier (2003) report on both the core arguments and the
+adjunctive arguments on the November 2002 release of the PropBank, which
+contains approximately 20% more data, so we cannot directly compare to
+their system. However, since 80% of the data is shared by the two system,
+and we use the same test set, a comparison is valuable. We will refer to this
+as “G&H System I”.
+The Chen and Rambow (C&R) System
+Chen and Rambow (2003) also report results using decision tree classiﬁer
+C4.5 (Quinlan, 1986). They report results using two different sets of features:
+i) Surface syntactic features much like the Gildea and Palmer (2002) system,
+ii) Additional features that result from the extraction of a Tree Adjoining
+Grammar (TAG) from the Penn TreeBank. They chose a Tree Adjoining
+Grammar because of its ability to address long distance dependencies in text.
+The additional features they introduced are:
+• Supertag Path – This is the same as the feature “Path” that we saw
+earlier, but derived from a TAG rather than from a CFG.
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.23
+
+24
+• Supertag – This can be the tree-frame corresponding to the predicate or
+the argument.
+• Surface syntactic role – This is the surface syntactic role of the argument.
+• Surface sub-categorization – This is the surface sub-categorization frame.
+• Deep syntactic role – This is the deep syntactic role of an argument.
+• Deep sub-categorization – This is the deep syntactic sub-categorization
+frame.
+• Semantic sub-categorization – This is the semantic sub-categorization
+frame.
+We compare results to the system based on surface syntactic features
+(C&R System I), and the one that uses deep syntactic features (C&R System
+II). Unlike all the other systems we discuss, they also report results on core
+arguments (A RG 0-5). Furthermore, owing to the absence of some semantic
+annotations in the Penn TreeBank, they could extract features for about 87%
+of the test set. Their numbers are not therefore directly comparable to ours,
+but since 87% of the test sets are overlapping, a rough comparison is still
+valuable.
+3.12.1. Comparing Classiﬁers
+Since two systems, in addition to ours, report results using the same set of features on the same data, we can directly assess the inﬂuence of the classiﬁers.
+Gildea and Palmer (2002) system estimates the posterior probabilities using
+several different feature sets and interpolate the estimates, while Surdeanu
+et al. (2003) use a decision tree classiﬁer. Table XVI shows a comparison
+between the three systems for the task of argument classiﬁcation. Keeping
+the same features and changing only the classiﬁer produces a 8% absolute
+increase in performance on the same test set.
+Table XVI. Argument classiﬁcation accuracies using same features but different classiﬁers
+System
+SVM
+Decision Tree (Surdeanu et al., 2003)
+Lattice Backoff (Gildea and Palmer, 2002)
+
+Accuracy
+87
+79
+77
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.24
+
+25
+3.12.2. Argument Identiﬁcation
+Table XVII compares results on the argument identiﬁcation task. As in the
+argument classiﬁcation task, we see that the SVM system performs better
+than “Surdeanu System I” using the same set of features. It also outperforms
+the “Surdeanu System II”, which includes some more informative features.
+Table XVII. Argument identiﬁcation
+Classes
+
+System
+P
+
+A LL
+A RGs
+
+SVM
+Surdeanu System II
+Surdeanu System I
+
+95
+85
+
+Hand
+R F1
+92
+84
+
+94
+89
+85
+
+Automatic
+P
+R F1
+89
+-
+
+83
+-
+
+86
+-
+
+3.12.3. Argument Classiﬁcation
+Table XVIII compares the argument classiﬁcation accuracies of the systems.
+Table XVIII. Argument classiﬁcation
+Classes
+
+System
+
+A LL
+A RGs
+
+SVM
+G&P
+Surdeanu System II
+Surdeanu System I
+
+C ORE
+A RGs
+
+SVM
+C&R System II
+C&R System I
+
+Hand
+Accuracy
+
+Automatic
+Accuracy
+
+91
+77
+84
+79
+
+90
+74
+-
+
+93.9
+93.5
+92.4
+
+90.5
+-
+
+3.12.4. Argument Identiﬁcation and Classiﬁcation
+Table XIX shows the results for combined argument identiﬁcation and classiﬁcation task.
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.25
+
+26
+Table XIX. Identiﬁcation and classiﬁcation
+Classes
+
+System
+P
+
+Hand
+R F1
+
+Automatic
+P
+R F1
+
+A LL
+A RGs
+
+SVM
+G&H System I
+G&P
+
+89
+76
+71
+
+85
+68
+64
+
+87
+72
+67
+
+84
+71
+58
+
+75
+63
+50
+
+79
+67
+54
+
+C ORE
+A RGs
+
+SVM System
+G&H System I
+C&R System II
+
+90
+82
+-
+
+87
+79
+-
+
+89
+80
+-
+
+86
+76
+65
+
+78
+73
+75
+
+82
+75
+70
+
+4. Word-by-Word Semantic Parsing
+4.1. P ROBLEM D ESCRIPTION
+In the Constituent-by-Constituent (C-by-C) classiﬁcation approach the candidate chunks are provided by the full syntactic parse of a sentence. So the
+segmentation process is performed separately from the classiﬁcation task. In
+this method the classiﬁcation is done on constituents. It is also possible to
+classify at the word-level. In (Ramshaw and Marcus, 1995), chunking was
+proposed as a tagging task. Here, each word in a sentence is labeled with a
+tag; I means that the word is inside a chunk, O means that the word is outside
+a chunk, and B means that the word is the beginning of a chunk. Using a
+variant of IOB representation, known as IOB2 (Sang and Veenstra, 1999),
+the words in the semantic chunks for the following example can be tagged as
+shown:
+[ARG1 I] ’m [predicate inspired] by [ARG0 the mood of the people].
+[B−ARG1 I] [O ’m] [O inspired] [O by] [B−ARG0 the][I−ARG0 mood] [I−ARG0
+of] [I−ARG0 the] [I−ARG0 people]
+In this scheme, N arguments would result in 2 ∗ N + 1 classes. Experiments
+using this method have been reported in (Hacioglu and Ward, 2003; Hacioglu
+et al., 2003)
+4.2. F EATURES
+The features are very similar to the features used in the C-by-C system, except
+the features are derived for each word, not for each constituent. The features
+are
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.26
+
+27
+• Predicate: The verb in focus.
+• Part of Speech: The part-of-speech category of the word.
+• Phrase Position: The position of the word in a phrase based on IOB
+representation (e.g. B-NP, I-NP, O etc.)
+• Word Position: The position of the word with respect to the predicate.
+It has two values as “before” and “after”.
+• Voice: Indicates whether the sentence is in active or passive form with
+respect to the predicate.
+• Path: This is same as the path feature used in the C-by-C system, except
+the path is relative to the word and not the constituent.
+For each word to be tagged, a set of features is created from a ﬁxed size
+context that surrounds the word. A 5-word sliding window centered at the
+current word deﬁnes the set of features. In addition to the above features,
+we also use semantic IOB tags that have already been assigned to the words
+that precede the word in focus and appear in the context. Figure 5 clariﬁes
+the notion of context and illustrates the features used. It should be noted that
+some of the features attached to the words are sentence-level features.
+4.3. S YSTEM I MPLEMENTATION
+As in the C-by-C classiﬁcation framework we have used SVMs in the O NE
+vs A LL setup. All SVM classiﬁers are realized using the TinySVM with the
+polynomial kernel of degree 2 and the general purpose SVM based chunker
+YamCha as distributed, without any changes. Figures 7 and 8 illustrate two
+implementations for feature extraction. As in the baseline system, the ﬁrst
+system extracts features from a full syntactic parser. Even though classiﬁcation is done on a word-by-word basis, features are extracted from a full
+parse. This system is referred to as W-by-W Chunker-1. In the second system,
+the full-syntactic parser is replaced by a part of speech tagger followed by a
+syntactic phrase chunker. The POS tagger and syntactic chunker were both
+implemented using Yamcha. They were trained on Sections 15 through 18 of
+the Penn Treebank. The POS tagger used the words, word preﬁxes/sufﬁxes,
+word types (e.g numeric, capitalized etc.) and previous tag decisions as features. The syntactic chunker used the words and POS tags as features. In both
+systems, the features were created using a sliding window of size 5 centered at
+the word to be tagged. The second system is referred to as W-by-W Chunker2. As mentioned earlier, the motivations for using a chunking parser instead
+of a full syntactic parser are: i) full parsing is computationally expensive than
+chunking, ii) chunkers can be developed more easily for new languages and
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.27
+
+28
+
+context
+
+Word
+
+POS Phrase
+
+I
+’m
+inspired
+by
+the
+mood
+of
+the
+people
+
+PRP
+AUX
+VBN
+IN
+DT
+NN
+IN
+DT
+NNS
+
+B-NP
+O
+B-VP
+B-PP
+B-NP
+I-NP
+B-PP
+B-NP
+I-NP
+
+Path
+PRP<-NP<-S->VP->VBN
+AUX<-VP->VP->VBN
+O
+VBN<-VP->PP->IN
+VBN<-VP->PP->NP->NP->DT
+VBN<-VP->PP->NP->NP->NN
+VBN<-VP->PP->NP->PP->IN
+VBN<-VP->PP->NP->PP->NP->DT
+VBN<-VP->PP->NP->PP->NP->NNS
+
+Predicate
+inspire
+inspire
+inspire
+inspire
+inspire
+inspire
+inspire
+inspire
+inspire
+
+Position Voice Class
+before
+before
+after
+after
+after
+after
+after
+after
+
+ACT
+ACT
+ACT
+ACT
+ACT
+ACT
+ACT
+ACT
+ACT
+
+B-ARG0
+O
+O
+?
+current
+prediction
+features
+
+context
+
+Figure 5. Illustration of the context and the features used to classify a word – Chunker-1
+I
+’m
+inspired
+by
+the
+mood
+of
+the
+people
+
+PRP
+VBP
+VBN
+IN
+DT
+NN
+IN
+DT
+NNS
+
+B-NP
+B-VP
+I-VP
+B-PP
+B-NP
+I-NP
+B-PP
+B-NP
+I-NP
+
+PRP->NP->VP->VBN
+VPB->VP->VBN
+O
+IN->PP->VP->VBN
+DT->NP->PP->VP->VBN
+NN->NP->PP->VP->VBN
+IN->PP->NP->PP->VP->VBN
+DT->NP->PP->NP->PP->VP->VBN
+NNS->NP->PP->NP->PP->VP->VBN
+
+inspire
+inspire
+inspire
+inspire
+inspire
+inspire
+inspire
+inspire
+inspire
+
+before
+before
+after
+after
+after
+after
+after
+after
+
+ACT
+ACT
+ACT
+ACT
+ACT
+ACT
+ACT
+ACT
+ACT
+
+B-ARG0
+O
+O
+?
+current
+prediction
+features
+
+Figure 6. Illustration of the context and the features used to classify a word – Chunker-2
+
+genre of text. The features created for these two systems are shown in Figure 6
+for the example exhibited in Figure 5. There are slight differences in POS and
+phrase position features and major differences in the path features. The path
+feature for W-by-W Chunker 2 is uni-directional (from the word in focus to
+the predicate) and created using the ﬂat structure:
+[NP (PRP I) ] [VP (VBP ’m) (VBN inspired) ] [PP (IN by) ] [NP (DT the)
+(NN mood) ] [PP (IN of) ] [NP (DT the) (NNS people) ]
+The ﬂat path is deﬁned as a chain of phrase chunk labels terminated with
+the POS tags of the word in focus and predicate. Consecutive chunks with
+identical labels are collapsed into one. For example, the path from people to
+the predicate inspired is NNS→NP→PP→NP→PP→VP→VBN.
+We are experimenting with both implementations to determine trade-offs
+between coverage, efﬁciency and accuracy. We present some preliminary results in the next section that compare the accuracy of Chunker-2 to Chunker1, and also we compare their performance to the C-by-C parser described in
+Section 3.
+4.4. E XPERIMENTAL R ESULTS
+Since training SVM on the entire PropBank corpus takes a long time, these
+experiments were carried out by training both C-by-C and W-by-W systems
+on 10,000 randomly selected sentences from the training data. As always,
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.28
+
+29
+Predicate
+
+Predicate word
+Word Position Detector
+
+Position
+Words
+
+Input
+Sentence
+
+Paths
+
+Path Finder
+Full Syntactic Parser
+
+POS tag
+Tree-to-Chunk
+
+Phrase positions
+
+Voice
+
+Voice
+
+Figure 7. Chunker-1 architecture
+Predicate
+
+Predicate word
+Word Position Detector
+
+Position
+Words
+
+Input
+Sentence
+
+Paths
+
+Path Finder
+Part-of-Speech Tagger
+
+POS tag
+Syntactic Chunker
+
+Phrase positions
+
+Voice
+
+Voice
+
+Figure 8. Chunker-2 architecture
+
+Section-23 was used as the test set. We used the Charniak parser to obtain
+syntactic parse trees. The results are shown in Table XX.
+The entire training set has approximately 1.5 millon words. Training SVMs
+using such data is still prohibitive. Unfortunately, this kept us from carrying out extensive experiments with the W-by-W approach using the entire
+training set, additional features and other system settings.
+Table XX. Comparison of C-by-C and W-by-W classiﬁers
+System
+C-by-C
+Chunker-1, W-by-W
+Chunker-2, W-by-W
+
+P
+
+R
+
+F1
+
+80.6
+70.7
+66.2
+
+67.1
+60.5
+54.9
+
+73.2
+65.2
+60.0
+
+When features are derived from a ﬂat chunked parse, instead of a syntactic parse tree, we observed a signiﬁcant drop in performance. The major
+difference between these systems is the derivation of the path feature. To
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.29
+
+30
+Table XXI. Comparison W-by-W classiﬁers without the path feature
+System
+Chunker-1, W-by-W
+Chunker-2, W-by-W
+
+P
+
+R
+
+F1
+
+60.4
+59.8
+
+51.4
+50.8
+
+55.6
+54.9
+
+further illustrate the effect, we ran both systems without using the path feature. These results are shown in Table XXI. As can be seen the performance
+of these systems is very similar, indicating the salience of the path feature.
+These experiments have also shown that the performance obtained by the
+W-by-W paradigm fell short of that obtained by the C-by-C paradigm. We
+think that an important step towards bridging this gap would be to adopt
+a two pass approach in the W-by-W paradigm, analogous in the C-by-C
+paradigm. That is, ﬁrst chunk the sentence into arguments (NON -N ULLs) and
+non-arguments(N ULLs), and then label the NON -N ULLs with the respective
+arguments. We are currently working along those directions to improve the
+performance.
+
+5. Generalization to a New Domain
+Thus far, all experiments have been tested on the same genre of data that
+they have been trained on. In order to see how well the features transfer to a
+new domain, we used both the W-by-W and the C-by-C classiﬁers trained on
+PropBank to test data drawn from the AQUAINT corpus (LDC, 2002). We annotated 400 sentences from the AQUAINT corpus with PropBank arguments.
+This is a collection of text from the New York Times Inc., Associated Press
+Inc., and Xinhua News Service (PropBank by comparison is drawn from Wall
+Street Journal). The results of the C-by-C classiﬁer are shown in Table XXII.
+There is a signiﬁcant drop in the precision and recall numbers for the
+AQUAINT test set (compared to the precision and recall numbers for the
+PropBank test set which were 84% and 75% respectively). One possible reason for the drop in performance is relative coverage of the features on the two
+test sets. The head word, path and predicate features all have a large number
+of possible values and could contribute to lower coverage when moving from
+one domain to another. Also, being more speciﬁc, they might not transfer well
+across domains. All the other features are less likely to have been a source
+of the problem since they can take small enough values that the amount of
+training data is sufﬁcient to estimate their statistics.
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.30
+
+31
+Table XXII. Performance on the AQUAINT test set.
+Task
+
+P
+
+R
+
+F1
+
+A
+
+A LL
+A RGs
+
+Id.
+Classiﬁcation
+Id. + Classiﬁcation
+
+75.8
+65.2
+
+71.4
+61.5
+
+73.5
+63.3
+
+83.8
+-
+
+C ORE
+A RGs
+
+Id.
+Classiﬁcation
+Id. + Classiﬁcation
+
+88.4
+75.2
+
+74.4
+63.3
+
+80.8
+68.7
+
+84.0
+-
+
+Table XXIII. Feature Coverage on PropBank test set using parser trained on PropBank training set.
+Features
+
+Arguments
+
+P redicate, P ath
+P redicate, Head W ord
+Cluster, P ath
+Cluster, Head W ord
+P ath
+Head W ord
+
+non-Arguments
+
+87.6
+48.9
+96.3
+83.8
+99.1
+93.0
+
+2.9
+26.5
+5.0
+60.1
+15.1
+90.6
+
+Table XXIV. Coverage of features on AQUAINT test set using parser trained on PropBank training set.
+Features
+
+Arguments
+
+P redicate, P ath
+P redicate, Head W ord
+Cluster, P ath
+Cluster, Head W ord
+P ath
+Head W ord
+
+non-Arguments
+
+62.1
+30.3
+87.2
+65.8
+96.5
+84.6
+
+4.7
+17.4
+10.7
+45.4
+29.3
+83.5
+
+Table XXIII shows the coverage for features on the “hand-corrected” PropBank test set. The tables show feature coverage for constituents that were
+Arguments and constituents that were N ULL. About 99% of the predicates in
+the AQUAINT test set were seen in the PropBank training set. Table XXIV
+shows coverage for the same features on the AQUAINT test set. We believe
+that the drop in coverage of the more predictive feature combinations explains
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.31
+
+32
+part of the drop in performance. We also ran the Word-by-Word chunking
+algorithms on the AQUAINT test set. The results are shown in Table XXV.
+This would compare to the Table XX. We also observed a degradation in the
+F1 score for this condition, from 65.2% to 52.2% for Chunker-1 and 60.0%
+to 45.7% for Chunker-2.
+Table XXV. Identiﬁcation and Classiﬁcation performance of the chunking systems on the AQUAINT test set
+Classes
+
+System
+
+A LL
+A RGUMENTS
+
+Chunker-1, W-by-W
+Chunker-2, W-by-W
+
+P
+
+R
+
+F1
+
+54.2
+49.5
+
+50.4
+42.4
+
+52.2
+45.7
+
+6. Conclusions
+We have described an algorithm which signiﬁcantly improves the state-ofthe-art in shallow semantic parsing. Like previous work, our parser is based
+on a supervised machine learning approach. It achieves the best published
+performance on the task of identifying and labeling semantic arguments in
+PropBank. Key aspects of our results include signiﬁcant (8% absolute) improvement via an SVM classiﬁer, improvement from new features, and a
+series of analytic experiments on the contributions of the features.
+For example, we found that path is the most salient feature for argument
+identiﬁcation, but is difﬁcult to generalize. Only the partial-path generalization seemed to have any beneﬁt. For the task of classiﬁcation, head word
+and predicate were the most salient features, but likewise, may be difﬁcult to
+estimate because of data sparsity. Adding features that are generalizations of
+the more speciﬁc features also seemed to help. These features were named
+entities, head word part of speech and verb clusters.
+We also report on a series of experiments using a completely different
+architecture which does not require a syntactic parser. This architecture performed signiﬁcantly worse than our parser-based architecture, but may nonetheless be useful in new languages or genres in which statistical syntactic parsers
+are not available.
+
+Acknowledgements
+We would like to thank Ralph Weischedel and Scott Miller of BBN Inc. for
+letting us use their named entity tagger – IdentiFinder; Martha Palmer for
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.32
+
+33
+providing us with the PropBank data and useful advice; Daniel Gildea for
+helpful discussions, and all the anonymous reviewers for their comments and
+suggestions.
+
+References
+Allwein, E. L., R. E. Schapire, and Y. Singer: 2000, ‘Reducing Multiclass to Binary: A Unifying Approach for Margin Classiﬁers’. In: Proc. 17th International Conf. on Machine
+Learning. pp. 9–16, Morgan Kaufmann, San Francisco, CA.
+Baker, C. F., C. J. Fillmore, and J. B. Lowe: 1998, ‘The Berkeley FrameNet project’. In:
+COLING/ACL-98. Montreal, pp. 86–90.
+Bikel, D. M., R. Schwartz, and R. M. Weischedel: 1999, ‘An Algorithm that Learns What’s in
+a Name’. Machine Learning 34, 211–231.
+Blaheta, D. and E. Charniak: 2000, ‘Assigning Function Tags to Parsed Text’. In: Proceedings
+of the 1st Annual Meeting of the North American Chapter of the ACL (NAACL). Seattle,
+Washington, pp. 234–240.
+Burges, C. J. C.: 1998, ‘A Tutorial on Support Vector Machines for Pattern Recognition’. Data
+Mining and Knowledge Discovery 2(2), 121–167.
+Charniak, E.: 2001, ‘Immediate-Head Parsing for Language Models’. In: Proceedings of
+the 39th Annual Conference of the Association for Computational Linguistics (ACL-01).
+Toulouse, France.
+Chen, J. and O. Rambow: 2003, ‘Use of Deep Linguistics Features for the Recognition and Labeling of Semantic Arguments’. In: Proceedings of the Conference on Empirical Methods
+in Natural Language Processing. Sapporo, Japan.
+Collins, M. J.: 1999, ‘Head-driven Statistical Models for Natural Language Parsing’. Ph.D.
+thesis, University of Pennsylvania, Philadelphia.
+Daniel, K., Y. Schabes, M. Zaidel, and D. Egedi: 1992, ‘A freely available wide coverage
+morphological analyzer for English’. In: Proceedings of the 14th International Conference
+on Computational Linguistics (COLING-92). Nantes, France.
+Fleischman, M. and E. Hovy: 2003, ‘A Maximum Entropy Approach to FrameNet Tagging’.
+In: Proceedings of the Human Language Technology Conference. Edmonton, Canada.
+Gildea, D. and J. Hockenmaier: 2003, ‘Identifying Semantic Roles Using Combinatory Categorial Grammar’. In: Proceedings of the Conference on Empirical Methods in Natural
+Language Processing. Sapporo, Japan.
+Gildea, D. and D. Jurafsky: 2000, ‘Automatic Labeling of Semantic Roles’. In: Proceedings of
+the 38th Annual Conference of the Association for Computational Linguistics (ACL-00).
+Hong Kong, pp. 512–520.
+Gildea, D. and D. Jurafsky: 2002, ‘Automatic Labeling of Semantic Roles’. Computational
+Linguistics 28(3), 245–288.
+Gildea, D. and M. Palmer: 2002, ‘The Necessity of Syntactic Parsing for Predicate Argument Recognition’. In: Proceedings of the 40th Annual Conference of the Association for
+Computational Linguistics (ACL-02). Philadelphia, PA.
+Hacioglu, K., S. Pradhan, W. Ward, J. Martin, and D. Jurafsky: 2003, ‘Shallow Semantic
+Parsing using Support Vector Machines’. Technical Report TR-CSLR-2003-1, Center for
+Spoken Language Research, Boulder, Colorado.
+Hacioglu, K. and W. Ward: 2003, ‘Target Word Detection and Semantic Role Chunking
+using Support Vector Machines’. In: Proceedings of the Human Language Technology
+Conference. Edmonton, Canada.
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.33
+
+34
+Hearst, M.: 1999, ‘Untangling Text Data Mining’. In: Proceedings of the 37th Annual Meeting
+of the ACL. College Park, Maryland, pp. 3–10.
+Hofmann, T. and J. Puzicha: 1998, ‘Statistical Models For Co-occurrence Data’. Memo,
+Massachussetts Institute of Technology Artiﬁcial Intelligence Laboratory.
+Joachims, T.: 1998, ‘Text Categorization with Support Vector Machines: Learning with Many
+Relevant Features’. In: Proceedings of the European Conference on Machine Learning
+(ECML).
+Kingsbury, P., M. Palmer, and M. Marcus: 2002, ‘Adding Semantic annotation to the Penn
+Treebank’. In: Proceedings of the Human Language Technology Conference. San Diego,
+CA.
+Krebel, U. H. G.: 1999, ‘Pairwise Classiﬁcation and Support Vector Machines’. In: Advances
+in Kernel Methods.
+Kudo, T. and Y. Matsumoto: 2000, ‘Use of Support Vector Learning for Chunk Identiﬁcation’.
+In: Proceedings of the 4th Conference on CoNLL-2000 and LLL-2000. pp. 142–144.
+Kudo, T. and Y. Matsumoto: 2001, ‘Chunking with Support Vector Machines’. In: Proceedings
+of the 2nd Meeting of the North American Chapter of the Association for Computational
+Linguistics (NAACL-2001).
+LDC: 2002, ‘The AQUAINT Corpus of English News Text, Catalog no. LDC2002T31’.
+Lin, D.: 1998, ‘Automatic Retrieval and Clustering of Similar Words’. In: Proceedings of the
+COLING-ACL. Montreal, Canada.
+Lodhi, H., C. Saunders, J. Shawe-Taylor, N. Cristianini, and C. Watkins: 2002, ‘Text
+Classiﬁcation using String Kernels’. Journal of Machine Learning Research 2(Feb),
+419–444.
+Magerman, D.: 1994, ‘Natural Language Parsing as Statistical Pattern Recognition’. Ph.D.
+thesis, Stanford University, CA.
+Marcus, M., G. Kim, M. A. Marcinkiewicz, R. MacIntyre, A. Bies, M. Ferguson, K. Katz, and
+B. Schasberger: 1994, ‘The Penn treebank: Annotating predicate argument structure’.
+Platt, J.: 2000, ‘Probabilities for Support Vector Machines’. In: A. Smola, P. Bartlett, B.
+Scolkopf, and D. Schuurmans (eds.): Advances in Large Margin Classiﬁers. Cambridge,
+MA: MIT press.
+Pradhan, S., K. Hacioglu, W. Ward, J. Martin, and D. Jurafsky: 2003, ‘Semantic Role Parsing:
+Adding Semantic Structure to Unstructured Text’. In: Proceedings of the International
+Conference on Data Mining (ICDM 2003). Melbourne, Florida.
+Quinlan, J. R.: 1986, ‘Induction of Decision Trees’. Machine Learning 1(1), 81–106.
+Quinlan,
+R.,
+‘Data Mining Tools See5 and C5.0, http://www.rulequest.com’.
+/see-info.html, 2003.
+Ramshaw, L. A. and M. P. Marcus: 1995, ‘Text Chunking using transformation-based learning’. In: Proceedings of the Third Annual Workshop on Very Large Corpora. pp.
+82–94.
+Sang, E. F. T. K. and J. Veenstra: 1999, ‘Representing Text Chunks’. In: Proc. of EACL. pp.
+173–179.
+Surdeanu, M., S. Harabagiu, J. Williams, and P. Aarseth: 2003, ‘Using Predicate-Argument
+Structures for Information Extraction’. In: Proceedings of the 41st Annual Meeting of the
+Association for Computational Linguistics. Sapporo, Japan.
+Thompson, C. A., R. Levy, and C. D. Manning: 2003, ‘A Generative Model for Semantic Role
+Labeling’. In: Proceedings of the European Conference on Machine Learning (ECML).
+Vapnik, V.: 1998, Statistical Learning Theory. New York: John Wiley and Sons Inc.
+Wallis, S. and G. Nelson: 2001, ‘Knowledge Discovery in Grammatically Analysed Corpora’.
+Data Mining and Knowledge Discovery 5(4), 305–335.
+
+semantic-parsing.tex; 29/03/2004; 16:47; p.34
+
+

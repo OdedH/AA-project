@@ -1,0 +1,656 @@
+Learning syntactic patterns for automatic
+hypernym discovery
+Rion Snow
+
+Daniel Jurafsky
+
+Andrew Y. Ng
+
+Computer Science Department
+Stanford University
+Stanford, CA 94305
+
+Linguistics Department
+Stanford University
+Stanford, CA 94305
+
+Computer Science Department
+Stanford University
+Stanford, CA 94305
+
+rion@cs.stanford.edu
+
+jurafsky@stanford.edu
+
+ang@cs.stanford.edu
+
+Abstract
+Semantic taxonomies such as WordNet provide a rich source of knowledge for natural language processing applications, but are expensive to
+build, maintain, and extend. Motivated by the problem of automatically
+constructing and extending such taxonomies, in this paper we present a
+new algorithm for automatically learning hypernym (is-a) relations from
+text. Our method generalizes earlier work that had relied on using small
+numbers of hand-crafted regular expression patterns to identify hypernym pairs. Using “dependency path” features extracted from parse trees,
+we introduce a general-purpose formalization and generalization of these
+patterns. Given a training set of text containing known hypernym pairs,
+our algorithm automatically extracts useful dependency paths and applies
+them to new corpora to identify novel pairs. On our evaluation task (determining whether two nouns in a news article participate in a hypernym
+relationship), our automatically extracted database of hypernyms attains
+both higher precision and higher recall than WordNet.
+
+1
+
+Introduction
+
+Semantic taxonomies and thesauri such as WordNet [5] are a key source of knowledge for
+natural language processing applications, and provide structured information about semantic relations between words. Building such taxonomies, however, is an extremely slow
+and labor-intensive process. Further, semantic taxonomies are invariably limited in scope
+and domain, and the high cost of extending or customizing them for an application has
+often limited their usefulness. Consequently, there has been signiﬁcant recent interest in
+ﬁnding methods for automatically learning taxonomic relations and constructing semantic
+hierarchies. [1, 2, 3, 4, 6, 8, 9, 13, 15, 17, 18, 19, 20, 21]
+In this paper, we build an automatic classiﬁer for the hypernym/hyponym relation. A noun
+X is a hyponym of a noun Y if X is a subtype or instance of Y. Thus “Shakespeare” is a
+hyponym of “author” (and conversely “author” is a hypernym of “Shakespeare”), “dog” is
+a hyponym of “canine”, “desk” is a hyponym of “furniture”, and so on.
+Much of the previous work on automatic semantic classiﬁcation of words has been based
+on a key insight ﬁrst articulated by Hearst [8], that the presence of certain “lexico-syntactic
+patterns” can indicate a particular semantic relationship between two nouns. Hearst noticed
+that, for example, linking two noun phrases (NPs) via the constructions “Such NP Y as
+NP X ”, or “NP X and other NP Y ”, often implies that NP X is a hyponym of NP Y , i.e., that
+NP X is a kind of NP Y . Since then, several researchers have used a small number (typically
+less than ten) of hand-crafted patterns like these to try to automatically label such semantic
+
+relations [1, 2, 6, 13, 17, 18]. While these patterns have been successful at identifying some
+examples of relationships like hypernymy, this method of lexicon construction is tedious
+and severely limited by the small number of patterns typically employed.
+Our goal is to use machine learning to automatically replace this hand-built knowledge.
+We ﬁrst use examples of known hypernym pairs to automatically identify large numbers of
+useful lexico-syntactic patterns, and then combine these patterns using a supervised learning algorithm to obtain a high accuracy hypernym classiﬁer. More precisely, our approach
+is as follows:
+1. Training:
+(a) Collect noun pairs from corpora, identifying examples of hypernym pairs
+(pairs of nouns in a hypernym/hyponym relation) using WordNet.
+(b) For each noun pair, collect sentences in which both nouns occur.
+(c) Parse the sentences, and automatically extract patterns from the parse tree.
+(d) Train a hypernym classiﬁer based on these features.
+2. Test:
+(a) Given a pair of nouns in the test set, extract features and use the classiﬁer to
+determine if the noun pair is in the hypernym/hyponym relation or not.
+The rest of the paper is structured as follows. Section 2 introduces our method for automatically discovering patterns indicative of hypernymy. Section 3 then describes the setup of
+our experiments. In Section 4 we analyze our feature space, and in Section 5 we describe
+a classiﬁer using these features that achieves high accuracy on the task of hypernym identiﬁcation. Section 6 shows how this classiﬁer can be improved by adding a new source of
+knowledge, coordinate terms.
+
+2
+
+Representing lexico-syntactic patterns with dependency paths
+
+The ﬁrst goal of our work is to automatically identify lexico-syntactic patterns indicative
+of hypernymy. In order to do this, we need a representation space for expressing these
+patterns. We propose the use of dependency paths as a general-purpose formalization of
+the space of lexico-syntactic patterns. Dependency paths have been used successfully in
+the past to represent lexico-syntactic relations suitable for semantic processing [11].
+A dependency parser produces a dependency tree that represents the syntactic relations
+between words by a list of edge tuples of the form:
+(word1 ,CATEGORY1 :RELATION:CATEGORY 2 , word2 ). In this formulation each word is
+the stemmed form of the word or multi-word phrase (so that “authors” becomes “author”),
+and corresponds to a speciﬁc node in the dependency tree; each category is the part of
+speech label of the corresponding word (e.g., N for noun or P REP for preposition); and
+the relation is the directed syntactic relationship exhibited between word1 and word2
+(e.g., OBJ for object, MOD for modiﬁer, or CONJ for conjunction), and corresponds to a
+speciﬁc link in the tree. We may then deﬁne our space of lexico-syntactic patterns to be all
+shortest paths of four links or less between any two nouns in a dependency tree. Figure 1
+shows the partial dependency tree for the sentence fragment “...such authors as Herrick and
+Shakespeare” generated by the broad-coverage dependency parser MINIPAR [10].
+
+...
+
+-N:pre:PreDet
+
+authors
+
+-N:mod:Prep
+
+-N:punc:U
+
+such
+-Prep:pcomp-n:N
+
+as
+
+Herrick
+
+and
+
+-N:conj:N
+
+-Prep:pcomp-n:N
+
+Shakespeare
+
+Figure 1: MINIPAR dependency tree example with transform
+
+NP X and other NP Y :
+NP X or other NP Y :
+NP Y such as NP X :
+Such NP Y as NP X :
+NP Y including NP X :
+NP Y , especially NP X :
+
+(and,U: PUNC :N),-N: CONJ :N, (other,A: MOD :N)
+(or,U: PUNC :N),-N: CONJ :N, (other,A: MOD :N)
+N: PCOMP - N :P REP,such as,such as,P REP : MOD :N
+N: PCOMP - N :P REP,as,as,P REP : MOD :N,(such,P RE D ET: PRE :N)
+N: OBJ :V,include,include,V: I :C,dummy node,dummy node,C: REL :N
+-N: APPO :N,(especially,A: APPO - MOD :N)
+
+Table 1: Dependency path representations of Hearst’s patterns
+We then remove the original nouns in the noun pair to create a more general pattern. Each
+dependency path may then be presented as an ordered list of dependency tuples. We extend
+this basic MINIPAR representation in two ways: ﬁrst, we wish to capture the fact that certain function words like “such” (in “such NP as NP”) or “other” (in “NP and other NP”) are
+important parts of lexico-syntactic patterns. We implement this by adding optional “satellite links” to each shortest path, i.e., single links not already contained in the dependency
+path added on either side of each noun. Second, we capitalize on the distributive nature of
+the syntactic conjunction relation (nouns linked by “and” or “or”, or in comma-separated
+lists) by distributing dependency links across such conjunctions. For example, in the simple 2-member conjunction chain of “Herrick” and “Shakespeare” in Figure 1, we add the
+entrance link “as, -P REP : PCOMP - N :N” to the single element “Shakespeare” (as a dotted
+line in the ﬁgure). Our extended dependency notation is able to capture the power of the
+hand-engineered patterns described in the literature. Table 1 shows the six patterns used in
+[1, 2, 8] and their corresponding dependency path formalizations.
+
+3
+
+Experimental paradigm
+
+Our goal is to build a classiﬁer which, when given an ordered pair of nouns, makes the
+binary decision of whether the nouns are related by hypernymy.
+All of our experiments are based on a corpus of over 6 million newswire sentences. 1 We
+ﬁrst parsed each of the sentences in the corpus using MINIPAR. We extract every pair of
+nouns from each sentence.
+752,311 of the resulting unique noun pairs were labeled as Known Hypernym or Known
+Non-Hypernym using WordNet.2 A noun pair (ni , nj ) is labeled Known Hypernym if nj
+is an ancestor of the ﬁrst sense of ni in the WordNet hypernym taxonomy, and if the only
+“frequently-used”3 sense of each noun is the ﬁrst noun sense listed in WordNet. Note that
+nj is considered a hypernym of ni regardless of how much higher in the hierarchy it is with
+respect to ni . A noun pair may be assigned to the second set of Known Non-Hypernym
+pairs if both nouns are contained within WordNet, but neither noun is an ancestor of the
+other in the WordNet hypernym taxonomy for any senses of either noun. Of our collected
+noun pairs, 14,387 were Known Hypernym pairs, and we assign the 737,924 most frequently occurring Known Non-Hypernym pairs to the second set; this number is selected
+to preserve the roughly 1:50 ratio of hypernym-to-non-hypernym pairs observed in our
+hand-labeled test set (discussed below).
+We evaluated our binary classiﬁers in two ways. For both sets of evaluations, our classiﬁer
+was given a pair of nouns from an unseen sentence and had to make a hypernym vs. nonhypernym decision. In the ﬁrst style of evaluation, we compared the performance of our
+classiﬁers against the Known Hypernym versus Known Non-Hypernym labels assigned by
+1
+The corpus contains articles from the Associated Press, Wall Street Journal, and Los Angeles
+Times, drawn from the T IPSTER 1, 2, 3, and T REC 5 corpora [7]. Our most recent experiments
+(presented in Section 6) include articles from Wikipedia (a popular web encyclopedia), extracted
+with the help of Tero Karvinen’s Tero-dump software.
+2
+We access WordNet 2.0 via Jason Rennie’s WordNet::QueryData interface.
+3
+A noun sense is determined to be “frequently-used” if it occurs at least once in the sense-tagged
+Brown Corpus Semantic Concordance ﬁles (as reported in the cntlist ﬁle distributed as part of
+WordNet 2.0). This determination is made so as to reduce the number of false hypernym/hyponym
+classiﬁcations due to highly polysemous nouns (nouns which have multiple meanings).
+
+Hypernym Classifiers on WordNet-labeled dev set
+
+1
+
+Logistic Regression (Buckets)
+Logistic Regression (Binary)
+Hearst Patterns
+And/Or Other Pattern
+
+0.9
+0.8
+
+Precision
+
+0.7
+0.6
+0.5
+0.4
+0.3
+0.2
+0.1
+0
+
+Figure 2: Hypernym pre/re for all features
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+
+0.5
+
+Recall
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+Figure 3: Hypernym classiﬁers
+
+WordNet. This provides a metric for how well our classiﬁers do at “recreating” WordNet’s
+judgments.
+For the second set of evaluations we hand-labeled a test set of 5,387 noun pairs from
+randomly-selected paragraphs within our corpus (with part-of-speech labels assigned by
+MINIPAR). The annotators were instructed to label each ordered noun pair as one of
+“hyponym-to-hypernym”, “hypernym-to-hyponym”, “coordinate”, or “unrelated” (the coordinate relation will be deﬁned in Section 6). As expected, the vast majority of pairs
+(5,122) were found to be unrelated by these measures; the rest were split evenly between
+hypernym and coordinate pairs (134 and 131, resp.).
+Interannotator agreement was obtained between four labelers (all native speakers of English) on a set of 511 noun pairs, and determined for each task according to the averaged
+F-Score across all pairs of the four labelers. Agreement was 83% and 64% for the hypernym and coordinate term classiﬁcation tasks, respectively.
+
+4
+
+Features: pattern discovery
+
+Our ﬁrst study focused on discovering which dependency paths might prove useful features
+for our classiﬁers. We created a feature lexicon of 69,592 dependency paths, consisting of
+every dependency path that occurred between at least ﬁve unique noun pairs in our corpus.
+To evaluate these features, we constructed a binary classiﬁer for each pattern, which simply
+classiﬁes a noun pair as hypernym/hyponym if and only if the speciﬁc pattern occurs at least
+once for that noun pair. Figure 2 depicts the precision and recall of all such classiﬁers (with
+recall at least .0015) on the WordNet-labeled data set.4 Using this formalism we have been
+able to capture a wide variety of repeatable patterns between hypernym/hyponym noun
+pairs; in particular, we have been able to rediscover the hand-designed patterns originally
+proposed in [8] (the ﬁrst ﬁve features, marked in red)5 , in addition to a number of new
+patterns not previously discussed (of which four are marked as blue triangles in Figure
+2 and listed in Table 2. This analysis gives a quantitative justiﬁcation to Hearst’s initial
+intuition as to the power of hand-selected patterns; nearly all of Hearst’s patterns are at the
+high-performance boundary of precision and recall for individual features.
+NP Y like NP X :
+NP Y called NP X :
+NP X is a NP Y :
+NP X , a NP Y (appositive):
+
+N: PCOMP - N :P REP,like,like,P REP : MOD :N
+N: DESC :V,call,call,V: VREL :N
+N: S :VBE,be,be,-VBE: PRED :N
+N: APPO :N
+
+Table 2: Dependency path representations of other high-scoring patterns
+4
+
+Redundant features consisting of an identical base path to an identiﬁed pattern but differing only
+by an additional “satellite link” are marked in Figure 2 by smaller versions of the same symbol.
+5
+We mark the single generalized “conjunction other” pattern -N: CONJ :N, (other,A: MOD :N) to
+represent both of Hearst’s original “and other” and “or other” patterns.
+
+Best Logistic Regression (Buckets):
+Best Logistic Regression (Binary):
+Best Multinomial Naive Bayes:
+Best Complement Naive Bayes:
+Hearst Patterns:
+“And/Or Other” Pattern:
+
+0.3480
+0.3200
+0.3175
+0.3024
+0.1500
+0.1170
+
+Table 3: Average maximum F-scores for cross validation on WordNet-labeled training set
+
+5
+
+A hypernym-only classiﬁer
+
+Our ﬁrst hypernym classiﬁer is based on the intuition that unseen noun pairs are more
+likely to be a hypernym pair if they occur in the test set with one or more lexico-syntactic
+patterns found to be indicative of hypernymy. We record in our noun pair lexicon each
+noun pair that occurs with at least ﬁve unique paths from our feature lexicon discussed in
+the previous section. We then create a feature count vector for each such noun pair. Each
+entry of the 69,592-dimension vector represents a particular dependency path, and contains
+the total number of times that that path was the shortest path connecting that noun pair in
+some dependency tree in our corpus. We thus deﬁne as our task the binary classiﬁcation of
+a noun pair as a hypernym pair based on its feature vector of dependency paths.
+We use the WordNet-labeled Known Hypernym / Known Non-Hypernym training set deﬁned in Section 3. We train a number of classiﬁers on this data set, including multinomial
+Naive Bayes, complement Naive Bayes [16], and logistic regression. We perform model
+selection using 10-fold cross validation on this training set, evaluating each model based
+on its maximum F-Score averaged across all folds. The summary of average maximum
+F-scores is presented in Table 3, and the precision/recall plot of our best models is presented in Figure 3. For comparison, we evaluate two simple classiﬁers based on past work
+using only a handful of hand-engineered features; the ﬁrst simply detects the presence of
+at least one of Hearst’s patterns, arguably the previous best classiﬁer consisting only of
+lexico-syntactic patterns, and as implemented for hypernym discovery in [2]. The second
+classiﬁer consists of only the “NP and/or other NP” subset of Hearst’s patterns, as used
+in the automatic construction of a noun-labeled hypernym taxonomy in [1]. In our tests
+we found greatest performance from a binary logistic regression model with 14 redundant
+threshold buckets spaced at the exponentially increasing intervals {1, 2, 4, ...4096, 8192};
+our resulting feature space consists of 974,288 distinct binary features. These buckets are
+deﬁned such that a feature corresponding to pattern p at threshold t will be activated by
+a noun pair n if and only if p has been observed to occur as a shortest dependency path
+between n at least t times.
+Our classiﬁer shows a dramatic improvement over previous classiﬁers; in particular, using
+our best logistic regression classiﬁer trained on newswire corpora, we observe a 132%
+relative improvement of average maximum F-score over the classiﬁer based on Hearst’s
+patterns.
+
+6
+
+Using coordinate terms to improve hypernym classiﬁcation
+
+While our hypernym-only classiﬁer performed better than previous classiﬁers based on
+hand-built patterns, there is still much room for improvement. As [2] points out, one problem with pattern-based hypernym classiﬁers in general is that within-sentence hypernym
+pattern information is quite sparse. Patterns are useful only for classifying noun pairs which
+happen to occur in the same sentence; many hypernym/hyponym pairs may simply not occur in the same sentence in the corpus. For this reason [2], following [1] suggests relying
+on a second source of knowledge: “coordinate” relations between nouns. The WordNet
+glossary deﬁnes coordinate terms as “nouns or verbs that have the same hypernym”. Here
+we treat the coordinate relation as a symmetric relation that exists between two nouns that
+share at least one common ancestor in the hypernym taxonomy, and are therefore “the
+same kind of thing” at some level. Many methods exist for inferring that two nouns are
+coordinate terms (a common subtask in automatic thesaurus induction). We expect that
+
+Interannotator Agreement:
+Distributional Similarity Vector Space Model:
+Thresholded Conjunction Pattern Classiﬁer:
+Best WordNet Classiﬁer:
+
+0.6405
+0.3327
+0.2857
+0.2630
+
+Table 4: Summary of maximum F-scores on hand-labeled coordinate pairs
+Coordinate term classifiers on hand-labeled test set
+
+1
+0.9
+0.8
+
+Interannotator Agreement
+TREC+Wikipedia
+TREC, Hybrid
+TREC, Hypernym-only
+WordNet Classifiers
+Hearst Patterns
+And/Or Other Pattern
+
+0.9
+0.8
+0.7
+
+0.6
+
+Precision
+
+Precision
+
+0.7
+
+Hypernym Classifiers on hand-labeled test set
+
+1
+
+Interannotator Agreement
+Distributional Similarity
+Conjunct Pattern
+WordNet
+
+0.5
+0.4
+
+0.6
+0.5
+0.4
+
+0.3
+
+0.3
+
+0.2
+
+0.2
+
+0.1
+0
+
+0.1
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+
+0.5
+
+Recall
+
+0.6
+
+0.7
+
+Figure 4: Coordinate classiﬁers on
+hand-labeled test set
+
+0.8
+
+0.9
+
+1
+
+0
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+
+0.5
+
+Recall
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+Figure 5: Hypernym classiﬁers on
+hand-labeled test set
+
+using coordinate information will increase the recall of our hypernym classiﬁer: if we are
+conﬁdent that two nouns ni , nj are coordinate terms, and that nj is a hyponym of nk , we
+may then infer with higher probability that ni is similarly a hyponym of nk —despite never
+having encountered the pair (ni , nk ) within a single sentence.
+6.1 Coordinate Term Classiﬁcation
+Prior work for identifying coordinate terms includes automatic word sense clustering methods based on distributional similarity (e.g., [12, 14]) or on pattern-based techniques, specifically using the coordination pattern “X, Y, and Z” (e.g., [2]). We construct both types of
+classiﬁer. First we construct a vector-space model similar to [12] using single MINIPAR
+dependency links as our distributional features.6 We use the normalized similarity score
+from this model for coordinate term classiﬁcation. We evaluate this classiﬁer on our handlabeled test set, where of 5,387 total pairs, 131 are labeled as “coordinate”. For purposes
+of comparison we construct a series of classiﬁers from WordNet, which make the binary
+decision of determining whether two nouns are coordinate according to whether they share
+a common ancestor within k nouns higher up in the hypernym taxonomy, for all k from 1
+to 6. Also, we compare a simple pattern-based classiﬁer based on the conjunction pattern,
+which thresholds simply on the number of conjunction patterns found between a given pair.
+Results of this experiment are shown in Table 4 and Figure 4.
+The strong performance of the simple conjunction pattern model suggests that it may be
+worth pursuing an extended pattern-based coordinate classiﬁer along the lines of our hypernym classiﬁer; for now, we proceed with our distributional similarity vector space model
+(with a 16% relative F-score improvement over the conjunction model) in the construction
+of a combined hypernym-coordinate hybrid classiﬁer.
+6.2 Hybrid hypernym-coordinate classiﬁcation
+We now combine our hypernym and coordinate models in order to improve hypernym classiﬁcation. We deﬁne two probabilities of pair relationships between nouns: P (n i < nj ),
+H
+
+6
+
+We use the same 6 million MINIPAR-parsed sentences used in our hypernym training set. Our
+feature lexicon consists of the 30,000 most frequent noun-connected dependency edges. We construct
+feature count vectors for each of the most frequently occurring 163,198 individual nouns. As in [12]
+we normalize these feature counts with pointwise mutual information, and compute as our measure
+of similarity the cosine coefﬁcient between these normalized vectors.
+
+Interannotator Agreement:
+TREC+Wikipedia Hypernym-only Classiﬁer (Logistic Regression):
+TREC Hybrid Linear Interpolation Hypernym/Coordinate Model:
+TREC Hypernym-only Classiﬁer (Logistic Regression):
+Best WordNet Classiﬁer:
+Hearst Patterns Classiﬁer:
+“And/Or Other” Pattern Classiﬁer:
+
+0.8318
+0.3592
+0.3268
+0.2714
+0.2339
+0.1417
+0.1386
+
+Table 5: Maximum F-Score of hypernym classiﬁers on hand-labeled test set
+representing the probability that noun ni has nj as an ancestor in its hypernym hierarchy,
+and P (ni ∼ nj ), the probability that nouns ni and nj are coordinate terms, i.e., that they
+C
+
+share a common hypernym ancestor at some level. Deﬁning the probability produced by
+our best hypernym-only classiﬁer as Pold (ni < nj ), and a probability obtained by normalH
+
+izing the similarity score from our coordinate classiﬁer as P (ni ∼ nj ), we apply a simple
+C
+
+linear interpolation scheme to compute a new hypernymy probability. Speciﬁcally, for each
+pair of nouns (ni , nk ), we recompute the probability that nk is a hypernym of ni as:7
+Pnew (ni < nk ) ∝ λ1 Pold (ni < nk ) + λ2
+H
+
+7
+
+H
+
+j
+
+P (ni ∼ nj )Pold (nj < nk )
+C
+
+H
+
+Results
+
+Our hand-labeled dataset allows us to compare our classiﬁers with WordNet and the previous feature-based methods, now using the human labels as ground truth. Figure 5 shows
+the performance of each method in a precision/recall plot. We evaluated several classiﬁers
+based on the WordNet hypernym taxonomy.8 The best WordNet-based results are plotted
+in Figure 5. Our logistic regression hypernym-only model trained on the newswire corpora has a 16% relative F-score improvement over the best WordNet classiﬁer, while the
+combined hypernym/coordinate model has a 40% relative F-score improvement. Our bestperforming classiﬁer is a hypernym-only model additionally trained on the Wikipedia corpus, with an expanded feature lexicon of 200,000 dependency paths; this classiﬁer shows a
+54% improvement over WordNet. In Table 5 we list the maximum F-scores of each method.
+In Table 6 we analyze the disagreements between the highest F-score WordNet classiﬁer
+and our combined hypernym/coordinate classiﬁer.9
+
+8
+
+Conclusions
+
+Our experiments demonstrate that automatic methods can be competitive with WordNet
+for the identiﬁcation of hypernym pairs in newswire corpora. In future work we will use
+the presented method to automatically generate ﬂexible, statistically-grounded hypernym
+taxonomies directly from corpora. These taxonomies will be made publicly available to
+complement existing semantic resources.
+7
+
+We constrain our parameters λ1 , λ2 such that λ1 +λ2 = 1; we set these parameters using 10-fold
+cross-validation on our hand-labeled test set. For our ﬁnal evaluation we use λ 1 = 0.7.
+8
+We tried all combinations of the following parameters: the maximum number of senses of a hyponym for which to ﬁnd hypernyms, the maximum distance between the hyponym and its hypernym
+in the WordNet taxonomy, and whether or not to allow synonyms. The WordNet model achieving the
+maximum F-score uses only the ﬁrst sense of a hyponym and allows a maximum distance of 4 links
+between a hyponym and hypernym.
+9
+There are 31 such disagreements, with WordNet agreeing with the human labels on 5 and our hybrid model agreeing on the other 26. We additionally inspect the types of noun pairs where our model
+improves upon WordNet, and ﬁnd that at least 30% of our model’s improvements are not restricted
+to Named Entities; given that the distribution of Named Entities among the labeled hypernyms in our
+test set is over 60%, this gives us hope that our classiﬁer will perform well at the task of hypernym
+induction even in more general, non-newswire domains.
+
+Type of Noun Pair
+NE: Person
+NE: Place
+NE: Company
+NE: Other
+Not Named Entity:
+
+Count
+7
+7
+2
+1
+9
+
+Example Pair
+“John F. Kennedy / president”, “Marlin Fitzwater / spokesman”
+“Diamond Bar / city”, “France / place”
+“American Can / company”, “Simmons / company”
+“Is Elvis Alive / book”
+“earthquake / disaster”, “soybean / crop”
+
+Table 6: Analysis of improvements over WordNet
+
+Acknowledgments
+We thank Kayur Patel, Mona Diab, Allison Buckley, and Todd Huffman for useful discussions and assistance annotating data. R. Snow is supported by an NDSEG Fellowship sponsored by the DOD and AFOSR. This work is also supported by the ARDA
+AQUAINT program, and by the Department of the Interior/DARPA under contract number
+NBCHD030010.
+References
+[1] Caraballo, S.A. (2001) Automatic Acquisition of a Hypernym-Labeled Noun Hierarchy from
+Text. Brown University Ph.D. Thesis.
+[2] Cederberg, S. & Widdows, D. (2003) Using LSA and Noun Coordination Information to Improve
+the Precision and Recall of Automatic Hyponymy Extraction. Proc. of CoNLL-2003, pp. 111–118.
+[3] Ciaramita, M. & Johnson, M. (2003) Supersense Tagging of Unknown Nouns in WordNet. Proc.
+of EMNLP-2003.
+[4] Ciaramita, M., Hofmann, T., & Johnson, M. (2003) Hierarchical Semantic Classiﬁcation: Word
+Sense Disambiguation with World Knowledge. Proc. of IJCAI-2003.
+[5] Fellbaum, C. (1998) WordNet: An Electronic Lexical Database. Cambridge, MA: MIT Press.
+[6] Girju, R., Badulescu A., & Moldovan D. (2003) Learning Semantic Constraints for the Automatic
+Discovery of Part-Whole Relations. Proc. of HLT-2003.
+[7] Harman, D. (1992) The DARPA TIPSTER project. ACM SIGIR Forum 26(2), Fall, pp. 26–28.
+[8] Hearst, M. (1992) Automatic Acquisition of Hyponyms from Large Text Corpora. Proc. of the
+Fourteenth International Conference on Computational Linguistics, Nantes, France.
+[9] Hearst, M. & Sch¨ tze, H. (1993) Customizing a lexicon to better suit a computational task. In
+u
+Proc. of the ACL SIGLEX Workshop on Acquisition of Lexical Knowledge from Text.
+[10] Lin, D. (1998) Dependency-based Evaluation of MINIPAR. Workshop on the Evaluation of
+Parsing Systems, Granada, Spain
+[11] Lin, D. & Pantel P. (2001) Discovery of Inference Rules for Question Answering. Natural
+Language Engineering, 7(4), pp. 343–360.
+[12] Pantel, P. (2003) Clustering by Committee. Ph.D. Dissertation. Department of Computing Science, University of Alberta.
+[13] Pantel, P. & Ravichandran, D. (2004) Automatically Labeling Semantic Classes. Proc. of
+NAACL-2004.
+[14] Pereira, F., Tishby, N., & Lee, L. (1993) Distributional Clustering of English Words. Proc. of
+ACL-1993, pp. 183–190.
+[15] Ravichandran, D. & Hovy, E. (2002) Learning Surface Text Patterns for a Question Answering
+system. Proc. of ACL-2002.
+[16] Rennie J., Shih, L., Teevan, J., & Karger, D. (2003) Tackling the Poor Assumptions of Naive
+Bayes Text Classiﬁers. Proc. of ICLM-2003.
+[17] Riloff, E. & Shepherd, J. (1997) A Corpus-Based Approach for Building Semantic Lexicons.
+Proc of EMNLP-1997.
+[18] Roark, B. & Charniak, E. (1998) Noun-phrase co-occurerence statistics for semi-automaticsemantic lexicon construction. Proc. of ACL-1998, 1110–1116.
+[19] Tseng, H. (2003) Semantic classiﬁcation of unknown words in Chinese. Proc. of ACL-2003.
+[20] Turney, P.D., Littman, M.L., Bigham, J. & Shanyder, V. (2003) Combining independent modules to solve multiple-choice synonym and analogy problems. Proc. of RANLP-2003, pp. 482–489.
+[21] Widdows, D. (2003) Unsupervised methods for developing taxonomies by combining syntactic
+and statistical information. Proc. of HLT/NAACL 2003, pp. 276–283.
+
+

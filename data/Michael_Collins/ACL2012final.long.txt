@@ -1,0 +1,2096 @@
+Spectral Learning of Latent-Variable PCFGs
+Shay B. Cohen1 , Karl Stratos1 , Michael Collins1 , Dean P. Foster2 , Lyle Ungar3
+1 Dept.
+
+of Computer Science, Columbia University
+
+2 Dept.
+
+of Statistics/3 Dept.
+sity of Pennsylvania
+
+of Computer and Information Science, Univer-
+
+{scohen,stratos,mcollins}@cs.columbia.edu, foster@wharton.upenn.edu, ungar@cis.upenn.edu
+
+Abstract
+We introduce a spectral learning algorithm for latent-variable PCFGs (Petrov, Barrett,
+Thibaux, & Klein, 2006; Matsuzaki, Miyao, & Tsujii, 2005). Under a separability (singular
+value) condition, we prove that the method provides consistent parameter estimates. Our
+result rests on three theorems: the ﬁrst gives a tensor form of the inside-outside algorithm
+for PCFGs; the second shows that the required tensors can be estimated directly from
+training examples where hidden-variable values are missing; the third gives a PAC-style
+convergence bound for the estimation method.
+
+1. Introduction
+Statistical models with hidden or latent variables are of great importance in natural language
+processing, speech, and many other ﬁelds. The EM algorithm is a remarkably successful
+method for parameter estimation within these models: it is simple, it is often relatively
+eﬃcient, and it has well understood formal properties. It does, however, have a major
+limitation: it has no guarantee of ﬁnding the global optimum of the likelihood function.
+From a theoretical perspective, this means that the EM algorithm is not guaranteed to give
+consistent parameter estimates. From a practical perspective, problems with local optima
+can be diﬃcult to deal with.
+Recent work has introduced a polynomial-time learning algorithm (and a consistent estimation method) for an important case of hidden-variable models: hidden Markov models
+(Hsu, Kakade, & Zhang, 2009). This algorithm uses a spectral method: that is, an algorithm
+based on eigenvector decompositions of linear systems, in particular singular value decomposition (SVD). In the general case, learning of HMMs is intractable (e.g., see Terwijn,
+2002). The spectral method ﬁnesses the problem of intractibility by assuming separability
+conditions. More precisely, the algorithm of Hsu et al. (2009) has a sample complexity that
+is polynomial in 1/σ, where σ is the minimum singular value of an underlying decomposition. The HMM learning algorithm is not susceptible to problems with local maxima, and
+gives consistent parameter estimates.
+In this paper we derive a spectral algorithm for learning of latent-variable PCFGs (LPCFGs) (Petrov et al., 2006; Matsuzaki et al., 2005). Our method involves a signiﬁcant
+extension of the techniques from Hsu et al. (2009). L-PCFGs have been shown to be a very
+1
+
+eﬀective model for natural language parsing. Under a separation (singular value) condition,
+our algorithm provides consistent parameter estimates; this is in contrast with previous
+work, which has used the EM algorithm for parameter estimation, with the usual problems
+of local optima.
+The parameter estimation algorithm (see ﬁgure 7) is simple and eﬃcient. The ﬁrst step
+is to take an SVD of the training examples, followed by a projection of the training examples
+down to a low-dimensional space. In a second step, empirical averages are calculated on
+the training example, followed by standard matrix operations. On test examples, simple
+(tensor-based) variants of the inside-outside algorithm (ﬁgures 4 and 5) can be used to
+calculate probabilities and marginals of interest.
+Our method depends on the following results:
+• Tensor form of the inside-outside algorithm. Section 6.1 shows that the inside-outside
+algorithm for L-PCFGs can be written using tensors. Theorem 1 gives conditions
+under which the tensor form calculates inside and outside terms correctly.
+• Observable representations. Section 7 shows that under a singular-value condition,
+there is an observable form for the tensors required by the inside-outside algorithm.
+By an observable form, we follow the terminology of Hsu et al. (2009) in referring to
+quantities that can be estimated directly from data where values for latent variables
+are unobserved. Theorem 2 shows that tensors derived from the observable form
+satisfy the conditions of theorem 1.
+• Estimating the model. Section 8 gives an algorithm for estimating parameters of the
+observable representation from training data. Theorem 3 gives a sample complexity
+√
+result, showing that the estimates converge to the true distribution at a rate of 1/ M
+where M is the number of training examples.
+The algorithm is strikingly diﬀerent from the EM algorithm for L-PCFGs, both in its
+basic form, and in its consistency guarantees. The techniques developed in this paper are
+quite general, and should be relevant to the development of spectral methods for estimation
+in other models in NLP, for example alignment models for translation, synchronous PCFGs,
+and so on. The tensor form of the inside-outside algorithm gives a new view of basic
+calculations in PCFGs, and may itself lead to new models.
+
+2. Related Work
+For work on L-PCFGs using the EM algorithm, see Petrov et al. (2006), Matsuzaki et al.
+(2005), Pereira and Schabes (1992). Our work builds on methods for learning of HMMs (Hsu
+et al., 2009; Foster, Rodu, & Ungar, 2012; Jaeger, 2000), but involves several extensions: in
+particular in the tensor form of the inside-outside algorithm, and observable representations
+for the tensor form. Balle, Quattoni, and Carreras (2011) consider spectral learning of ﬁnitestate transducers; Lugue, Quattoni, Balle, and Carreras (2012) considers spectral learning
+of head automata for dependency parsing. Parikh, Song, and Xing (2011) consider spectral
+learning algorithms of tree-structured directed bayes nets.
+2
+
+3. Notation
+Given a matrix A or a vector v, we write A⊤ or v ⊤ for the associated transpose. For any
+integer n ≥ 1, we use [n] to denote the set {1, 2, . . . n}.
+We use Rm×1 to denote the space of m-dimensional column vectors, and R1×m to denote
+the space of m-dimensional row vectors. We use Rm to denote the space of m-dimensional
+vectors, where the vector in question can be either a row or column vector. For any row or
+column vector y ∈ Rm , we use diag(y) to refer to the (m×m) matrix with diagonal elements
+equal to yh for h = 1 . . . m, and oﬀ-diagonal elements equal to 0. For any statement Γ, we
+use [[Γ]] to refer to the indicator function that is 1 if Γ is true, and 0 if Γ is false. For a
+random variable X, we use E[X] to denote its expected value.
+We will make (quite limited) use of tensors:
+Deﬁnition 1 A tensor C ∈ R(m×m×m) is a set of m3 parameters Ci,j,k for i, j, k ∈ [m].
+Given a tensor C, and vectors y 1 ∈ Rm and y 2 ∈ Rm , we deﬁne C(y 1 , y 2 ) to be the mdimensional row vector with components
+1 2
+Ci,j,k yj yk
+
+[C(y 1 , y 2 )]i =
+j∈[m],k∈[m]
+
+Hence C can be interpreted as a function C : Rm × Rm → R1×m that maps vectors y 1 and
+y 2 to a row vector C(y 1 , y 2 ) ∈ R1×m .
+In addition, we deﬁne the tensor C(1,2) ∈ R(m×m×m) for any tensor C ∈ R(m×m×m) to
+be the function C(1,2) : Rm × Rm → Rm×1 deﬁned as
+[C(1,2) (y 1 , y 2 )]k =
+
+1 2
+Ci,j,k yi yj
+i∈[m],j∈[m]
+
+Similarly, for any tensor C we deﬁne C(1,3) : Rm × Rm → Rm×1 as
+[C(1,3) (y 1 , y 2 )]j =
+
+1 2
+Ci,j,k yi yk
+i∈[m],k∈[m]
+
+Note that C(1,2) (y 1 , y 2 ) and C(1,3) (y 1 , y 2 ) are both column vectors.
+Finally, for vectors x, y, z ∈ Rm , xy ⊤ z ⊤ is the tensor D ∈ Rm×m×m where Di,j,k = xi yj zk
+(this is analogous to the outer product: [xy ⊤ ]i,j = xi yj ).
+
+4. L-PCFGs
+In this section we describe latent-variable PCFGs (L-PCFGs), as used for example by
+(Matsuzaki et al., 2005; Petrov et al., 2006). We ﬁrst give the basic deﬁnitions for LPCFGs, and then describe the underlying motivation for them.
+4.1 Basic Deﬁnitions
+This section gives a deﬁnition of the L-PCFG formalism used in this paper. An L-PCFG is
+an 8-tuple (N , I, P, m, n, t, q, π) where:
+3
+
+• N is the set of non-terminal symbols in the grammar. I ⊂ N is a ﬁnite set of interminals. P ⊂ N is a ﬁnite set of pre-terminals. We assume that N = I ∪ P, and
+I ∩ P = ∅. Hence we have partitioned the set of non-terminals into two subsets.
+• [m] is the set of possible hidden states.
+• [n] is the set of possible words.
+• For all a ∈ I, b ∈ N , c ∈ N , h1 , h2 , h3 ∈ [m], we have a context-free rule a(h1 ) →
+b(h2 ) c(h3 ).
+• For all a ∈ P, h ∈ [m], x ∈ [n], we have a context-free rule a(h) → x.
+• For all a ∈ I, b ∈ N , c ∈ N , and h1 , h2 , h3 ∈ [m], we have a parameter t(a →
+b c, h2 , h3 |h1 , a).
+• For all a ∈ P, x ∈ [n], and h ∈ [m], we have a parameter q(a → x|h, a).
+• For all a ∈ I and h ∈ [m], we have a parameter π(a, h) which is the probability of
+non-terminal a paired with hidden variable h being at the root of the tree.
+Note that each in-terminal a ∈ I is always the left-hand-side of a binary rule a → b c;
+and each pre-terminal a ∈ P is always the left-hand-side of a rule a → x. Assuming that the
+non-terminals in the grammar can be partitioned this way is relatively benign, and makes
+the estimation problem cleaner.
+For convenience we deﬁne the set of possible “skeletal rules” as R = {a → b c : a ∈
+I, b ∈ N , c ∈ N }.
+These deﬁnitions give a PCFG, with rule probabilities
+p(a(h1 ) → b(h2 ) c(h3 )|a(h1 )) = t(a → b c, h2 , h3 |h1 , a)
+and
+p(a(h) → x|a(h)) = q(a → x|h, a)
+Remark 1 In the previous paper on this work (Cohen, Stratos, Collins, Foster, & Ungar,
+2012), we considered an L-PCFG model where
+p(a(h1 ) → b(h2 ) c(h3 )|a(h1 )) = p(a → b c|h1 , a) × p(h2 |h1 , a → b c) × p(h3 |h1 , a → b c)
+In this model the random variables h2 and h3 are assumed to be conditionally independent
+given h1 and a → b c.
+In this paper we consider a model where
+p(a(h1 ) → b(h2 ) c(h3 )|a(h1 )) = t(a → b c, h2 , h3 , |h1 , a)
+
+(1)
+
+That is, we do not assume that the random variables h2 and h3 are independent when
+conditioning on h1 and a → b c. This is also the model considered by (Petrov et al., 2006;
+Matsuzaki et al., 2005).
+Note however that the algorithms in this paper are the same as those in (Cohen et al.,
+2012): we have simply proved that the algorithms give consistent estimators for the model
+form in Eq. 1.
+4
+
+S1
+VP5
+
+NP2
+D3
+
+N4
+
+V6
+
+P7
+
+the
+
+dog
+
+saw
+
+him
+
+r1
+r2
+r3
+r4
+r5
+r6
+r7
+
+=
+=
+=
+=
+=
+=
+=
+
+S → NP VP
+NP → D N
+D → the
+N → dog
+VP → V P
+V → saw
+P → him
+
+Figure 1: An s-tree, and its sequence of rules. (For convenience we have numbered the nodes in
+the tree.)
+
+As in usual PCFGs, the probability of an entire tree is calculated as the product of its
+rule probabilities. We now give more detail for these calculations.
+An L-PCFG deﬁnes a distribution over parse trees as follows. A skeletal tree (s-tree) is
+a sequence of rules r1 . . . rN where each ri is either of the form a → b c or a → x. The
+rule sequence forms a top-down, left-most derivation under a CFG with skeletal rules. See
+ﬁgure 1 for an example.
+A full tree consists of an s-tree r1 . . . rN , together with values h1 . . . hN . Each hi is the
+value for the hidden variable for the left-hand-side of rule ri . Each hi can take any value in
+[m].
+Deﬁne ai to be the non-terminal on the left-hand-side of rule ri . For any i ∈ [N ] such
+(2)
+that ai ∈ I (i.e., ai is an in-terminal, and rule ri is of the form a → b c) deﬁne hi to be the
+(3)
+hidden variable value associated with the left child of the rule ri , and hi to be the hidden
+variable value associated with the right child. The probability mass function (PMF) over
+full trees is then
+p(r1 . . . rN , h1 . . . hN ) = π(a1 , h1 ) ×
+
+(2)
+
+i:ai ∈I
+
+(3)
+
+t(ri , hi , hi |hi , ai ) ×
+
+i:ai ∈P
+
+q(ri |hi , ai )
+
+(2)
+
+The PMF over s-trees is p(r1 . . . rN ) = h1 ...hN p(r1 . . . rN , h1 . . . hN ).
+In the remainder of this paper, we make use of matrix form of parameters of an L-PCFG,
+as follows:
+• For each a → b c ∈ R, we deﬁne T a→b c ∈ Rm×m×m to be the tensor with values
+a→b
+Th1 ,h2 c 3 = t(a → b c, h2 , h3 |a, h1 )
+,h
+
+• For each a ∈ P, x ∈ [n], we deﬁne qa→x ∈ R1×m to be the row vector with values
+[qa→x ]h = q(a → x|h, a)
+for h = 1, 2, . . . m.
+• For each a ∈ I, we deﬁne the column vector π a ∈ Rm×1 where [π a ]h = π(a, h).
+5
+
+4.2 Application of L-PCFGs to Natural Language Parsing
+L-PCFGs have been shown to be a very useful model for natural language parsing (Matsuzaki et al., 2005; Petrov et al., 2006). In this section we describe the basic approach.
+We assume a training set consisting of sentences paired with parse trees, which are
+similar to the skeletal tree shown in ﬁgure 1. A naive approach to parsing would simply
+read oﬀ a PCFG from the training set: the resulting grammar would have rules such as
+S → NP VP
+
+NP → D N
+
+VP → V NP
+D → the
+N → dog
+
+and so on. Given a test sentence, the most likely parse under the PCFG can be found using
+dynamic programming algorithms.
+Unfortunately, simple “vanilla” PCFGs induced from treebanks such as the Penn treebank (Marcus, Santorini, & Marcinkiewicz, 1993) typically give very poor parsing performance. A critical issue is that the set of non-terminals in the resulting grammar (S, NP,
+VP, PP, D, N, etc.) is often quite small. The resulting PCFG therefore makes very strong
+independence assumptions, failing to capture important statistical properties of parse trees.
+In response to this issue, a number of PCFG-based models have been developed which
+make use of grammars with reﬁned non-terminals. For example, in lexicalized models
+(Collins, 1997; Charniak, 1997), non-terminals such as S are replaced with non-terminals
+such as S-sleeps: the non-terminals track some lexical item (in this case sleeps), in addition
+to the syntactic category. For example, the parse tree in ﬁgure 1 would include rules
+S-saw
+NP-dog
+VP-saw
+D-the
+N-dog
+V-saw
+P-him
+
+→ NP-dog VP-saw
+→ D-the N-dog
+
+→ V-saw P-him
+
+→ the
+→ dog
+→ saw
+→ him
+
+In this case the number of non-terminals in the grammar increases dramatically, but
+with appropriate smoothing of parameter estimates lexicalized models perform at much
+higher accuracy than vanilla PCFGs.
+As another example, Johnson (1998) describes an approach where non-terminals are
+reﬁned to also include the non-terminal one level up in the tree; for example rules such as
+S → NP VP
+are replaced by rules such as
+S-ROOT → NP-S VP-S
+6
+
+Here NP-S corresponds to an NP non-terminal whose parent is S; VP-S corresponds to a VP
+whose parent is S; S-ROOT corresponds to an S which is at the root of the tree. This simple
+modiﬁcation leads to signiﬁcant improvements over a vanilla PCFG.
+Klein and Manning (2003) develop this approach further, introducing annotations corresponding to parents and siblings in the tree, together with other information, resulting in
+a parser whose performance is just below the lexicalized models of Collins (1997), Charniak
+(1997).
+The approaches of Collins (1997), Charniak (1997), Johnson (1998), Klein and Manning
+(2003) all use hand-constructed rules to enrich the set of non-terminals in the PCFG. A
+natural question is whether reﬁnements to non-terminals can be learned automatically.
+Matsuzaki et al. (2005), Petrov et al. (2006) addressed this question through the use of LPCFGs in conjunction with the EM algorithm. The basic idea is to allow each non-terminal
+in the grammar to have m possible latent values. For example, with m = 8 we would replace
+the non-terminal S with non-terminals S-1, S-2, . . ., S-8, and we would replace rules such
+as
+S → NP VP
+with rules such as
+S-4 → NP-3 VP-2
+The latent values are of course unobserved in the training data (the treebank), but they can
+be treated as latent variables in a PCFG-based model, and the parameters of the model can
+be estimated using the EM algorithm. More speciﬁcally, given training examples consisting
+(i) (i)
+(i)
+of skeletal trees of the form t(i) = (r1 , r2 , . . . , rNi ), for i = 1 . . . M , where Ni is the number
+of rules in the i’th tree, the log-likelihood of the training data is
+M
+
+M
+(i)
+(i)
+log p(r1 . . . rNi )
+i=1
+(i)
+
+(i)
+
+log
+
+=
+i=1
+
+(i)
+
+p(r1 . . . rNi , h1 . . . hNi )
+h1 ...hNi
+
+(i)
+
+where p(r1 . . . rNi , h1 . . . hNi ) is as deﬁned in Eq. 2. The EM algorithm is guaranteed to
+converge to a local maximum of the log-likelihood function. Once the parameters of the
+L-PCFG have been estimated, the algorithm of Goodman (1996) can be used to parse testdata sentences using the L-PCFG: see section 4.3 for more details. Matsuzaki et al. (2005),
+Petrov et al. (2006) show very good performance for these methods.
+4.3 Basic Algorithms for L-PCFGs: Variants of the Inside-Outside Algorithm
+Variants of the inside-outside algorithm (Baker, 1979) can be used for basic calculations in
+L-PCFGs, in particular for calculations that involve marginalization over the values for the
+hidden variables.
+To be more speciﬁc, given an L-PCFG, two calculations are central:
+1. For a given s-tree r1 . . . rN , calculate p(r1 . . . rN ) =
+
+h1 ...hN
+
+p(r1 . . . rN , h1 . . . hN ).
+
+2. For a given input sentence x = x1 . . . xN , calculate the marginal probabilities
+µ(a, i, j) =
+
+p(τ )
+τ ∈T (x):(a,i,j)∈τ
+
+7
+
+Inputs: s-tree r1 . . . rN , L-PCFG (N , I, P, m, n, t, q, π), with parameters
+• t(a → b c, h2 , h3 |h1 , a) for all a → b c ∈ R, h1 , h2 , h3 ∈ [m].
+• q(a → x|h, a) for all a ∈ P, x ∈ [n], h ∈ [m]
+• π(a, h) for all a ∈ I, h ∈ [m].
+Algorithm: (calculate the bi terms bottom-up in the tree)
+• For all i ∈ [N ] such that ai ∈ P, for all h ∈ [m], bi = q(ri |h, ai )
+h
+• For all i ∈ [N ] such that ai ∈ I, for all h ∈ [m], bi = h2 ,h3 t(ri , h2 , h3 |h, ai )bβ2 bγ 3 where β is the
+h
+h h
+index of the left child of node i in the tree, and γ is the index of the right child.
+Return:
+
+h
+
+b1 π(a, h) = p(r1 . . . rN )
+h
+
+Figure 2: The conventional inside-outside algorithm for calculation of p(r1 . . . rN ).
+for each non-terminal a ∈ N , for each (i, j) such that 1 ≤ i ≤ j ≤ N .
+Here T (x) denotes the set of all possible s-trees for the sentence x, and we write (a, i, j) ∈ τ
+if non-terminal a spans words xi . . . xj in the parse tree τ .
+The marginal probabilities have a number of uses. Perhaps most importantly, for a
+given sentence x = x1 . . . xN , the parsing algorithm of Goodman (1996) can be used to ﬁnd
+arg max
+
+τ ∈T (x)
+
+µ(a, i, j)
+(a,i,j)∈τ
+
+This is the parsing algorithm used by Petrov et al. (2006), for example.1 In addition,
+we can calculate the probability for an input sentence, p(x) =
+τ ∈T (x) p(τ ), as p(x) =
+a∈I µ(a, 1, N ).
+Figures 2 and 3 give the conventional (as opposed to tensor) form of inside-outside
+algorithms for these two problems. In the next section we describe the tensor form. The
+algorithm in ﬁgure 2 uses dynamic programming to compute
+p(r1 . . . rN ) =
+
+p(r1 . . . rN , h1 . . . hN )
+h1 ...hN
+
+for a given parse tree r1 . . . rN . The algorithm in ﬁgure 3 uses dynamic programming to
+compute marginal terms.
+
+5. Roadmap
+The next three sections of the paper derive the spectral algorithm for learning of L-PCFGs.
+The structure of these sections is as follows:
+• Section 6 introduces a tensor form of the inside-outside algorithms for L-PCFGs. This
+is analogous to the matrix form for hidden Markov models (see (Jaeger, 2000), and in
+particular Lemma 1 of (Hsu et al., 2009)), and is also related to the use of tensors in
+spectral algorithms for directed graphical models (Parikh et al., 2011).
+1. Note that ﬁnding arg maxτ ∈T (x) p(τ ), where p(τ ) =
+of Goodman’s algorithm.
+
+8
+
+h1 ...hN
+
+p(τ, h1 . . . hN ), is NP hard, hence the use
+
+Inputs: Sentence x1 . . . xN , L-PCFG (N , I, P, m, n, t, q, π), with parameters
+• t(a → b c, h2 , h3 |h1 , a) for all a → b c ∈ R, h1 , h2 , h3 ∈ [m].
+• q(a → x|h, a) for all a ∈ P, x ∈ [n], h ∈ [m]
+• π(a, h) for all a ∈ I, h ∈ [m].
+Data structures:
+• Each αa,i,j ∈ R1×m for a ∈ N , 1 ≤ i ≤ j ≤ N is a row vector of inside terms.
+¯
+¯
+• Each β a,i,j ∈ Rm×1 for a ∈ N , 1 ≤ i ≤ j ≤ N is a column vector of outside terms.
+• Each µ(a, i, j) ∈ R for a ∈ N , 1 ≤ i ≤ j ≤ N is a marginal probability.
+¯
+Algorithm:
+(Inside base case) ∀a ∈ P, i ∈ [N ], h ∈ [m] αa,i,i = q(a → xi |h, a)
+¯h
+(Inside recursion) ∀a ∈ I, 1 ≤ i < j ≤ N, h ∈ [m]
+j−1
+
+αa,i,j =
+¯h
+
+t(a → b c, h2 , h3 |h, a) × αb,i,k × αh3
+¯ h2
+¯ c,k+1,j
+k=i a→b c h2 ∈[m] h3 ∈[m]
+
+¯a,1,n = π(a, h)
+(Outside base case) ∀a ∈ I, h ∈ [m] βh
+(Outside recursion) ∀a ∈ N , 1 ≤ i ≤ j ≤ N, h ∈ [m]
+i−1
+
+¯b,k,j ¯ c,k,i−1
+t(b → c a, h3 , h|h2 , b) × βh2 × αh3
+
+¯a,i,j =
+βh
+k=1 b→c a h2 ∈[m] h3 ∈[m]
+N
+
+¯b,i,k ¯
+t(b → a c, h, h3 |h2 , b) × βh2 × αc,j+1,k
+h3
+
++
+k=j+1 b→a c h2 ∈[m] h3 ∈[m]
+
+(Marginals) ∀a ∈ N , 1 ≤ i ≤ j ≤ N,
+αa,i,j βh
+¯ h ¯a,i,j
+
+¯
+µ(a, i, j) = αa,i,j β a,i,j =
+¯
+¯
+h∈[m]
+
+Figure 3: The conventional form of the inside-outside algorithm, for calculation of marginal terms
+µ(a, i, j).
+¯
+
+• Section 7 derives an observable form for the tensors required by algorithms of section 6.
+The implication of this result is that the required tensors can be estimated directly
+from training data consisting of skeletal trees.
+
+• Section 8 gives the algorithm for estimation of the tensors from a training sample,
+and gives a PAC-style generalization bound for the approach.
+
+6. Tensor Form of the Inside-Outside Algorithm
+This section ﬁrst gives a tensor form of the inside-outside algorithms for L-PCFGs, then
+give an illustrative example.
+9
+
+Inputs: s-tree r1 . . . rN , L-PCFG (N , I, P, m, n), parameters
+• C a→b c ∈ R(m×m×m) for all a → b c ∈ R
+• c∞ ∈ R(1×m) for all a ∈ P, x ∈ [n]
+a→x
+• c1 ∈ R(m×1) for all a ∈ I.
+a
+Algorithm: (calculate the f i terms bottom-up in the tree)
+• For all i ∈ [N ] such that ai ∈ P, f i = c∞
+ri
+• For all i ∈ [N ] such that ai ∈ I, f i = C ri (f β , f γ ) where β is the index of the left child of node i in
+the tree, and γ is the index of the right child.
+Return: f 1 c1 1 = p(r1 . . . rN )
+a
+
+Figure 4: The tensor form for calculation of p(r1 . . . rN ).
+6.1 The Tensor-Form Algorithms
+Recall the two calculations for L-PCFGs introduced in section 4.3:
+1. For a given s-tree r1 . . . rN , calculate p(r1 . . . rN ).
+2. For a given input sentence x = x1 . . . xN , calculate the marginal probabilities
+p(τ )
+
+µ(a, i, j) =
+τ ∈T (x):(a,i,j)∈τ
+
+for each non-terminal a ∈ N , for each (i, j) such that 1 ≤ i ≤ j ≤ N , where T (x)
+denotes the set of all possible s-trees for the sentence x, and we write (a, i, j) ∈ τ if
+non-terminal a spans words xi . . . xj in the parse tree τ .
+The tensor form of the inside-outside algorithms for these two problems are shown in
+ﬁgures 4 and 5. Each algorithm takes the following inputs:
+1. A tensor C a→b c ∈ R(m×m×m) for each rule a → b c.
+2. A vector c∞ ∈ R(1×m) for each rule a → x.
+a→x
+3. A vector c1 ∈ R(m×1) for each a ∈ I.
+a
+The following theorem gives conditions under which the algorithms are correct:
+Theorem 1 Assume that we have an L-PCFG with parameters qa→x , T a→b c , π a , and that
+there exist matrices Ga ∈ R(m×m) for all a ∈ N such that each Ga is invertible, and such
+that:
+1. For all rules a → b c, C a→b c (y 1 , y 2 ) = T a→b c (y 1 Gb , y 2 Gc ) (Ga )−1
+2. For all rules a → x, c∞ = qa→x (Ga )−1
+a→x
+3. For all a ∈ I, c1 = Ga π a
+a
+10
+
+Then: 1) The algorithm in ﬁgure 4 correctly computes p(r1 . . . rN ) under the L-PCFG. 2)
+The algorithm in ﬁgure 5 correctly computes the marginals µ(a, i, j) under the L-PCFG.
+Proof: see section A.1. The next section (section 6.2) gives an example that illustrates
+the basic intuition behind the proof.
+Remark 2 It is easily veriﬁed (see also the example in section 6.2), that if the inputs to
+the tensor-form algorithms are of the following form (equivalently, the matrices Ga for all
+a are equal to the identity matrix):
+1. For all rules a → b c, C a→b c (y 1 , y 2 ) = T a→b c (y 1 , y 2 )
+2. For all rules a → x, c∞ = qa→x
+a→x
+3. For all a ∈ I, c1 = π a
+a
+then the algorithms in ﬁgures 4 and 5 are identical to the algorithms in ﬁgures 2 and 3
+respectively. More precisely, we have the identities
+i
+bi = fh
+h
+
+for the quantities in ﬁgures 2 and 4, and
+αa,i,j = αa,i,j
+¯h
+h
+a,i,j
+¯a,i,j
+βh = βh
+
+for the quantities in ﬁgures 3 and 5.
+The theorem shows, however, that it is suﬃcient2 to have parameters that are equal to
+a→b c , q
+a
+a
+T
+a→x and π up to linear transforms deﬁned by the matrices G for all non-terminals
+a. The linear transformations add an extra degree of freedom that is crucial in what follows
+in this paper: in the next section, on observable representations, we show that it is possible
+to directly estimate values for C a→b c , c∞ and c1 that satisfy the conditions of the theorem,
+a→x
+a
+but where the matrices Ga are not the identity matrix.
+The key step in the proof of the theorem (see section A.1) is to show that under the
+assumptions of the theorem we have the identities
+f i = bi (Ga )−1
+for ﬁgures 2 and 4, and
+αa,i,j = αa,i,j (Ga )−1
+¯
+a,i,j
+¯
+β
+= Ga β a,i,j
+for ﬁgures 3 and 5. Thus the quantities calculated by the tensor-form algorithms are equivalent to the quantities calculated by the conventional algorithms, up to linear transforms.
+The linear transforms and their inverses cancel in useful ways: for example in the output
+from ﬁgure 4 we have
+¯
+µ(a, i, j) = αa,i,j β a,i,j = αa,i,j (Ga )−1 Ga β a,i,j =
+¯
+
+αa,i,j βh
+¯ h ¯a,i,j
+h
+
+showing that the marginals calculated by the conventional and tensor-form algorithms are
+identical.
+2. Assuming that the goal is to calculate p(r1 . . . rN ) for any skeletal tree, or marginal terms µ(a, i, j).
+
+11
+
+Inputs: Sentence x1 . . . xN , L-PCFG (N , I, P, m, n), parameters C a→b c ∈ R(m×m×m) for all a → b c ∈ R,
+c∞ ∈ R(1×m) for all a ∈ P, x ∈ [n], c1 ∈ R(m×1) for all a ∈ I.
+a→x
+a
+Data structures:
+• Each αa,i,j ∈ R1×m for a ∈ N , 1 ≤ i ≤ j ≤ N is a row vector of inside terms.
+• Each β a,i,j ∈ Rm×1 for a ∈ N , 1 ≤ i ≤ j ≤ N is a column vector of outside terms.
+• Each µ(a, i, j) ∈ R for a ∈ N , 1 ≤ i ≤ j ≤ N is a marginal probability.
+Algorithm:
+(Inside base case) ∀a ∈ P, i ∈ [N ], αa,i,i = c∞ i
+a→x
+(Inside recursion) ∀a ∈ I, 1 ≤ i < j ≤ N,
+j−1
+
+αa,i,j =
+
+C a→b c (αb,i,k , αc,k+1,j )
+k=i a→b c
+
+(Outside base case) ∀a ∈ I, β a,1,n = c1
+a
+(Outside recursion) ∀a ∈ N , 1 ≤ i ≤ j ≤ N,
+i−1
+b→c
+C(1,2) a (β b,k,j , αc,k,i−1 )
+
+β a,i,j =
+k=1 b→c a
+N
+
+b→a
+C(1,3) c (β b,i,k , αc,j+1,k )
+
++
+k=j+1 b→a c
+
+(Marginals) ∀a ∈ N , 1 ≤ i ≤ j ≤ N,
+a,i,j
+αa,i,j βh
+h
+
+µ(a, i, j) = αa,i,j β a,i,j =
+h∈[m]
+
+Figure 5: The tensor form of the inside-outside algorithm, for calculation of marginal terms
+µ(a, i, j).
+
+S1
+V5
+
+NP2
+D3
+
+N4
+
+sleeps
+
+the
+
+dog
+
+r1
+r2
+r3
+r4
+r5
+
+=
+=
+=
+=
+=
+
+S → NP V
+NP → D N
+D → the
+N → dog
+V → sleeps
+
+Figure 6: An s-tree, and its sequence of rules. (For convenience we have numbered the nodes in
+the tree.)
+
+6.2 An Example
+In the remainder of this section we give an example that illustrates how the algorithm in
+ﬁgure 4 is correct, and gives the basic intuition behind the proof in section A.1. While we
+concentrate on the algorithm in ﬁgure 4, the intuition behind the algorithm in ﬁgure 5 is
+very similar.
+12
+
+Consider the skeletal tree in ﬁgure 6. We will demonstrate how the algorithm in ﬁgure 4,
+under the assumptions in the theorem, correctly calculates the probability of this tree. In
+brief, the argument involves the following steps:
+1. We ﬁrst show that the algorithm in ﬁgure 4, when run on the tree in ﬁgure 6, calculates
+the probability of the tree as
+∞
+∞
+1
+C S→N P V (C N P →D N (c∞
+D→the , cN →dog ), cV →sleeps )cS
+
+Note that this expression mirrors the structure of the tree, with c∞ terms for the
+a→x
+leaves, C a→b c terms for each rule production a → b c in the tree, and a c1 term for
+S
+the root.
+2. We then show that under the assumptions in the theorem, the following identity holds:
+∞
+∞
+1
+C S→N P V (C N P →D N (c∞
+D→the , cN →dog ), cV →sleeps )cS
+
+= T S→N P V (T N P →D N (qD→the , qN →dog ), qV →sleeps)π S
+
+(3)
+
+This follows because the Ga and (Ga )−1 terms for the various non-terminals in the
+tree cancel. Note that the expression in Eq. 3 again follows the structure of the tree,
+but with qa→x terms for the leaves, T a→b c terms for each rule production a → b c in
+the tree, and a π S term for the root.
+3. Finally, we show that the expression in Eq. 3 implements the conventional dynamicprogramming method for calculation of the tree probability, as described in Eqs. 11–13
+below.
+We now go over these three points in detail. The algorithm in ﬁgure 4 calculates the
+following terms (each f i is an m-dimensional row vector):
+f 3 = c∞
+D→the
+f 4 = c∞→dog
+N
+f 5 = c∞→sleeps
+V
+f 2 = C N P →D N (f 3 , f 4 )
+f 1 = C S→N P V (f 2 , f 5 )
+
+The ﬁnal quantity returned by the algorithm is
+1
+fh [c1 ]h
+S
+
+f 1 c1 =
+S
+h
+
+Combining the deﬁnitions above, it can be seen that
+1
+∞
+∞
+f 1 c1 = C S→N P V (C N P →D N (c∞
+S
+D→the , cN →dog ), cV →sleeps)cS
+
+demonstrating that point 1 above holds.
+13
+
+Next, given the assumptions in the theorem, we show point 2, that is, that
+1
+∞
+∞
+C S→N P V (C N P →D N (c∞
+D→the , cN →dog ), cV →sleeps )cS
+
+= T S→N P V (T N P →D N (qD→the , qN →dog ), qV →sleeps)π S
+
+(4)
+
+This follows because the Ga and (Ga )−1 terms in the theorem cancel. More speciﬁcally, we
+have
+D −1
+f 3 = c∞
+D→the = qD→the (G )
+
+f
+
+4
+
+=
+
+f5 =
+f
+
+2
+
+f
+
+1
+
+(5)
+
+c∞→dog = qN →dog (GN )−1
+N
+c∞→sleeps = qV →sleeps(GV )−1
+V
+N P →D N
+3 4
+N P →D N
+
+= C
+
+= C
+
+(f , f ) = T
+
+S→N P V
+
+2
+
+5
+
+(f , f ) = T
+
+S→N P V
+
+(6)
+(7)
+N P −1
+
+(qD→the , qD→dog )(G
+
+(T
+
+N P →D N
+
+)
+
+(8)
+S −1
+
+(qD→the , qN →dog ), qV →sleeps)(G )
+
+(9)
+
+Eqs. 5, 6, 7 follow by the assumptions in the theorem. Eq. 8 follows because by the assumptions in the theorem
+C N P →D N (f 3 , f 4 ) = T N P →D N (f 3 GD , f 4 GN )(GN P )−1
+hence
+C N P →D N (f 3 , f 4 ) = T N P →D N (qD→the (GD )−1 GD , qN →dog (GN )−1 GN )(GN P )−1
+= T N P →D N (qD→the , qN →dog )(GN P )−1
+
+Eq. 9 follows in a similar manner.
+It follows by the assumption that c1 = GS π S that
+S
+∞
+∞
+1
+C S→N P V (C N P →D N (c∞
+D→the , cN →dog ), cV →sleeps )cS
+
+= T S→N P V (T N P →D N (qD→the , qN →dog ), qV →sleeps)(GS )−1 GS π S
+= T S→N P V (T N P →D N (qD→the , qN →dog ), qV →sleeps)π S
+
+(10)
+
+The ﬁnal step (point 3) is to show that the expression in Eq. 10 correctly calculates the
+probability of the example tree. First consider the term T N P →D N (qD→the , qN →dog )—this
+is an m-dimensional row vector, call this b2 . By the deﬁnition of the tensor T N P →D N , we
+have
+b2 =
+h
+
+T N P →D N (qD→the , qN →dog )
+
+=
+h2 ,h3
+
+h
+
+t(N P → D N, h2 , h3 |h, N P ) × q(D → the|h2 , D) × q(N → dog|h3 , N ) (11)
+
+By a similar calculation, T S→N P V (T N P →D N (qD→the , qN →dog ), qV →sleeps)—call this vector
+b1 —is
+b1 =
+t(S → N P V, h2 , h3 |h, S) × b2 2 × q(V → sleeps|h3 , V )
+(12)
+h
+h
+h2 ,h3
+
+14
+
+Finally, the probability of the full tree is calculated as
+S
+b1 πh
+h
+
+(13)
+
+h
+
+It can be seen that the expression in Eq. 4 implements the calculations in Eqs. 11, 12
+and 13, which are precisely the calculations used in the conventional dynamic programming
+algorithm for calculation of the probability of the tree.
+
+7. Estimating the Tensor Model
+A crucial result is that it is possible to directly estimate parameters C a→b c , c∞ and c1
+a
+a→x
+that satisfy the conditions in theorem 1, from a training sample consisting of s-trees (i.e.,
+trees where hidden variables are unobserved). We ﬁrst describe random variables underlying
+the approach, then describe observable representations based on these random variables.
+7.1 Random Variables Underlying the Approach
+Each s-tree with N rules r1 . . . rN has N nodes. We will use the s-tree in ﬁgure 1 as a
+running example.
+Each node has an associated rule: for example, node 2 in the tree in ﬁgure 1 has the
+rule NP → D N. If the rule at a node is of the form a → b c, then there are left and right
+inside trees below the left child and right child of the rule. For example, for node 2 we have
+a left inside tree rooted at node 3, and a right inside tree rooted at node 4 (in this case the
+left and right inside trees both contain only a single rule production, of the form a → x;
+however in the general case they might be arbitrary subtrees).
+In addition, each node has an outside tree. For node 2, the outside tree is
+S
+VP
+
+NP
+V
+
+P
+
+saw
+
+him
+
+The outside tree contains everything in the s-tree r1 . . . rN , excluding the subtree below
+node i.
+Our random variables are deﬁned as follows. First, we select a random internal node,
+from a random tree, as follows:
+• Sample a full tree r1 . . . rN , h1 . . . hN from the PMF p(r1 . . . rN , h1 . . . hN ). Choose a
+node i uniformly at random from [N ].
+If the rule ri for the node i is of the form a → b c, we deﬁne random variables as follows:
+• R1 is equal to the rule ri (e.g., NP → D N).
+• T1 is the inside tree rooted at node i. T2 is the inside tree rooted at the left child of
+node i, and T3 is the inside tree rooted at the right child of node i.
+15
+
+• H1 , H2 , H3 are the hidden variables associated with node i, the left child of node i,
+and the right child of node i respectively.
+• A1 , A2 , A3 are the labels for node i, the left child of node i, and the right child of node
+i respectively. (E.g., A1 = NP, A2 = D, A3 = N.)
+• O is the outside tree at node i.
+• B is equal to 1 if node i is at the root of the tree (i.e., i = 1), 0 otherwise.
+If the rule ri for the selected node i is of the form a → x, we have random variables
+R1 , T1 , H1 , A1 , O, B as deﬁned above, but H2 , H3 , T2 , T3 , A2 , and A3 are not deﬁned.
+′
+We assume a function ψ that maps outside trees o to feature vectors ψ(o) ∈ Rd . For
+example, the feature vector might track the rule directly above the node in question, the
+word following the node in question, and so on. We also assume a function φ that maps
+inside trees t to feature vectors φ(t) ∈ Rd . As one example, the function φ might be an
+indicator function tracking the rule production at the root of the inside tree. Later we give
+formal criteria for what makes good deﬁnitions of ψ(o) of φ(t). One requirement is that
+d′ ≥ m and d ≥ m.
+In tandem with these deﬁnitions, we assume projection matices U a ∈ R(d×m) and V a ∈
+(d′ ×m) for all a ∈ N . We then deﬁne additional random variables Y , Y , Y , Z as
+R
+1 2 3
+Y1 = (U a1 )⊤ φ(T1 ) Z = (V a1 )⊤ ψ(O)
+Y2 = (U a2 )⊤ φ(T2 ) Y3 = (U a3 )⊤ φ(T3 )
+where ai is the value of the random variable Ai . Note that Y1 , Y2 , Y3 , Z are all in Rm .
+7.2 Observable Representations
+Given the deﬁnitions in the previous section, our representation is based on the following
+matrix, tensor and vector quantities, deﬁned for all a ∈ N , for all rules of the form a → b c,
+and for all rules of the form a → x respectively:
+Σa = E[Y1 Z ⊤ |A1 = a]
+
+D a→b c = E [[R1 = a → b c]]ZY2⊤ Y3⊤ |A1 = a
+⊤
+d∞
+a→x = E [[R1 = a → x]]Z |A1 = a
+
+Assuming access to functions φ and ψ, and projection matrices U a and V a , these quantities
+can be estimated directly from training data consisting of a set of s-trees (see section 8).
+Our observable representation then consists of:
+C a→b c (y 1 , y 2 ) = D a→b c (y 1 , y 2 )(Σa )−1
+c∞
+a→x
+c1
+a
+
+=
+
+d∞ (Σa )−1
+a→x
+
+= E [[[A1 = a]]Y1 |B = 1]
+
+(14)
+(15)
+(16)
+
+We next introduce conditions under which these quantities satisfy the conditions in theorem 1.
+The following deﬁnition will be important:
+16
+
+′
+
+Deﬁnition 2 For all a ∈ N , we deﬁne the matrices I a ∈ R(d×m) and J a ∈ R(d ×m) as
+[I a ]i,h = E[φi (T1 ) | H1 = h, A1 = a]
+[J a ]i,h = E[ψi (O) | H1 = h, A1 = a]
+
+a
+In addition, for any a ∈ N , we use γ a ∈ Rm to denote the vector with γh = P (H1 = h|A1 =
+a).
+
+The correctness of the representation will rely on the following conditions being satisﬁed
+(these are parallel to conditions 1 and 2 in Hsu et al. (2009)):
+Condition 1 ∀a ∈ N , the matrices I a and J a are of full rank (i.e., they have rank m).
+a
+For all a ∈ N , for all h ∈ [m], γh > 0.
+′
+
+Condition 2 ∀a ∈ N , the matrices U a ∈ R(d×m) and V a ∈ R(d ×m) are such that the
+matrices Ga = (U a )⊤ I a and K a = (V a )⊤ J a are invertible.
+We can now state the following theorem:
+Theorem 2 Assume conditions 1 and 2 are satisﬁed. For all a ∈ N , deﬁne Ga = (U a )⊤ I a .
+Then under the deﬁnitions in Eqs. 14-16:
+1. For all rules a → b c, C a→b c (y 1 , y 2 ) = T a→b c (y 1 Gb , y 2 Gc ) (Ga )−1
+2. For all rules a → x, c∞ = qa→x (Ga )−1 .
+a→x
+3. For all a ∈ N , c1 = Ga π a
+a
+Proof: The following identities hold (see section A.2):
+D a→b c (y 1 , y 2 ) =
+
+T a→b c (y 1 Gb , y 2 Gc ) diag(γ a )(K a )⊤
+
+a
+a ⊤
+d∞
+a→x = qa→x diag(γ )(K )
+
+Σ
+
+a
+
+c1
+a
+
+a
+
+a
+
+a ⊤
+
+= G diag(γ )(K )
+a a
+
+= G π
+
+(17)
+(18)
+(19)
+(20)
+
+Under conditions 1 and 2, Σa is invertible, and (Σa )−1 = ((K a )⊤ )−1 (diag(γ a ))−1 (Ga )−1 .
+The identities in the theorem follow immediately.
+This theorem leads directly to the spectral learning algorithm, which we describe in the
+next section. We give a sketch of the approach here. Assume that we have a training set
+consisting of skeletal trees (no latent variables are observed) generated from some underlying L-PCFG. Assume in addition that we have deﬁnitions of φ, ψ, U a and V a such that
+conditions 1 and 2 are satisﬁed for the L-PCFG. Then it is straightforward to use the training examples to derive i.i.d. samples from the joint distribution over the random variables
+(A1 , R1 , Y1 , Y2 , Y3 , Z, B) used in the deﬁnitions in Eqs. 14–16. These samples can be used
+ˆ
+to estimate the quantities in Eqs. 14–16; the estimated quantities C a→b c , c∞ and c1 can
+ˆa→x
+ˆa
+then be used as inputs to the algorithms in ﬁgures 4 and 5. By standard arguments, the
+ˆ
+ˆa
+estimates C a→b c , c∞ and c1 will converge to the values in Eqs. 14–16.
+ˆa→x
+The following lemma justiﬁes the use of an SVD calculation as one method for ﬁnding
+values for U a and V a that satisfy condition 2, assuming that condition 1 holds:
+17
+
+Lemma 1 Assume that condition 1 holds, and for all a ∈ N deﬁne
+Ωa = E[φ(T1 ) (ψ(O))⊤ |A1 = a]
+
+(21)
+
+Then if U a is a matrix of the m left singular vectors of Ωa corresponding to non-zero singular
+values, and V a is a matrix of the m right singular vectors of Ωa corresponding to non-zero
+singular values, then condition 2 is satisﬁed.
+Proof sketch: It can be shown that Ωa = I a diag(γ a )(J a )⊤ . The remainder is similar to
+the proof of lemma 2 in Hsu et al. (2009).
+The matrices Ωa can be estimated directly from a training set consisting of s-trees,
+assuming that we have access to the functions φ and ψ. Similar arguments to those of (Hsu
+et al., 2009) can be used to show that with a suﬃcient number of samples, the resulting
+estimates of U a and V a satisfy condition 2 with high probability.
+
+8. Deriving Empirical Estimates
+Figure 7 shows an algorithm that derives estimates of the quantities in Eqs 14, 15, and
+16. As input, the algorithm takes a sequence of tuples (r (i,1) , t(i,1) , t(i,2) , t(i,3) , o(i) , b(i) ) for
+i ∈ [M ].
+These tuples can be derived from a training set consisting of s-trees τ1 . . . τM as follows:
+• ∀i ∈ [M ], choose a single node ji uniformly at random from the nodes in τi . Deﬁne
+r (i,1) to be the rule at node ji . t(i,1) is the inside tree rooted at node ji . If r (i,1) is of the form
+a → b c, then t(i,2) is the inside tree under the left child of node ji , and t(i,3) is the inside
+tree under the right child of node ji . If r (i,1) is of the form a → x, then t(i,2) = t(i,3) = NULL.
+o(i) is the outside tree at node ji . b(i) is 1 if node ji is at the root of the tree, 0 otherwise.
+Under this process, assuming that the s-trees τ1 . . . τM are i.i.d. draws from the distribution p(τ ) over s-trees under an L-PCFG, the tuples (r (i,1) , t(i,1) , t(i,2) , t(i,3) , o(i) , b(i) ) are i.i.d.
+draws from the joint distribution over the random variables R1 , T1 , T2 , T3 , O, B deﬁned in
+the previous section.
+The algorithm ﬁrst computes estimates of the projection matrices U a and V a : following
+lemma 1, this is done by ﬁrst deriving estimates of Ωa , and then taking SVDs of each Ωa .
+The matrices are then used to project inside and outside trees t(i,1) , t(i,2) , t(i,3) , o(i) down to
+m-dimensional vectors y (i,1) , y (i,2) , y (i,3) , z (i) ; these vectors are used to derive the estimates
+of C a→b c , c∞ , and c1 . For example, the quantities
+a
+a→x
+Σa = E[Y1 Z ⊤ |A1 = a]
+
+D a→b c = E [[R1 = a → b c]]ZY2⊤ Y3⊤ |A1 = a
+⊤
+d∞
+a→x = E [[R1 = a → x]]Z |A1 = a
+
+can be estimated as
+
+M
+
+ˆ
+Σa = δa ×
+
+[[ai = a]]y (i,1) (z (i) )⊤
+i=1
+
+M
+
+ˆ
+D a→b c = δa ×
+
+i=1
+
+[[r (i,1) = a → b c]]z (i) (y (i,2) )⊤ (y (i,3) )⊤
+18
+
+M
+
+ˆ
+d∞ = δa ×
+a→x
+where δa = 1/
+
+M
+i=1 [[ai
+
+i=1
+
+[[r (i,1) = a → x]](z (i) )⊤
+
+= a]], and we can then set
+ˆ
+ˆ
+ˆ
+C a→b c (y 1 , y 2 ) = D a→b c (y 1 , y 2 )(Σa )−1
+ˆ
+ˆ
+c∞ = d∞ (Σa )−1
+ˆa→x
+a→x
+
+We now state a PAC-style theorem for the learning algorithm. First, for a given LPCFG, we need a couple of deﬁnitions:
+• Λ is the minimum absolute value of any element of the vectors/matrices/tensors c1 ,
+a
+d∞ , D a→b c , (Σa )−1 . (Note that Λ is a function of the projection matrices U a and V a as
+a→x
+well as the underlying L-PCFG.)
+• For each a ∈ N , σ a is the value of the m’th largest singular value of Ωa . Deﬁne
+σ = mina σ a .
+We then have the following theorem:
+Theorem 3 Assume that the inputs to the algorithm in ﬁgure 7 are i.i.d. draws from the
+joint distribution over the random variables R1 , T1 , T2 , T3 , O, B, under an L-PCFG with
+distribution p(r1 . . . rN ) over s-trees. Deﬁne m to be the number of latent states in the Lˆ
+ˆ
+PCFG. Assume that the algorithm in ﬁgure 4 has projection matrices U a and V a derived as
+a , as deﬁned in Eq. 21. Assume that the L-PCFG, together
+left and right singular vectors of Ω
+ˆ
+ˆ
+with U a and V a , has coeﬃcients Λ > 0 and σ > 0. In addition, assume that all elements in
+1 , d∞ , D a→b c , and Σa are in [−1, +1]. For any s-tree r . . . r
+ˆ
+ca a→x
+1
+N deﬁne p(r1 . . . rN ) to be
+the value calculated by the algorithm in ﬁgure 5 with inputs c1 , c∞ , C a→b c derived from
+ˆa ˆa→x ˆ
+the algorithm in ﬁgure 7. Deﬁne R to be the total number of rules in the grammar of the
+form a → b c or a → x. Deﬁne Ma to be the number of training examples in the input to
+the algorithm in ﬁgure 7 where r i,1 has non-terminal a on its left-hand-side. Under these
+assumptions, if for all a
+Ma ≥
+
+√
+2N+1
+
+128m2
+1+ǫ−1
+
+Then
+1−ǫ≤
+
+2
+
+Λ2 σ 4
+
+log
+
+2mR
+δ
+
+p(r1 . . . rN )
+ˆ
+≤1+ǫ
+p(r1 . . . rN )
+
+ˆ
+A similar theorem (omitted for space) states that 1 − ǫ ≤ µ(a,i,j) ≤ 1 + ǫ for the
+µ(a,i,j)
+marginals.
+ˆ
+ˆ
+The condition that U a and V a are derived from Ωa , as opposed to the sample estimate
+ˆ a , follows Foster et al. (2012). As these authors note, similar techniques to those of Hsu
+Ω
+ˆ
+et al. (2009) should be applicable in deriving results for the case where Ωa is used in place
+a.
+of Ω
+Proof sketch: The proof is similar to that of Foster et al. (2012). The basic idea is to
+ˆ
+ﬁrst show that under the assumptions of the theorem, the estimates c1 , d∞ , D a→b c , Σa
+ˆa ˆa→x ˆ
+
+19
+
+Inputs: Training examples (r (i,1) , t(i,1) , t(i,2) , t(i,3) , o(i) , b(i) ) for i ∈ {1 . . . M }, where r (i,1) is a context free
+rule; t(i,1) , t(i,2) and t(i,3) are inside trees; o(i) is an outside tree; and b(i) = 1 if the rule is at the root of
+tree, 0 otherwise. A function φ that maps inside trees t to feature-vectors φ(t) ∈ Rd . A function ψ that
+′
+maps outside trees o to feature-vectors ψ(o) ∈ Rd .
+Algorithm:
+Deﬁne ai to be the non-terminal on the left-hand side of rule r (i,1) . If r (i,1) is of the form a → b c, deﬁne bi
+to be the non-terminal for the left-child of r (i,1) , and ci to be the non-terminal for the right-child.
+(Step 0: Singular Value Decompositions)
+′
+
+ˆ
+ˆ
+• Use the algorithm in ﬁgure 8 to calculate matrices U a ∈ R(d×m) and V a ∈ R(d ×m) for each a ∈ N .
+(Step 1: Projection)
+ˆ
+• For all i ∈ [M ], compute y (i,1) = (U ai )⊤ φ(t(i,1) ).
+ˆ
+• For all i ∈ [M ] such that r (i,1) is of the form a → b c, compute y (i,2) = (U bi )⊤ φ(t(i,2) ) and y (i,3) =
+ˆ
+(U ci )⊤ φ(t(i,3) ).
+ˆ
+• For all i ∈ [M ], compute z (i) = (V ai )⊤ ψ(o(i) ).
+(Step 2: Calculate Correlations)
+• For each a ∈ N , deﬁne δa = 1/
+
+M
+i=1 [[ai
+
+= a]]
+
+ˆ
+• For each rule a → b c, compute Da→b c = δa ×
+
+M
+(i,1)
+i=1 [[r
+
+= a → b c]]z (i) (y (i,2) )⊤ (y (i,3) )⊤
+
+ˆa→x
+• For each rule a → x, compute d∞ = δa ×
+
+M
+(i,1)
+i=1 [[r
+
+ˆ
+• For each a ∈ N , compute Σa = δa ×
+
+= a]]y (i,1) (z (i) )⊤
+
+M
+i=1 [[ai
+
+= a → x]](z (i) )⊤
+
+(Step 3: Compute Final Parameters)
+ˆ
+ˆ
+ˆ
+• For all a → b c, C a→b c (y 1 , y 2 ) = Da→b c (y 1 , y 2 )(Σa )−1
+ˆa→x ˆ
+• For all a → x, c∞ = d∞ (Σa )−1
+ˆa→x
+• For all a ∈ I, c1 =
+ˆa
+
+and
+
+M
+b(i) =1]]y (i,1)
+i=1 [[ai =a
+M [[b(i) =1]]
+i=1
+
+Figure 7: The spectral learning algorithm.
+
+are all close to the underlying values being estimated. The second step is to show that this
+ˆ
+ensures that p(r1 ...rN ) is close to 1.
+p(r1 ...rN )
+
+The method described of selecting a single tuple (r (i,1) , t(i,1) , t(i,2) , t(i,3) , o(i) , b(i) ) for each
+s-tree ensures that the samples are i.i.d., and simpliﬁes the analysis underlying theorem 3.
+In practice, an implementation should most likely use all nodes in all trees in training data;
+by Rao-Blackwellization we know such an algorithm would be better than the one presented,
+but the analysis of how much better would be challenging. It would almost certainly lead
+to a faster rate of convergence of p to p.
+ˆ
+20
+
+Inputs: Identical to algorithm in ﬁgure 7.
+Algorithm:
+′
+ˆ
+• For each a ∈ N , compute Ωa ∈ R(d ×d) as
+ˆ
+Ωa =
+
+M
+i=1 [[ai
+
+= a]]φ(t(i,1) )(ψ(o(i) ))⊤
+M
+i=1 [[ai
+
+= a]]
+
+ˆ
+and calculate a singular value decomposition of Ωa .
+ˆ
+ˆ
+• For each a ∈ N , deﬁne U a ∈ Rm×d to be a matrix of the left singular vectors of Ωa corresponding to the m
+′
+ˆ a ∈ Rm×d to be a matrix of the right singular vectors of Ωa corresponding
+ˆ
+largest singular values. Deﬁne V
+to the m largest singular values.
+
+Figure 8: Singular value decompositions.
+
+9. Discussion
+There are several potential applications of the method. The most obvious is parsing with
+L-PCFGs.3 The approach should be applicable in other cases where EM has traditionally
+been used, for example in semi-supervised learning. Latent-variable HMMs for sequence
+labeling can be derived as special case of our approach, by converting tagged sequences to
+right-branching skeletal trees.
+In terms of eﬃciency, the ﬁrst step of the algorithm in ﬁgure 7 requires an SVD calculation: modern methods for calculating SVDs are very eﬃcient (e.g., see Dhillon et al.,
+2011 and Tropp et al., 2009). The remaining steps of the algorithm require manipulation
+of tensors or vectors, and require O(M m3 ) time.
+The sample complexity of the method depends on the minimum singular values of Ωa ;
+these singular values are a measure of how well correlated ψ and φ are with the unobserved
+hidden variable H1 . Experimental work is required to ﬁnd a good choice of values for ψ
+and φ for parsing.
+For simplicity we have considered the case where each non-terminal has the same number, m, of possible hidden values. It is simple to generalize the algorithms to the case where
+the number of hidden values varies depending on the non-terminal; this may be important
+in applications.
+
+Appendix A. Proofs
+This section gives proofs of theorems 1 and 2.
+A.1 Proof of Theorem 1
+The key idea behind the proof of theorem 1 is to show that the algorithms in ﬁgures 4 and 5
+compute the same quantities as the conventional version of the inside outside algorithms,
+as shown in ﬁgures 2 and 3.
+First, the following lemma leads directly to the correctness of the algorithm in ﬁgure 4:
+3. Parameters can be estimated using the algorithm in ﬁgure 7; for a test sentence x1 . . . xN we can ﬁrst
+use the algorithm in ﬁgure 5 to calculate marginals µ(a, i, j), then use the algorithm of Goodman (1996)
+to ﬁnd arg maxτ ∈T (x) (a,i,j)∈τ µ(a, i, j).
+
+21
+
+Lemma 2 Assume that conditions 1-3 of theorem 1 are satisﬁed, and that the input to the
+algorithm in ﬁgure 4 is an s-tree r1 . . . rN . Deﬁne ai for i ∈ [N ] to be the non-terminal
+on the left-hand-side of rule ri . For all i ∈ [N ], deﬁne the row vector bi ∈ R(1×m) to
+be the vector computed by the conventional inside-outside algorithm, as shown in ﬁgure 2,
+on the s-tree r1 . . . rN . Deﬁne f i ∈ R(1×m) to be the vector computed by the tensor-based
+inside-outside algorithm, as shown in ﬁgure 4, on the s-tree r1 . . . rN .
+Then for all i ∈ [N ], f i = bi (G(ai ) )−1 . It follows immediately that
+f 1 c11 = b1 (G(a1 ) )−1 Ga1 πa1 = b1 πa1 =
+a
+
+b1 π(a, h)
+h
+h
+
+Hence the output from the algorithms in ﬁgures 2 and 4 is the same, and it follows that the
+tensor-based algorithm in ﬁgure 4 is correct.
+This lemma shows a direct link between the vectors f i calculated in the algorithm, and
+the terms bi , which are terms calculated by the conventional inside algorithm: each f i is a
+h
+linear transformation (through Gai ) of the corresponding vector bi .
+Proof: The proof is by induction.
+First consider the base case. For any leaf—i.e., for any i such that ai ∈ P—we have
+bi = q(ri |h, ai ), and it is easily veriﬁed that f i = bi (G(ai ) )−1 .
+h
+The inductive case is as follows. For all i ∈ [N ] such that ai ∈ I, by the deﬁnition in
+the algorithm,
+f i = C ri (f β , f γ )
+T ri (f β Gaβ , f γ Gaγ ) (Gai )−1
+
+=
+
+Assuming by induction that f β = bβ (G(aβ ) )−1 and f γ = bγ (G(aγ ) )−1 , this simpliﬁes to
+f i = T ri (bβ , bγ ) (Gai )−1
+
+(22)
+
+By the deﬁnition of the tensor T ri ,
+T ri (bβ , bγ )
+
+h
+
+=
+h2 ∈[m],h3 ∈[m]
+
+t(ri , h2 , h3 |ai , h)bβ2 bγ 3
+h h
+
+But by deﬁnition (see the algorithm in ﬁgure 2),
+bi =
+h
+h2 ∈[m],h3 ∈[m]
+
+t(ri , h2 , h3 |ai , h)bβ2 bγ 3
+h h
+
+hence bi = T ri (bβ , bγ ) and the inductive case follows immediately from Eq. 22.
+Next, we give a similar lemma, which implies the correctness of the algorithm in ﬁgure 5:
+Lemma 3 Assume that conditions 1-3 of theorem 1 are satisﬁed, and that the input to the
+algorithm in ﬁgure 5 is a sentence x1 . . . xN . For any a ∈ N , for any 1 ≤ i ≤ j ≤ N ,
+¯
+deﬁne αa,i,j ∈ R(1×m) , β a,i,j ∈ R(m×1) and µ(a, i, j) ∈ R to be the quantities computed
+¯
+¯
+by the conventional inside-outside algorithm in ﬁgure 3 on the input x1 . . . xN . Deﬁne
+22
+
+αa,i,j ∈ R(1×m) , β a,i,j ∈ R(m×1) and µ(a, i, j) ∈ R to be the quantities computed by the
+algorithm in ﬁgure 3.
+¯
+Then for all i ∈ [N ], αa,i,j = αa,i,j (Ga )−1 and β a,i,j = Ga β a,i,j . It follows that for all
+¯
+(a, i, j),
+¯
+¯
+µ(a, i, j) = αa,i,j β a,i,j = αa,i,j (Ga )−1 Ga β a,i,j = αa,i,j β a,i,j = µ(a, i, j)
+¯
+¯
+¯
+Hence the outputs from the algorithms in ﬁgures 3 and 5 are the same, and it follows that
+the tensor-based algorithm in ﬁgure 5 is correct.
+¯
+Thus the vectors αa,i,j and β a,i,j are linearly related to the vectors αa,i,j and β a,i,j , which
+¯
+are the inside and outside terms calculated by the conventional form of the inside-outside
+algorithm.
+Proof: The proof is by induction, and is similar to the proof of lemma 2.
+First, we prove that the inside terms satisfy the relation αa,i,j = αa,i,j (Ga )−1 .
+¯
+The base case of the induction is as follows. By deﬁniton, for any a ∈ P, i ∈ [N ], h ∈ [m],
+we have αa,i,i = q(a → xi |h, a). We also have for any a ∈ P, i ∈ [N ], αa,i,i = c∞ i =
+¯h
+a→x
+a )−1 . It follows directly that αa,i,i = αa,i,i (Ga )−1 for any a ∈ P, i ∈ [N ].
+qa→xi (G
+¯
+The inductive case is as follows. By deﬁnition, we have ∀a ∈ I, 1 ≤ i < j ≤ N, h ∈ [m]
+j−1
+
+αa,i,j
+¯h
+
+=
+k=i b,c h2 ∈[m] h3 ∈[m]
+
+t(a → b c, h2 , h3 |h, a) × αb,i,k × αc,k+1,j
+¯ h2
+¯ h3
+
+We also have ∀a ∈ I, 1 ≤ i < j ≤ N,
+j−1
+
+αa,i,j =
+
+C a→b c (αb,i,k , αc,k+1,j )
+
+(23)
+
+k=i b,c
+j−1
+
+T a→b c (αb,i,k Gb , αc,k+1,j Gc ) (Ga )−1
+
+(24)
+
+T a→b c (¯ b,i,k , αc,k+1,j (Ga )−1
+α
+¯
+
+=
+
+(25)
+
+k=i b,c
+j−1
+
+=
+
+k=i b,c
+a,i,j
+a −1
+
+= α
+¯
+
+(G )
+
+(26)
+
+Eq. 23 follows by the deﬁnitions in algorithm 5. Eq. 24 follows by the assumption in the
+theorem that
+C a→b c (y 1 , y 2 ) = T a→b c (y 1 Gb , y 2 Gc ) (Ga )−1
+Eq. 25 follows because by the inductive hypothesis, αb,i,k = αb,i,k (Gb )−1 and αc,k+1,j =
+¯
+αc,k+1,j (Gc )−1 . Eq. 26 follows because
+¯
+T a→b c (¯ b,i,k , αc,k+1,j )
+α
+¯
+
+h
+
+=
+h2 ,h3
+
+t(a → b c, h2 , h3 |h, a)¯ b,i,k αc,k+1,j
+αh2 ¯ h3
+
+23
+
+hence
+
+j−1
+
+T a→b c (¯ b,i,k , αc,k+1,j ) = αa,i,j
+α
+¯
+¯
+k=i b,c
+
+¯
+We now turn the outside terms, proving that β a,i,j = Ga β a,i,j . The proof is again by
+induction.
+The base case is as follows. By the deﬁnitions in the algorithms, for all a ∈ I, β a,1,n =
+1 = Ga π a , and for all a ∈ I, h ∈ [m], β a,1,n = π(a, h). It follows directly that for all a ∈ I,
+¯
+ca
+h
+a,1,n = Ga β a,1,n .
+¯
+β
+The inductive case is as follows. By the deﬁnitions in the algorithms, we have ∀a ∈
+N , 1 ≤ i ≤ j ≤ N, h ∈ [m]
+1,a,i,j
+2,a,i,j
+¯a,i,j
+βh = γh
++ γh
+where
+
+i−1
+1,a,i,j
+γh
+=
+k=1 b→c a h2 ∈[m] h3 ∈[m]
+
+¯b,k,j ¯
+t(b → c a, h3 , h|h2 , b) × βh2 × αc,k,i−1
+h3
+
+N
+2,a,i,j
+γh
+
+=
+k=j+1 b→a c h2 ∈[m] h3 ∈[m]
+
+¯b,i,k ¯
+t(b → a c, h, h3 |h2 , b) × βh2 × αc,j+1,k
+h3
+
+and ∀a ∈ N , 1 ≤ i ≤ j ≤ N,
+N
+
+i−1
+
+β
+
+a,i,j
+
+b→c
+C(1,2) a (β b,k,j , αc,k,i−1 )
+
+=
+
+b→a
+C(1,3) c (β b,i,k , αc,j+1,k )
+
++
+k=j+1 b→a c
+
+k=1 b→c a
+
+Critical identities are
+i−1
+b→c
+C(1,2) a (β b,k,j , αc,k,i−1 ) = Ga γ 1,a,i,j
+
+(27)
+
+b→a
+C(1,3) c (β b,i,k , αc,j+1,k ) = Ga γ 2,a,i,j
+
+(28)
+
+k=1 b→c a
+N
+k=j+1 b→a c
+
+¯
+from which β a,i,j = Ga β a,i,j follows immediately.
+The identities in Eq. 29 and 30 are proved through straightforward algebraic manipulation, based on the following properties:
+¯
+¯
+• By the inductive hypothesis, β b,k,j = Gb β b,k,j and β b,i,k = Gb β b,i,k .
+• By correctness of the inside terms, as shown earlier in this proof, αc,k,i−1 = αc,k,i−1 (Gc )−1 ,
+¯
+αc,j+1,k = αc,j+1,k (Gc )−1 .
+¯
+• By the assumptions in the theorem,
+C a→b c (y 1 , y 2 ) = T a→b c (y 1 Gb , y 2 Gc ) (Ga )−1
+24
+
+It follows (see Lemma 4) that
+b→c
+b→c
+C(1,2) a (β b,k,j , αc,k,i−1 ) = Ga T(1,2) a ((Gb )−1 β b,k,j , αc,k,i−1 Gc )
+b→c
+¯
+¯
+= Ga T(1,2) a (β b,k,j , αc,k,i−1 )
+
+and
+b→a
+b→a
+¯
+¯
+C(1,3) c (β b,i,k , αc,j+1,k ) = Ga T(1,3) c (β b,i,k , αc,j+1,k )
+
+Finally, we give the following Lemma, as used above:
+Lemma 4 Assume we have tensors C ∈ Rm×m×m and T ∈ Rm×m×m such that for any
+y2, y3 ,
+C(y 2 , y 3 ) = T (y 2 A, y 3 B) D
+where A, B, D are matrices in Rm×m . Then for any y 1 , y 2 ,
+C(1,2) (y 1 , y 2 ) = B T(1,2) (Dy 1 , y 2 A)
+
+(29)
+
+C(1,3) (y 1 , y 3 ) = A T(1,3) (Dy 1 , y 3 B)
+
+(30)
+
+and for any y 1 , y 3 ,
+
+Proof: Consider ﬁrst Eq. 29. We will prove the following statement:
+∀y 1 , y 2 , y 3 , y 3 C(1,2) (y 1 , y 2 ) = y 3 B T(1,2) (Dy 1 , y 2 A)
+This statement is equivalent to Eq. 29.
+First, for all y 1 , y 2 , y 3 , by the assumption that C(y 2 , y 3 ) = T (y 2 A, y 3 B) D,
+C(y 2 , y 3 )y 1 = T (y 2 A, y 3 B)Dy 1
+hence
+1 2 3
+Ci,j,k yi yj yk =
+i,j,k
+
+1 2 3
+Ti,j,k zi zj zk
+
+(31)
+
+i,j,k
+
+where z 1 = Dy 1 , z 2 = y 2 A, z 3 = y 3 B.
+In addition, it is easily veriﬁed that
+y 3 C(1,2) (y 1 , y 2 ) =
+
+1 2 3
+Ci,j,k yi yj yk
+
+(32)
+
+1 2 3
+Ti,j,k zi zj zk
+
+(33)
+
+i,j,k
+
+y 3 B T(1,2) (Dy 1 , y 2 A)
+
+=
+i,j,k
+
+where again z 1 = Dy 1 , z 2 = y 2 A, z 3 = y 3 B. Combining Eqs. 31, 32, and 33 gives
+y 3 C(1,2) (y 1 , y 2 ) = y 3 B T(1,2) (Dy 1 , y 2 A)
+thus proving the identity in Eq. 29.
+The proof of the identity in Eq. 30 is similar, and is omitted for brevity.
+25
+
+A.2 Proof of the Identity in Eq. 17
+We now prove the identity in Eq. 17, repeated here:
+D a→b c (y 1 , y 2 ) = T a→b c (y 1 Gb , y 2 Gc ) diag(γ a )(K a )⊤
+Recall that
+D a→b c = E [[R1 = a → b c]]ZY2⊤ Y3⊤ |A1 = a
+or equivalently
+a→b
+Di,j,k c = E [[[R1 = a → b c]]Zi Y2,j Y3,k |A1 = a]
+
+Using the chain rule, and marginalizing over hidden variables, we have
+a→b
+Di,j,k c = E [[[R1 = a → b c]]Zi Y2,j Y3,k |A1 = a]
+
+=
+h1 ,h2 ,h3 ∈[m]
+
+p(a → b c, h1 , h2 , h3 |a)E [Zi Y2,j Y3,k |R1 = a → b c, h1 , h2 , h3 ]
+
+By deﬁnition, we have
+a
+p(a → b c, h1 , h2 , h3 |a) = γh1 × t(a → b c, h2 , h3 |h1 , a)
+
+In addition, under the independence assumptions in the L-PCFG, and using the deﬁnitions
+of K a and Ga , we have
+E [Zi Y2,j Y3,k |R1 = a → b c, h1 , h2 , h3 ]
+
+= E [Zi |A1 = a, H1 = h1 ] × E [Y2,j |A2 = b, H2 = h2 ] × E [Y3,k |A3 = c, H3 = h3 ]
+a
+= Ki,h1 × Gb 2 × Gc 3
+j,h
+k,h
+
+Putting this all together gives
+a→b
+Di,j,k c =
+h1 ,h2 ,h3 ∈[m]
+
+=
+h1 ∈[m]
+
+a
+a
+γh1 × t(a → b c, h2 , h3 |h1 , a) × Ki,h1 × Gb 2 × Gc 3
+j,h
+k,h
+
+a
+a
+γh1 × Ki,h1 ×
+
+h2 ,h3 ∈[m]
+
+t(a → b c, h2 , h3 |h1 , a) × Gb 2 × Gc 3
+j,h
+k,h
+
+By the deﬁnition of tensors,
+[D a→b c (y 1 , y 2 )]i
+1 2
+a→b
+Di,j,k c yj yk
+
+=
+j,k
+
+=
+h1 ∈[m]
+
+=
+h1 ∈[m]
+
+a
+a
+γh1 × Ki,h1 ×
+
+h2 ,h3 ∈[m]
+
+
+
+t(a → b c, h2 , h3 |h1 , a) × 
+
+a
+a
+γh1 × Ki,h1 × T a→b c (y 1 Gb , y 2 Gc )
+
+26
+
+h1
+
+j
+
+
+
+1
+yj Gb 2  ×
+j,h
+
+2
+yk Gc 3
+k,h
+k
+
+(34)
+
+The last line follows because by the deﬁnition of tensors,
+T a→b c (y 1 Gb , y 2 Gc )
+
+h1
+
+a→b c
+Th1 ,h2 ,h3 y 1 Gb
+
+=
+h2 ,h3
+
+h2
+
+y 2 Gc
+
+h3
+
+and we have
+a→b
+Th1 ,h2 c 3 = t(a → b c, h2 , h3 |h1 , a)
+,h
+
+y 1 Gb
+
+y 2 Gc
+
+h2
+h3
+
+1
+yj Gb 2
+j,h
+
+=
+j
+
+2
+yk Gc 3
+k,h
+
+=
+k
+
+Finally, the required identity
+D a→b c (y 1 , y 2 ) = T a→b c (y 1 Gb , y 2 Gc ) diag(γ a )(K a )⊤
+follows immediately from Eq. 34.
+A.3 Proof of the Identity in Eq. 18
+We now prove the identity in Eq. 18, repeated below:
+d∞ = qa→x diag(γ a )(K a )⊤
+a→x
+Recall that by deﬁnition
+d∞ = E [[R1 = a → x]]Z ⊤ |A1 = a
+a→x
+or equivalently
+[d∞ ]i = E [[[R1 = a → x]]Zi |A1 = a]
+a→x
+
+Marginalizing over hidden variables, we have
+
+[d∞ ]i = E [[[R1 = a → x]]Zi |A1 = a]
+a→x
+=
+
+h
+
+p(a → x, h|a)E[Zi |H1 = h, R1 = a → x]
+
+By deﬁnition, we have
+a
+a
+p(a → x, h|a) = γh q(a → x|h, a) = γh [qa→x ]h
+
+In addition, by the independence assumptions in the L-PCFG, and the deﬁnition of K a ,
+a
+E[Zi |H1 = h, R1 = a → x] = E[Zi |H1 = h, A1 = a] = Ki,h
+
+Putting this all together gives
+[d∞ ]i =
+a→x
+
+a
+a
+γh [qa→x ]h Ki,h
+h
+
+from which the required identity
+d∞ = qa→x diag(γ a )(K a )⊤
+a→x
+follows immediately.
+27
+
+A.4 Proof of the Identity in Eq. 19
+We now prove the identity in Eq. 19, repeated below:
+Σa = Ga diag(γ a )(K a )⊤
+Recall that by deﬁnition
+Σa = E[Y1 Z ⊤ |A1 = a]
+or equivalently
+[Σa ]i,j = E[Y1,i Zj |A1 = a]
+Marginalizing over hidden variables, we have
+[Σa ]i,j = E[Y1,i Zj |A1 = a]
+=
+h
+
+p(h|a)E[Y1,i Zj |H1 = h, A1 = a]
+
+By deﬁnition, we have
+a
+γh = p(h|a)
+
+In addition, under the independence assumptions in the L-PCFG, and using the deﬁnitions
+of K a and Ga , we have
+E[Y1,i Zj |H1 = h, A1 = a] = E[Y1,i |H1 = h, A1 = a] × E[Zj |H1 = h, A1 = a]
+a
+= Ga Kj,h
+i,h
+
+Putting all this together gives
+[Σa ]i,j =
+
+a
+a
+γh Ga Kj,h
+i,h
+h
+
+from which the required identity
+Σa = Ga diag(γ a )(K a )⊤
+follows immediately.
+A.5 Proof of the Identity in Eq. 20
+We now prove the identity in Eq. 19, repeated below:
+c1 = Ga π a
+a
+Recall that by deﬁnition
+c1 = E [[[A1 = a]]Y1 |B = 1]
+a
+or equivalently
+[c1 ]i = E [[[A1 = a]]Y1,i |B = 1]
+a
+28
+
+Marginalizing over hidden variables, we have
+[c1 ]i = E [[[A1 = a]]Y1,i |B = 1]
+a
+=
+
+h
+
+P (A1 = a, H1 = h|B = 1)E [Y1,i |A1 = a, H1 = h, B = 1]
+
+By deﬁnition we have
+P (A1 = a, H1 = h|B = 1) = π(a, h)
+By the independence assumptions in the PCFG, and the deﬁnition of Ga , we have
+E [Y1,i |A1 = a, H1 = h, B = 1] = E [Y1,i |A1 = a, H1 = h]
+= Ga
+i,h
+
+Putting this together gives
+[c1 ]i =
+a
+
+π(a, h)Ga
+i,h
+h
+
+from which the required identity
+c1 = Ga π a
+a
+follows.
+
+29
+
+Acknowledgements: Columbia University gratefully acknowledges the support of the Defense
+Advanced Research Projects Agency (DARPA) Machine Reading Program under Air Force Research
+Laboratory (AFRL) prime contract no. FA8750-09-C-0181. Any opinions, ﬁndings, and conclusions
+or recommendations expressed in this material are those of the author(s) and do not necessarily
+reﬂect the view of DARPA, AFRL, or the US government. Shay Cohen was supported by the
+National Science Foundation under Grant #1136996 to the Computing Research Association for the
+CIFellows Project. Dean Foster was supported by National Science Foundation grant 1106743.
+
+References
+Baker, J. (1979). Trainable Grammars for Speech Recognition. In Proc. ASA.
+Balle, B., Quattoni, A., & Carreras, X. (2011). A spectral learning algorithm for ﬁnite state
+transducers. In Proceedings of ECML.
+Charniak, E. (1997). Statistical Parsing with a Context-Free Grammar and Word Statistics.
+In Proc. AAAI-IAAI, pp. 598–603.
+Cohen, S. B., Stratos, K., Collins, M., Foster, D. P., & Ungar, L. (2012). Spectral learning
+of latent-variable pcfgs. In Proceedings of ACL.
+Collins, M. (1997). Three generative, lexicalised models for statistical parsing. In Proceedings
+of the 35th Annual Meeting of the Association for Computational Linguistics, pp. 16–
+23, Madrid, Spain. Association for Computational Linguistics.
+Dhillon, P., Foster, D., & Ungar, L. (2011). Multi-view learning of word embeddings via
+CCA. In Proceedings of NIPS 24 (Advances in Neural Information Processing Systems).
+Foster, D. P., Rodu, J., & Ungar, L. H. (2012). Spectral dimensionality reduction for hmms.
+arXiv:1203.6130v1.
+Goodman, J. (1996). Parsing algorithms and metrics. In Proceedings of the 34th annual
+meeting on Association for Computational Linguistics, pp. 177–183. Association for
+Computational Linguistics.
+Hsu, D., Kakade, S. M., & Zhang, T. (2009). A spectral algorithm for learning hidden
+Markov models. In Proceedings of COLT.
+Jaeger, H. (2000). Observable operator models for discrete stochastic time series. Neural
+Computation, 12(6).
+Johnson, M. (1998). PCFG Models of Linguistic Tree Representations. Computational
+Linguistics, 24 (4), 613–632.
+Klein, D., & Manning, C. (2003). Accurate Unlexicalized Parsing. In Proc. ACL, pp.
+423–430.
+Lugue, F. M., Quattoni, A., Balle, B., & Carreras, X. (2012). Spectral learning for nondeterministic dependency parsing. In Proceedings of EACL.
+Marcus, M., Santorini, B., & Marcinkiewicz, M. (1993). Building a Large Annotated Corpus
+of English: The Penn Treebank. Computational Linguistics, 19 (2), 313–330.
+30
+
+Matsuzaki, T., Miyao, Y., & Tsujii, J. (2005). Probabilistic CFG with latent annotations. In
+Proceedings of the 43rd Annual Meeting on Association for Computational Linguistics,
+pp. 75–82. Association for Computational Linguistics.
+Parikh, A., Song, L., & Xing, E. P. (2011). A spectral algorithm for latent tree graphical
+models. In Proceedings of The 28th International Conference on Machine Learningy
+(ICML 2011).
+Pereira, F., & Schabes, Y. (1992). Inside-outside reestimation from partially bracketed corpora. In Proceedings of the 30th Annual Meeting of the Association for Computational
+Linguistics, pp. 128–135, Newark, Delaware, USA. Association for Computational Linguistics.
+Petrov, S., Barrett, L., Thibaux, R., & Klein, D. (2006). Learning accurate, compact, and
+interpretable tree annotation. In Proceedings of the 21st International Conference on
+Computational Linguistics and 44th Annual Meeting of the Association for Computational Linguistics, pp. 433–440, Sydney, Australia. Association for Computational
+Linguistics.
+Terwijn, S. A. (2002). On the learnability of hidden markov models. In Grammatical
+Inference: Algorithms and Applications (Amsterdam, 2002), Vol. 2484 of Lecture Notes
+in Artiﬁcial Intelligence, pp. 261–268, Berlin. Springer.
+Tropp, A., Halko, N., & Martinsson, P. G. (2009). Finding structure with randomness:
+Stochastic algorithms for constructing approximate matrix decompositions.. In Technical Report No. 2009-05.
+
+31
+
+

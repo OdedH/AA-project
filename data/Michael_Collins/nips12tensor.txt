@@ -1,0 +1,984 @@
+Tensor Decomposition for Fast Parsing with
+Latent-Variable PCFGs
+Shay B. Cohen and Michael Collins
+Department of Computer Science
+Columbia University
+New York, NY 10027
+scohen,mcollins@cs.columbia.edu
+
+Abstract
+We describe an approach to speed-up inference with latent-variable PCFGs, which
+have been shown to be highly effective for natural language parsing. Our approach
+is based on a tensor formulation recently introduced for spectral estimation of
+latent-variable PCFGs coupled with a tensor decomposition algorithm well-known
+in the multilinear algebra literature. We also describe an error bound for this
+approximation, which gives guarantees showing that if the underlying tensors are
+well approximated, then the probability distribution over trees will also be well
+approximated. Empirical evaluation on real-world natural language parsing data
+demonstrates a signiﬁcant speed-up at minimal cost for parsing performance.
+
+1
+
+Introduction
+
+Latent variable models have shown great success in various ﬁelds, including computational linguistics and machine learning. In computational linguistics, for example, latent-variable models are
+widely used for natural language parsing using models called latent-variable PCFGs (L-PCFGs;
+[14]).
+The mainstay for estimation of L-PCFGs has been the expectation-maximization algorithm [14,
+16], though other algorithms, such as spectral algorithms, have been devised [5]. A by-product
+of the spectral algorithm presented in [5] is a tensor formulation for computing the inside-outside
+probabilities of a L-PCFG. Tensor products (or matrix-vector products, in certain cases) are used as
+the basic operation for marginalization over the latent annotations of the L-PCFG.
+The computational complexity with the tensor formulation (or with plain CKY, for that matter) is
+cubic in the number of latent states in the L-PCFG. This multiplicative factor can be prohibitive for
+a large number of hidden states; various heuristics are used in practice to avoid this problem [16].
+In this paper, we show that tensor decomposition can be used to signiﬁcantly speed-up the parsing
+performance with L-PCFGs. Our approach is also provided with a theoretical guarantee: given the
+accuracy of the tensor decomposition, one can compute how accurate the approximate parser is.
+The rest of this paper is organized as follows. We give notation and background in §2–3, and then
+present the main approach in §4. We describe experimental results in §5 and conclude in §6.
+
+2
+
+Notation
+
+Given a matrix A or a vector v, we write A or v for the associated transpose. For any integer
+n ≥ 1, we use [n] to denote the set {1, 2, . . . n}. We will make use of tensors of rank 3:1
+1
+All PCFGs in this paper are assumed to be in Chomsky normal form. Our approach generalizes to arbitrary
+PCFGs, which require tensors of higher rank.
+
+1
+
+Deﬁnition 1. A tensor C ∈ R(m×m×m) is a set of m3 parameters Ci,j,k for i, j, k ∈ [m]. Given
+a tensor C, and vectors y 1 ∈ Rm and y 2 ∈ Rm , we deﬁne C(y 1 , y 2 ) to be the m-dimensional row
+1 2
+vector with components [C(y 1 , y 2 )]i = j∈[m],k∈[m] Ci,j,k yj yk . Hence C can be interpreted as a
+function C : Rm × Rm → R1×m that maps vectors y 1 and y 2 to a row vector C(y 1 , y 2 ) ∈ R1×m .
+In addition, we deﬁne the tensor C(1,2) ∈ R(m×m×m) for any tensor C ∈ R(m×m×m) to be the
+1 2
+function C(1,2) : Rm × Rm → Rm×1 deﬁned as [C(1,2) (y 1 , y 2 )]k =
+i∈[m],j∈[m] Ci,j,k yi yj .
+Similarly, for any tensor C we deﬁne C(1,3) : Rm × Rm → Rm×1 as [C(1,3) (y 1 , y 2 )]j =
+1 2
+1 2
+1 2
+i∈[m],k∈[m] Ci,j,k yi yk . Note that C(1,2) (y , y ) and C(1,3) (y , y ) are both column vectors.
+For two vectors x ∈ Rm and y ∈ Rm we denote by x y ∈ Rm the Hadamard product of x and y,
+i.e. [x y]i = xi yi . Finally, for vectors x, y, z ∈ Rm , xy z is the tensor D ∈ Rm×m×m where
+Di,j,k = xi yj zk (this is analogous to the outer product: [xy ]i,j = xi yj ).
+
+3
+
+Latent-Variable Parsing
+
+In this section we describe latent-variable PCFGs and their parsing algorithms.
+3.1
+
+Latent-Variable PCFGs
+
+This section gives a deﬁnition of the L-PCFG formalism used in this paper; we follow the deﬁnitions
+given in [5]. An L-PCFG is a 5-tuple (N, I, P, m, n) where:
+• N is the set of non-terminal symbols in the grammar. I ⊂ N is a ﬁnite set of in-terminals. P ⊂ N
+is a ﬁnite set of pre-terminals. We assume that N = I ∪ P, and I ∩ P = ∅. Hence we have
+partitioned the set of non-terminals into two subsets.
+• [m] is the set of possible hidden states.
+• [n] is the set of possible words.
+• For all a ∈ I, b ∈ N, c ∈ N, h1 , h2 , h3 ∈ [m], we have a context-free rule a(h1 ) → b(h2 ) c(h3 ).
+• For all a ∈ P, h ∈ [m], x ∈ [n], we have a context-free rule a(h) → x.
+Note that for any binary rule, a → b c, it holds that a ∈ I, and for any unary rule a → x, it holds
+that a ∈ P.
+The set of “skeletal rules” is deﬁned as R = {a → b c : a ∈ I, b ∈ N, c ∈ N}. The parameters of
+the model are as follows:
+• For each a → b c ∈ R, and h1 , h2 , h3 ∈ [m], we have a parameter t(a → b c, h2 , h3 |h1 , a).
+• For each a ∈ P, x ∈ [n], and h ∈ [m], we have a parameter q(a → x|h, a).
+An L-PCFG corresponds to a regular PCFG with non-terminals annotated with latent states.
+For each triplet of latent states and a rule a → b c, we have a rule probability p(a(h1 ) →
+b(h2 ) c(h3 )|a(h1 )) = t(a → b c, h2 , h3 |h1 , a). Similarly, we also have parameters p(a(h) →
+x|a(h)) = q(a → x|h, a). In addition, there are initial probabilities of generating a non-terminal
+with a latent at the top of the tree, denoted by π(a, h).
+L-PCFGs induce distributions over two type of trees: skeletal trees, i.e. trees without values for
+latent states (these trees are observed in data), and full trees (trees with values for latent states). A
+skeletal tree consists of a sequence of rules r1 . . . rN where ri ∈ R or ri = a → x. See Figure 3.1
+for an example.
+We now turn to the problem of computing the probability of a skeletal tree, by marginalizing out
+the latent states of full trees. Let r1 . . . rN be a derivation, and let ai be the non-terminal on the left
+(2)
+hand-side of rule ri . For any ri = a → b c, deﬁne hi to be the latent state associated with the left
+(3)
+child of the rule ri and hi to be the hidden variable value associated with the right child.
+The distribution over full trees is then:
+(2)
+
+p(r1 . . . rN , h1 . . . hN ) = π(a1 , h1 ) ×
+
+(3)
+
+t(ri , hi , hi |hi , ai ) ×
+i:ai ∈I
+
+2
+
+q(ri |hi , ai )
+i:ai ∈P
+
+S1
+NP2
+
+VP5
+
+D3
+
+N4
+
+V6
+
+P7
+
+the
+
+man
+
+saw
+
+him
+
+r1
+r2
+r3
+r4
+r5
+r6
+r7
+
+= S → NP VP
+= NP → D N
+= D → the
+= N → man
+= VP → V P
+= V → saw
+= P → him
+
+Figure 1: An s-tree with its sequence of rules.
+(The nodes in the tree are indexed by the derivation order, which is canonicalized as top-down,
+left-most derviation.)
+
+Marginalizing out the latent states leads to the distribution over the skeletal tree r1 . . . rN :
+p(r1 . . . rN ) = h1 ...hN p(r1 . . . rN , h1 . . . hN ).
+It will be important for the rest of this paper to use of matrix form of parameters of an L-PCFG, as
+follows:
+• For each a → b c ∈ R, we deﬁne T a→b c ∈ Rm×m×m to be the tensor with values
+a→b
+Th1 ,h2 c 3 = t(a → b c, h2 , h3 |a, h1 )
+,h
+
+• For each a ∈ P, x ∈ [n], we deﬁne Qa→x ∈ R1×m to be the vector with values q(a → x|h, a)
+for h = 1, 2, . . . m.
+• For each a ∈ I, we deﬁne the vector π a ∈ Rm where [π a ]h = π(a, h).
+Parameter Estimation Several ways to estimate the parameters T a→b c , Qa→x and π a have been
+suggested in the literature. For example, vanilla EM has been used in [14], hierarchical state splitting
+EM has been suggested in [16], and a spectral algorithm is proposed in [5].
+In the rest of the paper, we assume that the parameters for these tensors have been identiﬁed, and
+focus mostly on the problem of inference – i.e. parsing unseen sentences. The reason for this is
+two-fold: (a) in real-world applications, training can be done off-line to identify a set of parameters
+once, and therefore its computational efﬁciency is of lesser interest; (b) our approach can speed-up
+the inference problems existing in the EM algorithm, but the speed-up is of lesser interest, because
+the inference problem in the EM algorithm is linear in the tree size (and not cubic, as in the case
+of parsing). The reason for this linear complexity is that the skeletal trees are observed during EM
+training. Still, EM stays cubic in the number of states.
+3.2
+
+Tensor Formulation for Inside-Outside
+
+There are several ways to parse a sentence with latent-variable PCFGs. Most of these approaches are
+taken by using an inside-outside algorithm [12] which computes marginals for various non-terminals
+and spans in the sentence, and then eventually ﬁnding a parse tree which maximizes a score which
+is the sum of the marginals of the spans that appear in the tree.
+More formally, let µ(a, i, j) = τ ∈T(x):(a,i,j)∈τ p(τ ) for each non-terminal a ∈ N, for each (i, j)
+such that 1 ≤ i ≤ j ≤ N . Here T(x) denotes the set of all possible s-trees for the sentence x, and
+we write (a, i, j) ∈ τ if non-terminal a spans words xi . . . xj in the parse tree τ .
+Then, the parsing algorithm seeks for a given sentence x = x1 . . . xN the skeletal tree
+arg maxτ ∈T(x) (a,i,j)∈τ µ(a, i, j).
+Given the marginals µ(a, i, j), one can use the dynamic programming algorithm described in [7] in
+order to ﬁnd this highest scoring tree.
+A key question is how to compute the marginals µ(a, i, j) using the inside-outside algorithm. Dynamic programming solutions are available for this end as well. The complexity of a na¨ve imı
+plementation of the dynamic programming algorithm for this problem is cubic in the number of
+latent states. This is where we suggest an alternative to the traditional dynamic programming solutions. Our alternative relies on an existing tensor formulation for the inside-outside algorithm [5],
+which re-formalizes the dynamic programming algorithm using tensor, matrix and vector product
+operations.
+Algorithm 2 presents the re-formulation of the inside-outside algorithm using tensors. For more
+details and proofs of correctness, refer to [5]. The re-formalized algorithm is still cubic in
+3
+
+the number of hidden states, and spends most of the time computing the tensor applications
+b→c
+b→a
+T a→b c (αb,i,k , αc,k+1,j ), T(1,2) a (β b,k,j , αc,k,i−1 ) and T(1,3) c (β b,i,k , αc,j+1,k ). This is the main
+set of computations we aim to speed-up, as we show in the next section.
+Inputs: Sentence x1 . . . xN , L-PCFG (N, I, P, m, n), parameters T a→b c ∈ R(m×m×m) for all a → b c ∈ R,
+Qa→x ∈ R(1×m) for all a ∈ P, x ∈ [n], π a ∈ R(m×1) for all a ∈ I.
+Data structures:
+• Each αa,i,j ∈ R1×m for a ∈ N, 1 ≤ i ≤ j ≤ N is a row vector of inside terms.
+• Each β a,i,j ∈ Rm×1 for a ∈ N, 1 ≤ i ≤ j ≤ N is a column vector of outside terms.
+• Each µ(a, i, j) ∈ R for a ∈ N, 1 ≤ i ≤ j ≤ N is a marginal probability.
+Algorithm:
+(Inside base case) ∀a ∈ P, i ∈ [N ], αa,i,i = Qa→xi
+(Inside recursion) ∀a ∈ I, 1 ≤ i < j ≤ N,
+j−1
+
+αa,i,j =
+
+T a→b c (αb,i,k , αc,k+1,j )
+k=i a→b c
+
+(Outside base case) ∀a ∈ I, β
+=π
+(Outside recursion) ∀a ∈ N, 1 ≤ i ≤ j ≤ N,
+a,1,n
+
+a
+
+i−1
+
+N
+
+β a,i,j =
+
+b→c
+T(1,2) a (β b,k,j , αc,k,i−1 ) +
+k=1 b→c a
+
+b→a
+T(1,3) c (β b,i,k , αc,j+1,k )
+k=j+1 b→a c
+
+(Marginals) ∀a ∈ N, 1 ≤ i ≤ j ≤ N,
+µ(a, i, j) = αa,i,j β a,i,j =
+
+a,i,j a,i,j
+αh βh
+h∈[m]
+
+Figure 2: The tensor form of the inside-outside algorithm, for calculation of marginal terms µ(a, i, j).
+
+4
+
+Tensor Decomposition
+
+As mentioned earlier, most computation for the inside-outside algorithm is spent on the tensor calculation of T a→b c on the intermediate inside/outside quantities. These computations, appearing as
+b→c
+b→a
+T a→b c (αb,i,k , αc,k+1,j ), T(1,2) a (β b,k,j , αc,k,i−1 ) and T(1,3) c (β b,i,k , αc,j+1,k ) output a vector of
+length m, where computation of each element in the vector is O(m2 ). Therefore, the inside-outside
+has a multiplicative O(m3 ) factor in its computational complexity, which we aim to reduce.
+For the rest of this section, ﬁx a binary grammar rule a → b c and consider the tensor T
+T a→b c
+associated with it. Consider a pair of two vectors y 1 , y 2 ∈ Rm , associated with the distributions
+over latent-states for the left (y 1 ) and right child (y 2 ) of a given node in a parse tree. Our method
+for improving the speed of this tensor computation relies on a simple observation. Given an integer
+r ≥ 1, assume that the tensor T had the following special form, which is also called “Kruskal form”,
+r
+T = i=1 ui vi wi , i.e. it would be the sum of r tensors, each is the tensor product of three vectors.
+In that case, the cost of computing T (y 1 , y 2 ) could be greatly reduced by computing:
+r
+
+T (y 1 , y 2 ) =
+
+r
+
+ui vi wi
+i=1
+
+(y 1 , y 2 ) =
+
+ui (vi y 1 )(wi y 2 ) = U (V y 1
+
+W y2 )
+
+(1)
+
+i=1
+
+where U, V, W ∈ Rr×m with the ith row being ui , vi and wi respectively.
+The total complexity of this computation is O(mr). We see later that our approach can be used
+effectively for r as small as 2, turning the inside-outside algorithm for latent-variable PCFGs into a
+linear algorithm in the number of hidden states.
+4
+
+We note that it is well-known that an exact tensor decomposition can be achieved by using r = m2
+[11]. In that case, there is no computational gain. The minimal r required for an exact solution can
+be smaller than m2 , but identifying that minimal r is NP-hard [9].
+We focused on this section on the computation T a→b c (αb,i,k , αc,k+1,j ), but the steps above can be
+b→c
+b→a
+generalized easily for the cases of computing T(1,2) a (β b,k,j , αc,k,i−1 ) and T(1,3) c (β b,i,k , αc,j+1,k ).
+4.1
+
+CP Decomposition of Tensors
+
+In the general case, for a ﬁxed r, our latent-variable PCFG tensors will not have the exact decomposed form from the previous section. Still, by using decomposition algorithms from multilinear
+algebra, we can approximate the latent-variable tensors, where the quality of approximation is measured according to some norm over the set of tensors Rm×m×m .
+An example of such a decomposition is the canonical polyadic decomposition (CPD), also known
+as CANDECOMP/PARAFAC decomposition [3, 8, 10]. Given an integer r, least squares CPD
+aims to ﬁnd the nearest tensor in Kruskal form according to the analogous norm (for tensors) to the
+Frobenius norm (for matrices).
+More formally, for a given tensor D ∈ Rm×m×m , let ||D||F =
+tensors in Kruskal form Cr be:
+
+i,j,k
+
+2
+Di,j,k . Let the set of
+
+r
+
+Cr = {C ∈ Rm×m×m | C =
+
+ui vi wi s.t. ui , vi , wi ∈ Rm }.
+i=1
+
+ˆ
+ˆ
+ˆ
+The least squares CPD of C is a tensor C such that C ∈ arg minC∈Cr ||C − C||F .
+ˆ
+There are various algorithms to perform CPD, such as alternating least squares, direct linear decomposition, alternating trilinear decomposition and pseudo alternating least squares [6]. Most of these
+implementations treat the problem of identifying the approximate tensor as an optimization problem. These algorithms are not exact. Any of these implementations can be used in our approach.
+We note that the decomposition optimization problem is hard, and often has multiple local maxima.
+Therefore, the algorithms mentioned above are inexact.
+In our experiments, we use the alternating least squares algorithm. This method works by iteratively
+improving U , V and W from Eq. 1 (until convergence), each time solving a least squares problem.
+4.2
+
+Propagation of Errors
+
+We next present a theoretical guarantee about the quality of the CP-approximated tensor formulation
+of the inside-outside algorithm. We measure the propagation of errors in probability calculations
+through a given parse tree. We derive a similar result for the marginals.
+We denote by p the distribution induced over trees (skeletal and full), where we approximate each
+ˆ
+a→b c
+ˆ
+T
+using the tensor T a→b c . Similarly, we denote by µ(a, i, j) the approximated marginals.
+ˆ
+m×m×m
+Lemma 4.1. Let C ∈ R
+and let y 1 , y 2 , y 1 , y 2 ∈ Rm . Then the following inequalities hold:
+ˆ ˆ
+||C(y 1 , y 2 )||2 ≤ ||C||F ||y 1 ||2 ||y 2 ||2
+1
+
+2
+
+1
+
+2
+
+(2)
+
+1
+
+2
+
+1
+
+1
+
+2
+
+2
+
+||C(y , y ) − C(ˆ , y )||2 ≤ ||C||F max{||y ||2 , ||ˆ ||2 }(||y − y ||2 + ||y − y ||2 )
+y ˆ
+y
+ˆ
+ˆ
+
+Proof. Eq. 2 is the result of applying Cauchy-Schwarz inequality twice:
+2
+
+
+||C(y 1 , y 2 )||2 =
+2
+=
+
+||C||2
+F
+
+i
+
+j,k
+
+·
+
+||y 1 ||2
+2
+
+·
+
+||y 2 ||2
+2
+5
+
+
+
+
+
+
+
+1 2
+Ci,j,k yj yk  ≤
+
+
+i
+
+
+
+2
+Ci,j,k  
+
+1
+(yj )2 
+
+j,k
+
+j
+
+2
+(yk )2
+k
+
+(3)
+
+For Eq. 3, note that C(y 1 , y 2 ) − C(ˆ1 , y 2 ) = C(y 1 , y 2 ) − C(y 1 , y 2 ) + C(y 1 , y 2 ) − C(ˆ1 , y 2 ), and
+y ˆ
+ˆ
+ˆ
+y ˆ
+therefore from the triangle inequality and bi-linearity of C:
+||C(y 1 , y 2 ) − C(ˆ1 , y 2 )||2 ≤ ||C(y 1 , y 2 − y 2 )||2 + ||C(y 1 − y 1 , y 2 )||2
+y ˆ
+ˆ
+ˆ ˆ
+≤ ||C||F ||y 1 ||2 ||y 2 − y 2 ||2 + ||y 1 − y 1 ||2 ||ˆ2 ||2
+ˆ
+ˆ
+y
+≤ ||C||F max{||y 1 ||2 , ||ˆ2 ||2 }(||y 1 − y 1 ||2 + ||y 2 − y 2 ||2 )
+y
+ˆ
+ˆ
+Equipped with this Cauchy-Schwarz style lemma, we can prove the following theorem:
+1
+log( γ ) + 1
+√
+√
+Theorem 4.2. Let d∗ =
+where γ is the the “tensor approximalog(2( m + 1)) + log(γ + m)
+ˆ
+tion error” deﬁned as γ = maxa→b c ||T a→b c − T a→b c ||F , then:
+• For a given skeletal tree r1 , . . . , rN , if the depth of the tree, denoted d, is such that
+
+d ≤ min
+
+1
+log( γ ) − log( m )
+√
+√ , d∗
+log(2( m + 1)) + log(γ + m)
+
+then |p(r1 , . . . , rN ) − p(r1 , . . . , rN )| ≤
+ˆ
+
+• For a given sentence x1 , . . . , xM , it holds that for all triplets (a, i, j), if
+
+M ≤ min
+
+1
+log( γ ) − log( m )
+√
+√ , d∗
+2 log(4|N|) + log(2( m + 1)) + log(γ + m)
+
+then |µ(a, i, j)−ˆ(a, i, j)| ≤
+µ
+
+Proof. For the ﬁrst part, the proof is using structural induction on the structure of the test tree.
+Assume a ﬁxed skeletal tree r1 , . . . , rN . The probability p(r1 , . . . , rN ) can be computed by using a
+sequence of applications of T a→b c on distribution over latent states for left and right children. More
+speciﬁcally, it can be shown that the vector of probabilities deﬁned as [y i ]h = p(ti | ai , hi = h)
+(ranging over [m]), where ti is the skeletal subtree rooted at node i can be deﬁned recursively as:
+• y i = Qa→xi if i is a leaf node with word xi and,
+• y i = T a→b c (y j , y k ) if i is a non-leaf node with node j being the left child and node k being the
+right child of node i.
+ˆ
+Deﬁne the same quantities y i , only using the approximate tensors T a→b c . Let δi = ||y i − y i ||. We
+ˆ
+ˆ
+will prove inductively that if di is the depth of the subtree at node i, then:
+
+δi ≤ min γm
+
+√
+√
+d
+(2( m + 1)(γ + m)) i − 1
+√
+√
+2( m + 1)(γ + m) − 1
+
+,1
+
+For any leaf node (base case): ||y i − y i ||2 = 0. For a given non-leaf node i:
+ˆ
+ˆ
+δi =||y i − y i ||2 = ||T a→b c (y j , y k ) − T a→b c (ˆj , y k )||2
+ˆ
+y ˆ
+a→b c j
+k
+ˆa→b c (y j , y k )||2 + ||T a→b c (y j , y k ) − T a→b c (ˆj , y k )||2
+ˆ
+ˆ
+≤||T
+(y , y ) − T
+y ˆ
+≤||T
+
+a→b c
+
+(4)
+
+ˆ
+− T a→b c ||F ||y j ||2 ||y k ||2
+
+ˆ
++ ||T a→b c || max{||y j ||2 , ||ˆk ||2 }(||y j − y j ||2 + ||y k − y k ||2 )
+y
+ˆ
+ˆ
+√
+√
+≤γm + ( m + 1)(γ + m)(δj + δk )
+√
+√
+√
+√ (2( m + 1)(γ + m))di −1 − 1
+√
+√
+≤γm 1 + 2( m + 1)(γ + m)
+2( m + 1)(γ + m) − 1
+√
+√
+d
+(2( m + 1)(γ + m)) i − 1
+√
+√
+=γm
+2( m + 1)(γ + m) − 1
+
+6
+
+(5)
+
+(6)
+
+−15
+
+−10
+
+−5
+
+8
+=
+16
+
+m
+20
+
+=
+m
+
+=
+
+−20
+
+−15
+
+86.0
+
+25
+
+85.5
+
+20
+
+q
+q
+
+−10
+
+q
+q
+
+−5
+
+q
+q
+
+log threshold
+
+threshold
+seconds per sentence
+F1
+seconds per sentence
+F1
+seconds per sentence
+F1
+
+no approx.
+4.6
+85.72
+14.6
+85.59
+23.7
+85.20
+
+84.5
+
+q
+q
+q
+
+−20
+
+−15
+
+F1
+
+85.0
+
+15
+
+F1
+
+85.0
+q
+q
+q
+
+log threshold
+
+m
+
+84.5
+
+q
+q
+
+q
+q
+
+10
+
+85.5
+
+12
+10
+8
+6
+
+q
+
+q
+
+q
+q
+q
+
+−10
+
+q
+q
+
+−5
+
+84.0
+
+−20
+
+q
+q
+
+q
+q
+
+5
+
+q
+q
+q
+
+q
+q
+
+q
+
+84.0
+
+3.5
+
+q
+
+q
+q
+q
+
+q
+q
+
+4
+
+q
+q
+
+84.5
+
+q
+
+seconds per sentence
+
+85.5
+
+4.0
+
+q
+q
+
+F1
+
+85.0
+
+q
+q
+
+84.0
+
+4.5
+
+q
+
+q
+
+seconds per sentence
+
+14
+
+5.0
+q
+
+seconds per sentence
+
+m = 20
+86.0
+
+m = 16
+86.0
+
+m=8
+
+log threshold
+
+10−8
+4.2
+85.72
+9.8
+85.58
+15.6
+85.21
+
+10−5
+3.4
+85.60
+3.5
+85.46
+3.6
+85.15
+
+0.001
+3.5
+85.61
+3.2
+85.49
+3.2
+85.14
+
+Figure 3: Speed and performance of parsing with tensor decomposition for m ∈ {8, 16, 20} (left
+plots, middle plots and right plots respectively). The left y axis is running time (red circles), the
+right y axis is F1 performance of the parser (blue squares), the x axis corresponds to log t. Solid
+lines describe decomposition with r = 2, dashed lines describe decomposition with r = 8. In
+addition, we include the numerical results for various m for r = 8.
+where Eq. 4 is the result of the triangle inequality, Eq. 5 comes from Lemma 4.1 and the fact that
+√
+√
+ˆ
+ˆ
+||T a→b c ||F ≤ ||T a→b c −T a→b c ||F +||T a→b c ||F ≤ γ + m and ||ˆk ||2 ≤ δk +||y k ||2 ≤ 1+ m
+y
+for any node k (under ind. hyp.), and Eq. 6 is the result of applying the induction hypothesis. It can
+also be veriﬁed that since di ≤ d ≤ d∗ we have δi ≤ 1.
+√
+√
+d
+Since m ≥ 1, it holds that δi ≤ γm (2( m + 1)(γ + m)) i . Consider |p(r1 , . . . , rN ) −
+1
+a1
+a1 1
+ˆ
+p(r1 , . . . , rN )| = |π (y − y )| ≤ ||π ||2 δ1 ≤ δ1 where a1 is the non-terminal at the root of
+ˆ
+1
+log( γ ) − log( m )
+√
+√ , then δ1 ≤ , as needed.
+the tree. It is easy to verify that if d1 ≤
+log(2( m + 1)) + log(γ + m)
+For the marginals, consider that: |µ(a, i, j) − µ(a, i, j)| ≤
+ˆ
+
+τ ∈T(x)
+
+|p(τ ) − p(τ )|.
+ˆ
+
+We have d1 ≤ M . In addition, if
+M≤
+
+1
+m
+1
+log( γ ) − log( /|T(x)| )
+log( γ ) − 2M log(4|N|) − log( m )
+√
+√
+√
+√
+then d1 ≤
+log(2( m + 1)) + log(γ + m)
+log(2( m + 1)) + log(γ + m)
+
+(7)
+
+because the number of labeled binary trees for a sentence of length M is at most (4|N|)2M (and
+therefore |T(x)| ≤ (4|N|)2M ; 4l is a bound on the Catalan number, the number of binary trees over
+l nodes), then |µ(a, i, j) − µ(a, i, j)| ≤ .
+ˆ
+veriﬁed that the left hand-side of Eq. 7 is satisﬁed if M
+≤
+1
+log( γ ) − log( m )
+√
+√ .
+2 log(4|N|) + log(2( m + 1)) + log(γ + m)
+As expected, the longer a sentence is, or the deeper a parse tree is, the better we need the tensor
+approximation to be (smaller γ) for the inside-outside to be more accurate.
+It
+
+can
+
+be
+
+5
+
+Experiments
+
+We devote this section to empirical evaluation of our approach. Our goal is to evaluate the trade-off
+between the accuracy of the tensor decomposition and the speed-up in the parsing algorithm.
+7
+
+Experimental Setup We use sections 2–21 of the Penn treebank [13] to train a latent-variable
+parsing model using the expectation-maximization algorithm (EM was run for 15 iterations) for
+various number of latent states (m ∈ {8, 16, 20}), and then parse in various settings section 22 of
+the same treebank (sentences of length ≤ 40). Whenever we report parsing accuracy, we use the
+traditional F1 measure from the Parseval metric [2]. It computes the F1 measure of spans (a, i, j)
+appearing in the gold standard and the hypothesized trees.
+The total number of tensors extracted from the training data using EM was 7,236 (corresponding
+ˆ
+to the number of grammar rules). Let γa→b c = ||T a→b c − T a→b c ||F . In our experiments, we
+−5
+−6
+−8
+ˆ
+vary a threshold t ∈ {0.1, 0.001, 10 , 10 , 10 , 0} – an approximate tensor T a→b c is used
+a→b c
+instead of T
+only if γa→b c ≤ t. The value t = 0 implies using vanilla inference, without any
+approximate tensors. We describe experiments with r ∈ {2, 8}. For the tensor approximation, we
+use the implementation provided in the Matlab tensor toolbox from [1]. The toolbox implements the
+alternating least squares method.
+As is common, we use a pruning technique to make the parser faster – items in the dynamic programming chart are pruned if their value according to a base vanilla maximum likelihood model is
+less than 0.00005 [4]. We report running times considering this pruning as part of the execution.
+The parser was run on a single Intel Xeon 2.67GHz CPU.
+We note that the performance of the parser improves as we add more latent states. The performance
+of the parser with vanilla PCFG (m = 1) is 70.26 F1 measure.
+Experimental Results Table 3 describes F1 performance and running time as we vary t. It is
+interesting to note that the speed-up, for the same threshold t, seems to be larger when using r = 8
+instead of r = 2. At ﬁrst this may sound counter-intuitive. The reason for this happening is that
+with r = 8, more of the tensors have an approximation error which is smaller than t, and therefore
+more approximate tensors are used than in the case of r = 2.
+Using t = 0.1, the speed-up is signiﬁcant over non-approximate version of the parser. More specifically, for r = 8, it takes 72% of the time (without considering the pruning phase) of the nonapproximate parser to parse section 22 with m = 8, 24% of the time with m = 16 and 21% of the
+time with m = 20. The larger m is, the more signiﬁcant the speed-up is.
+The loss in performance because of the approximation, on the other hand, is negligible. More
+speciﬁcally, for r = 8, performance is decreased by 0.12% for m = 8, 0.11% for m = 16 and
+0.08% for m = 20.
+
+6
+
+Conclusion
+
+We described an approach to signiﬁcantly improve the speed of inference with latent-variable
+PCFGs. The approach approximates tensors which are used in the inside-outside algorithm. The
+approximation comes with a minimal cost to the performance of the parser. Our algorithm can be
+used in tandem with estimation algorithms such as EM or spectral algorithms [5]. We note that
+tensor formulations are used with graphical models [15], for which our technique is also applicable.
+Similarly, our technique can be applied to other dynamic programming algorithms which compute
+marginals of a given statistical model.
+
+References
+[1] B. W. Bader and T. G. Kolda. Algorithm 862: MATLAB tensor classes for fast algorithm
+prototyping. ACM Transactions on Mathematical Software, 32(4):635–653, 2006.
+[2] E. Black, S. Abney, D. Flickenger, C. Gdaniec, R. Grishman, P Harrison, D. Hindle, R. Ingria,
+F. Jelinek, J. Klavans, M. Liberman, M. Marcus, S. Roukos, B. Santorini, and T. Strzalkowski.
+A procedure for quantitatively comparing the syntactic coverage of English grammars. In Proc.
+of DARPA Workshop on Speech and Natural Language, 1991.
+[3] J. D. Carroll and J. J. Chang. Analysis of individual differences in multidimensional scaling via
+an N-way generalization of Eckart-Young decomposition. Psychometrika, 35:283–319, 1970.
+8
+
+[4] E. Charniak and M. Johnson. Coarse-to-ﬁne n-best parsing and maxent discriminative reranking. In Proceedings of ACL, 2005.
+[5] S. B. Cohen, K. Stratos, M. Collins, D. F. Foster, and L. Ungar. Spectral learning of latentvariable PCFGs. In Proceedings of ACL, 2012.
+[6] N. M. Faber, R. Bro, and P. Hopke. Recent developments in CANDECOMP/PARAFAC algorithms: a critical review. Chemometrics and Intelligent Laboratory Systems, 65(1):119–137,
+2003.
+[7] J. Goodman. Parsing algorithms and metrics. In Proceedings of ACL, 1996.
+[8] R. A. Harshman. Foundations of the PARAFAC procedure: Models and conditions for an
+“explanatory” multi-modal factor analysis. UCLA working papers in phoentics, 16:1–84, 1970.
+[9] J. Høastad. Tensor rank is NP-complete. Algorithms, 11:644–654, 1990.
+[10] T. G. Kolda and B. W. Bader. Tensor decompositions and applications. SIAM Rev., 51:455–500,
+2009.
+[11] J. B. Kruskal. Rank, decomposition, and uniqueness for 3-way and N-way arrays. In R. Coppi
+and S. Bolasco, editors, Multiway Data Analysis, pages 7–18, 1989.
+[12] C.D. Manning and H. Sch¨ tze. Foundations of Statistical Natural Language Processing. MIT
+u
+Press, 1999.
+[13] M. P. Marcus, B. Santorini, and M. A. Marcinkiewicz. Building a large annotated corpus of
+English: The Penn treebank. Computational Linguistics, 19:313–330, 1993.
+[14] T. Matsuzaki, Y. Miyao, and J. Tsujii. Probabilistic CFG with latent annotations. In Proceedings of ACL, 2005.
+[15] A. Parikh, L. Song, and E. P. Xing. A spectral algorithm for latent tree graphical models. In
+Proceedings of The 28th International Conference on Machine Learningy (ICML 2011), 2011.
+[16] S. Petrov, L. Barrett, R. Thibaux, and D. Klein. Learning accurate, compact, and interpretable
+tree annotation. In Proceedings of COLING-ACL, 2006.
+
+9
+
+

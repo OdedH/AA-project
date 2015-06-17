@@ -1,0 +1,814 @@
+Named Entity Recognition with Character-Level Models
+Dan Klein
+
+Joseph Smarr
+
+Huy Nguyen
+
+Christopher D. Manning
+
+Computer Science Dept.
+Stanford University
+Stanford, CA 94305-9040
+
+Symbolic Systems Program
+Stanford University
+Stanford, CA 94305-2181
+
+Computer Science Dept.
+Stanford University
+Stanford, CA 94305-9040
+
+Computer Science Dept.
+Stanford University
+Stanford, CA 94305-9040
+
+klein@cs.stanford.edu
+
+jsmarr@stanford.edu
+
+htnguyen@stanford.edu
+
+manning@cs.stanford.edu
+
+Abstract
+We discuss two named-entity recognition models which use characters and character n-grams
+either exclusively or as an important part of
+their data representation. The ﬁrst model
+is a character-level HMM with minimal context information, and the second model is a
+maximum-entropy conditional markov model
+with substantially richer context features. Our
+best model achieves an overall F1 of 86.07%
+on the English test data (92.31% on the development data). This number represents a 25%
+error reduction over the same model without
+word-internal (substring) features.
+
+1 Introduction
+For most sequence-modeling tasks with word-level evaluation, including named-entity recognition and part-ofspeech tagging, it has seemed natural to use entire words
+as the basic input features. For example, the classic
+HMM view of these two tasks is one in which the observations are words and the hidden states encode class
+labels. However, because of data sparsity, sophisticated unknown word models are generally required for
+good performance. A common approach is to extract
+word-internal features from unknown words, for example
+sufﬁx, capitalization, or punctuation features (Mikheev,
+1997, Wacholder et al., 1997, Bikel et al., 1997). One
+then treats the unknown word as a collection of such features. Having such unknown-word models as an add-on
+is perhaps a misplaced focus: in these tasks, providing
+correct behavior on unknown words is typically the key
+challenge.
+Here, we examine the utility of taking character sequences as a primary representation. We present two
+models in which the basic units are characters and character n-grams, instead of words and word phrases. Earlier papers have taken a character-level approach to
+named entity recognition (NER), notably Cucerzan and
+
+Yarowsky (1999), which used preﬁx and sufﬁx tries,
+though to our knowledge incorporating all character ngrams is new. In section 2, we discuss a character-level
+HMM, while in section 3 we discuss a sequence-free
+maximum-entropy (maxent) classiﬁer which uses n-gram
+substring features. Finally, in section 4 we add additional
+features to the maxent model, and chain these models
+into a conditional markov model (CMM), as used for tagging (Ratnaparkhi, 1996) or earlier NER work (Borthwick, 1999).
+
+2 A Character-Level HMM
+Figure 1 shows a graphical model representation of our
+character-level HMM. Characters are emitted one at a
+time, and there is one state per character. Each state’s
+identity depends only on the previous state. Each character’s identity depends on both the current state and on
+the previous n − 1 characters. In addition to this HMM
+view, it may also be convenient to think of the local emission models as type-conditional n-gram models. Indeed,
+the character emission model in this section is directly
+based on the n-gram proper-name classiﬁcation engine
+described in (Smarr and Manning, 2002). The primary
+addition is the state-transition chaining, which allows the
+model to do segmentation as well as classiﬁcation.
+When using character-level models for word-evaluated
+tasks, one would not want multiple characters inside a
+single word to receive different labels. This can be
+avoided in two ways: by explicitly locking state transitions inside words, or by careful choice of transition
+topology. In our current implementation, we do the latter.
+Each state is a pair (t, k) where t is an entity type (such
+as PERSON, and including an other type) and k indicates
+the length of time the system has been in state t. Therefore, a state like (PERSON, 2) indicates the second letter
+inside a person phrase. The ﬁnal letter of a phrase is a following space (we insert one if there is none) and the state
+is a special ﬁnal state like (PERSON, F). Additionally,
+once k reaches our n-gram history order, it stays there.
+We then use empirical, unsmoothed estimates for state-
+
+Description
+Ofﬁcial Baseline
+Word-level HMM
+Char-level, no conx
+Char-level, context
+
+ALL
+
+LOC
+
+MISC
+
+ORG
+
+PER
+
+71.2
+74.5
+82.2
+83.2
+
+80.5
+79.5
+86.1
+86.9
+
+83.5
+69.7
+82.2
+83.0
+
+66.4
+67.5
+73.4
+75.1
+
+55.2
+77.6
+84.6
+85.6
+
+Table 1: HMM F1 performance, English development set.
+
+s
+
+s
+
+s
+e
+
+s
+
+c
+
+c
+
+c
+
+c
+
+Figure 1: A character-level HMM. The c nodes are character observations and s nodes are entity types.
+state transitions. This annotation and estimation enforces
+consistent labellings in practice. For example, (PERSON,
+2) can only transition to the next state (PERSON, 3) or the
+ﬁnal state (PERSON, F). Final states can only transition
+to beginning states, like (other, 1).
+For emissions, we must estimate a quantity of
+the form P(c0 |c−(n−1) , . . . , c−1 , s), for example,
+P(s|Thoma, PERSON, 6).1 We use an n-gram model of
+order n = 6.2 The n-gram estimates are smoothed via
+deleted interpolation.
+Given this model, we can do Viterbi decoding in
+the standard way. To be clear on what this model
+does and does not capture, we consider a few examples ( indicates a space). First, we might be asked for
+P(e|to Denv, LOC, 5). In this case, we know both that
+we are in the middle of a location that begins with Denv
+and also that the preceding context was to. In essence,
+encoding k into the state lets us distinguish the beginnings of phrases, which lets us model trends like named
+entities (all the classes besides other) generally starting
+with capital letters in English. Second, we may be asked
+for quantities like P( |Italy, LOC, F), which allows us
+to model the ends of phrases. Here we have a slight complexity: by the notation, one would expect such emissions
+to have probability 1, since nothing else can be emitted
+from a ﬁnal state. In practice, we have a special stop symbol in our n-gram counts, and the probability of emitting
+a space from a ﬁnal state is the probability of the n-gram
+having chosen the stop character.3
+1 We index characters, and other vector elements by relative
+location subscripts: c0 is the current character, c1 is the following character, and c−1 is the previous character.
+2 The smaller space of characters allows us to obtain dense
+estimates for longer n-grams than is possible with word-level
+models. The value n = 6 was the empirically optimal order.
+3 This can be cleaned up conceptually by considering the entire process to have been a hierarchical HMM (Fine et al., 1998),
+where the n-gram model generates the entire phrase, followed
+by a tier pop up to the phrase transition tier.
+
+Using this model, we tested two variants, one in
+which preceding context was discarded (for example,
+P(e|to Denv, LOC, 5) was turned into P(e|xx Denv,
+LOC, 5)), and another where context was used as outlined above. For comparison, we also built a ﬁrst-order
+word-level HMM; the results are shown in table 1. We
+give F1 both per-category and overall. The word-level
+model and the (context disabled) character-level model
+are intended as a rough minimal pair, in that the only information crossing phrase boundaries was the entity type,
+isolating the effects of character- vs word-level modeling
+(a more precise minimal pair is examined in section 3).
+Switching to the character model raised the overall score
+greatly, from 74.5% to 82.2%. On top of this, context
+helped, but substantially less, bringing the total to 83.2%.
+We did also try to incorporate gazetteer information by
+adding n-gram counts from gazetteer entries to the training counts that back the above character emission model.
+However, this reduced performance (by 2.0% with context on). The supplied gazetteers appear to have been
+built from the training data and so do not increase coverage, and provide only a ﬂat distribution of name phrases
+whose empirical distributions are very spiked.
+
+3 A Character-Feature Based Classiﬁer
+Given the amount of improvement from using a model
+backed by character n-grams instead of word n-grams,
+the immediate question is whether this beneﬁt is complementary to the beneﬁt from features which have traditionally been of use in word level systems, such as syntactic
+context features, topic features, and so on.
+To test this, we constructed a maxent classiﬁer which
+locally classiﬁes single words, without modeling the entity type sequences s.4 These local classiﬁers map a feature representation of each word position to entity types,
+such as PERSON.5 We present a hill-climb over feature
+sets for the English development set data in table 2. First,
+we tried only the local word as a feature; the result was
+that each word was assigned its most common class in
+the training data. The overall F-score was 52.29%, well
+below the ofﬁcial CoNLL baseline of 71.18%.6 We next
+added n-gram features; speciﬁcally, we framed each word
+with special start and end symbols, and then added every contiguous substring to the feature list. Note that
+this subsumes the entire-word features. Using the substring features alone scored 73.10%, already breaking the
+4 The classiﬁer was trained using conjugate gradient descent,
+used equal-scale gaussian priors for smoothing, and learned
+models of over 800K features in approximately 2 hours.
+5 The B-/I- distinction in the data was collapsed, though see
+section 4.
+6 The latter assigns phrases at once, which is generally superior, but is noticeably worse at multi-word person names, since
+it cannot synthesize new ﬁrst-name/last-name pairs.
+
+Description
+Words
+Ofﬁcial Baseline
+NGrams
+Tags
+Simple Context
+More Context
+Simple Sequence
+More Sequence
+Final
+
+Added Features
+w0
+–
+n(w0 )
+t0
+w−1 , w0 , t−1 , t1
+w−1 , w0 , w0 , w1 , t−1 , t0 , t0 , t1
+s−1 , s−1 , t−1 , t0
+s−2 , s−1 , s−2 , s−1 , t−2 , t−1 , t0
+(see text)
+
+ALL
+52.29
+71.18
+73.10
+74.17
+82.39
+83.09
+85.44
+87.21
+92.27
+
+LOC
+41.03
+80.52
+80.95
+81.27
+87.77
+89.13
+90.09
+90.76
+94.39
+
+MISC
+70.18
+83.52
+71.67
+74.46
+82.91
+83.51
+80.95
+81.01
+87.10
+
+ORG
+60.43
+66.43
+59.06
+59.61
+70.62
+71.31
+76.40
+81.71
+88.44
+
+PER
+60.14
+55.20
+77.23
+78.73
+85.77
+85.89
+89.66
+90.80
+95.41
+
+Table 2: CMM performance with incrementally added features on the English development set.
+the phrase-based CoNLL baseline, though lower than the
+no-context HMM, which better models the context inside
+phrases. Adding a current tag feature gave a score of
+74.17%. At this point, the bulk of outstanding errors were
+plausibly attributable to insufﬁcient context information.
+Adding even just the previous and next words and tags
+as (atomic) features raised performance to 82.39%. More
+complex, joint context features which paired the current
+word and tag with the previous and next words and tags
+raised the score further to 83.09%, nearly to the level of
+the HMM, still without actually having any model of previous classiﬁcation decisions.
+
+4 A Character-Based CMM
+In order to include state sequence features, which allow the classiﬁcations at various positions to interact, we
+have to abandon classifying each position independently.
+Sequence-sensitive features can be included by chaining our local classiﬁers together and performing joint
+inference, i.e., by building a conditional markov model
+(CMM), also known as a maximum entropy markov
+model (McCallum et al., 2000).
+Previous classiﬁcation decisions are clearly relevant:
+for example the sequence Grace Road is a single location, not a person’s name adjacent to a location (which is
+the erroneous output of the model in section 3). Adding
+features representing the previous classiﬁcation decision
+(s−1 ) raised the score 2.35% to 85.44%. We found knowing that the previous word was an other wasn’t particularly useful without also knowing its part-of-speech
+(e.g., a preceding preposition might indicate a location).
+Joint tag-sequence features, along with longer distance
+sequence and tag-sequence features, gave 87.21%.
+The remaining improvements involved a number of
+other features which directly targetted observed error
+types. These features included letter type pattern features
+(for example 20-month would become d-x for digitlowercase and Italy would become Xx for mixed case).
+This improved performance substantially, for example allowing the system to detect ALL CAPS regions. Table 4 shows an example of a local decision for Grace in
+
+the context at Grace Road, using all of the features
+deﬁned to date. Note that the evidence against Grace
+as a name completely overwhelms the n-gram and word
+preference for PERSON. Other features included secondprevious and second-next words (when the previous or
+next words were very short) and a marker for capitalized
+words whose lowercase forms had also been seen. The ﬁnal system also contained some simple error-driven postprocessing. In particular, repeated sub-elements (usually
+last names) of multi-word person names were given type
+PERSON, and a crude heuristic restoration of B- preﬁxes
+was performed. In total, this ﬁnal system had an F-score
+of 92.31% on the English development set. Table 3 gives
+a more detailed breakdown of this score, and also gives
+the results of this system on the English test set, and both
+German data sets.
+
+5 Conclusion
+The primary argument of this paper is that character substrings are a valuable, and, we believe, underexploited
+source of model features. In an HMM with an admittedly
+very local sequence model, switching from a word model
+to a character model gave an error reduction of about
+30%. In the ﬁnal, much richer chained maxent setting,
+the reduction from the best model minus n-gram features
+to the reported best model was about 25% – smaller, but
+still substantial. This paper also again demonstrates how
+the ease of incorporating features into a discriminative
+maxent model allows for productive feature engineering.
+
+English dev.
+LOC
+MISC
+ORG
+PER
+
+Overall
+English test
+LOC
+MISC
+ORG
+PER
+
+Overall
+German dev.
+LOC
+MISC
+ORG
+PER
+
+Overall
+German test
+LOC
+MISC
+ORG
+PER
+
+Overall
+
+Precision
+94.44
+90.62
+87.63
+93.86
+92.15
+
+Recall
+94.34
+83.84
+89.26
+97.01
+92.39
+
+Fβ=1
+94.39
+87.10
+88.44
+95.41
+92.27
+
+Precision
+90.04
+83.49
+82.49
+86.66
+86.12
+
+Recall
+89.93
+77.07
+78.57
+95.18
+86.49
+
+Fβ=1
+89.98
+78.85
+80.48
+90.72
+86.31
+
+Precision
+75.53
+78.71
+77.57
+72.36
+75.36
+
+Recall
+66.13
+47.23
+53.51
+71.02
+60.36
+
+Fβ=1
+70.52
+59.03
+63.33
+71.69
+67.03
+
+Precision
+78.01
+75.90
+73.26
+87.68
+80.38
+
+Recall
+69.57
+47.01
+51.75
+79.83
+65.04
+
+Fβ=1
+73.54
+58.06
+60.65
+83.57
+71.90
+
+Table 3: Final results obtained for the development and
+test sets for each language on the shared task.
+
+References
+Daniel M. Bikel, Scott Miller, Richard Schwartz, and
+Ralph Weischedel. 1997. Nymble: a high-performance
+learning name-ﬁnder. In Proceedings of ANLP-97,
+pages 194–201.
+Andrew Borthwick. 1999. A Maximum Entropy Approach to Named Entity Recognition. Ph.D. thesis,
+New York University.
+Silviu Cucerzan and David Yarowsky. 1999. Language
+independent named entity recognition combining morphological and contextual evidence. In Joint SIGDAT
+Conference on EMNLP and VLC.
+Shai Fine, Yoram Singer, and Naftali Tishby. 1998. The
+hierarchical hidden markov model: Analysis and applications. Machine Learning, 32:41–62.
+Andrew McCallum, Dayne Freitag, and Fernando Pereira. 2000. Maximum entropy Markov models for information extraction and segmentation. In ICML-2000.
+
+States
+Words
+Tags
+Types
+
+PPREV
+O
+morning
+NN
+x
+
+PREV
+O
+at
+IN
+x:2
+
+CUR
+LOC
+Grace
+NNP
+Xx
+
+O
+LOC
+MISC
+WORDS
+PWORD:at
+-0.18
+0.94
+-0.31
+CWORD:Grace
+-0.01
+0
+0
+NWORD:Road
+0.02
+0.27
+-0.01
+PWORD-CWORD:at-Grace
+0
+0
+0
+CWORD-NWORD:Grace-Road
+0
+0
+0
+NGRAMS (preﬁx/sufﬁx only here)
+G
+-0.57
+-0.04
+0.26
+Gr
+0.27
+-0.06
+0.12
+Gra
+-0.01
+-0.37
+0.19
+Grac
+-0.01
+0
+0
+Grace
+-0.01
+0
+0
+Grace
+-0.01
+0
+0
+Grace
+-0.01
+0
+0
+race
+0
+0
+0
+ace
+0.08
+0.24
+0.07
+ce
+0.44
+0.31
+-0.34
+e
+0.38
+-0.14
+-0.18
+TAGS
+PTAG:IN
+-0.40
+0.24
+0.16
+CTAG:NNP
+-1.09
+0.45
+-0.26
+NTAG:NNP
+0.05
+-0.19
+0.18
+PTAG-CTAG:IN-NNP
+0
+0.14
+-0.03
+CTAG-NTAG:NNP-NNP
+-0.11
+-0.05
+0
+TYPES
+PTYPE:x:2
+-0.07
+-0.15
+0.35
+CTYPE:Xx
+-2.02
+0.46
+0.19
+NTYPE:Xx
+-0.22
+-0.42
+-0.19
+PTYPE-CTYPE:x:2-Xx
+-0.20
+0.08
+0.10
+CTYPE-NTYPE:Xx-Xx
+0.55
+-0.13
+-0.55
+PTYPE-CTYPE-NTYPE:x:2-Xx-Xx
+0.10
+0.37
+0.10
+WORDS/TYPES
+PWORD-CTYPE:at-Xx
+-0.21
+0.57
+-0.21
+CTYPE-NWORD:Xx-Road
+-0.01
+0.27
+-0.01
+STATES
+PSTATE:O
+2.91
+-0.92
+-0.72
+PPSTATE-PSTATE:O-O
+1.14
+-0.60
+-0.08
+WORDS/STATES
+PSTATE-CWORD:O-Grace
+-0.01
+0
+0
+TAGS/STATES
+PSTATE-PTAG-CTAG:O-IN-NNP
+0.12
+0.59
+-0.29
+PPSTATE-PPTAG-PSTATE-PTAG0.01
+-0.03
+-0.31
+CTAG:O-NN-O-IN-NNP
+TYPES/STATES
+PSTATE-CTYPE:O-Xx
+-1.13
+0.37
+-0.12
+PSTATE-NTYPE:O-Xx
+-0.69
+-0.3
+0.29
+PSTATE-PTYPE-CTYPE:O-x:2-Xx
+-0.28
+0.82
+-0.10
+PPSTATE-PPTYPE-PSTATE-0.22
+-0.04
+-0.04
+PTYPE-CTYPE:O-x-O-x:2-Xx
+Total:
+-1.40
+2.68
+-1.74
+
+NEXT
+LOC
+Road
+NNP
+Xx
+ORG
+
+PER
+
+0.28
+-0.02
+-0.25
+0
+0
+
+-0.73
+0.03
+-0.03
+10
+0
+
+-0.04
+-0.17
+-0.09
+-0.02
+-0.02
+-0.02
+-0.02
+-0.02
+-0.30
+-0.02
+-0.06
+
+0.45
+-0.16
+0.28
+0.03
+0.03
+0.03
+0.03
+0.03
+-0.10
+-0.38
+0
+
+0.08
+0.43
+-0.12
+-0.01
+-0.38
+
+-0.08
+0.47
+0.08
+-0.10
+-0.54
+
+0.18
+0.57
+0.29
+0.10
+-0.13
+0.12
+
+-0.31
+0.80
+0.54
+-0.09
+0.26
+-0.69
+
+0.41
+-0.23
+
+-0.56
+-0.03
+
+-0.58
+-0.43
+
+-0.70
+-0.04
+
+-0.02
+
+0.03
+
+-0.28
+0.31
+
+-0.14
+0.01
+
+0.20
+0.39
+-0.26
+-0.06
+
+0.68
+0.30
+-0.20
+0.22
+
+-0.19
+
+-0.58
+
+Table 4: Example of the features and weights at a local
+decision point: deciding the classiﬁcation of Grace.
+Andrei Mikheev. 1997. Automatic rule induction for
+unknown-word guessing. Computational Linguistics,
+23(3):405–423.
+Adwait Ratnaparkhi. 1996. A maximum entropy model
+for part-of-speech tagging. In EMNLP 1, pages 133–
+142.
+Joseph Smarr and Christopher D. Manning. 2002. Classifying unknown proper noun phrases without context.
+Technical Report dbpubs/2002-46, Stanford University, Stanford, CA.
+Nina Wacholder, Yael Ravin, and Misook Choi. 1997.
+Disambiguation of proper names in text. In ANLP 5,
+pages 202–208.
+
+

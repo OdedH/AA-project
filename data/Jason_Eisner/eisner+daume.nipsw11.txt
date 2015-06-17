@@ -1,0 +1,344 @@
+Learning Speed-Accuracy Tradeoffs in Nondeterministic
+Inference Algorithms
+
+Jason Eisner1
+Hal Daum´ III2
+e
+Center for Speech and Language Processing, Computer Science, Johns Hopkins University
+2
+Computational Linguistics and Information Processing, Computer Science, University of Maryland
+jason@cs.jhu.edu, me@hal3.name
+1
+
+1
+
+Problem Deﬁnition
+
+Statistical learning has led to great advances in building models that achieve high accuracy. However, testtime inference in these models can be slow, for example in structured prediction problems. This is frequently
+addressed by using test-time heuristics to guide and prune the search for a good structured output. In this
+high-level paper, we ask: Could we explicitly train such heuristics to trade off accuracy and efﬁciency? And
+how does this relate to existing learning problems?
+We consider problems where there is a problem-speciﬁc notion of accuracy, and the function we wish to
+maximize is (accuracy − λ × runtime), where λ is a user-deﬁned parameter specifying the desired tradeoff.
+More speciﬁcally, we focus our discussion on the problem of natural language parsing under a weighted
+context-free grammar. A parsing algorithm is typically nondeterministic, in that it explores many paths in
+parallel: it builds many constituents (sub-parses) that will turn out not to be subtrees of the ﬁnal, highestweighted parse tree. We assume a bottom-up architecture similar to a forward-chaining theorem prover (Kay,
+1986; Eisner et al., 2005). Whenever a new constituent is built, it is inserted into a priority queue, the
+“agenda.” At each step of the algorithm, a prioritization heuristic (Caraballo & Charniak, 1998) pops the
+highest-priority constituent from the agenda. This is combined with previously popped constituents to yield
+larger constituents that are then pushed back on the agenda. Our goal is to learn a heuristic that pursues
+promising constituents early on, and thus tends to lead quickly to a high-accuracy parse. We can tolerate a
+little search error, so we are not restricted to the admissible heuristics of A∗ search (Klein & Manning, 2003).
+This is fundamentally a delayed reward problem: one does not know until parsing has ﬁnished how fast
+or accurate the parser was. We therefore cast learning as an off-line reinforcement learning problem. The
+prioritization heuristic is parameterized by θ. At training time, the reinforcement learning algorithm tries
+to ﬁnd a parameter vector θ that optimizes a given reward, R = (accuracy − λ × runtime), over the input
+distribution from which training data are drawn.
+A well-studied setting for reinforcement learning is the Markov decision process (MDP), a formalization of
+a memoryless search process. An MDP consists of a (typically ﬁnite) state space S, an action space A, a
+(possibly stochastic) transition function T , and a (possibly stochastic) reward function R. An agent observes
+the current state s ∈ S and chooses an action a ∈ A. The environment responds by moving the agent to
+another state s ∈ S, which is sampled from the MDP’s transition distribution T (s | s, a), and by giving the
+agent a reward r, which is sampled from the MDP’s reward distribution R(r | s, a, s ). The agent’s goal is to
+maximize its total reward over time. An agent’s policy π describes how the agent chooses an action based on
+its current state.
+For our parsing example, the state consists of the input sentence, the agenda, and the parse chart (the set
+of previously popped constituents). So the state space is astronomically large. The agent controls which
+item (constituent) to pop next from the agenda. Thus, in any state, the possible actions correspond to items
+currently on the agenda. The agent’s policy π is our prioritization heuristic, parameterized by θ, which selects
+an item y and pops it. The environment responds deterministically by adding y to the chart, combining y as
+licensed by the grammar with various adjacent items z that are already in the chart, and placing each resulting
+new item x back on the agenda (with duplicates removed in favor of the higher weight one). Parsing ends
+when π chooses to pop the special action HALT. Then the highest-weight complete parse to date is returned,
+and the environment rewards the agent for the accuracy and speed of that parse.
+We consider deterministic policies that always pop the highest-priority available action. Thus, learning a
+policy corresponds to learning a priority function. We deﬁne the priority of action a in state s as the dot
+1
+
+product of a feature vector φ(s, a) with the weight vector θ. Note that features can depend not just on the
+action (the item being popped) but the state (the input sentence, and the chart and agenda of constituents that
+have been built so far). Static features are those that depend only on the action and the original parser input;
+dynamic features are those that change along with the state. This terminology derives from the fact that even
+after an item y is pushed onto the agenda, the chart may change and therefore the corresponding values for
+some of its dynamic features may change. In particular, the item y might be encouraged/discouraged as the
+parser discovers other constituents or conﬁgurations of constituents that are compatible/incompatible with y.
+
+2
+
+Relationship to Typical Reinforcement Learning Problems
+
+There are several key ways in which this problem differs from typical reinforcement learning settings. Some
+of these make the learning problem harder, but others make it potentially easier.
+Note ﬁrst that our learning is episodic. Each run is a separate and ﬁnite “episode,” whose initial state is
+determined by an input sentence to be parsed. We assume the ofﬂine learning setting, with separate phases
+for training (exploration) and testing (exploitation). We will be evaluated only on the reward earned during
+testing episodes; so we are not penalized for low-reward episodes at training time.
+Challenges. The primary difﬁculties relate to the scale of the problem. The astronomical size of the state
+space makes it hard to do value estimation or planning.1 The choice among hundreds of actions at each state
+makes it hard to identify good actions. And a typical episode consists of thousands of actions, making it
+difﬁcult to say which of these actions deserve credit for the eventual reward.
+In addition, we will eventually wish to search through a high-dimensional policy space, particularly when
+we use dynamic features. This is because the usefulness of a parse action may be sensitive to detailed conﬁgurations of the parse chart and input, which motivates generating large sets of potentially useful features.
+Unfortunately, the expected reward as a function of the policy parameters can be highly non-convex. For
+example, there exist parsing strategies, such as coarse-to-ﬁne strategies, in which extra items are built solely
+to trigger dynamic features that affect the priority of the traditional items (Felzenszwalb & McAllester, 2007).
+But discovering such coordinated strategies by exploration is difﬁcult, because producing the extra items is a
+waste of time until one has also learned to consume them.
+Opportunities. Fortunately, our setting also has attractive properties that enable some novel approaches
+to learning. (These properties are not unique to parsing, but are shared with many other AI computations,
+including machine translation, image parsing, and constraint propagation.)
+First, our goal is to learn how to act within a simple idealized model of computation. The environment
+responds deterministically to our actions (even if we decide to explore the search space by choosing some
+actions randomly). Thus, we can run controlled experiments where we change part of the policy, or speciﬁc
+actions within an episode, to see what happens.
+Even better, we have perfect knowledge of the environment. Thus, as discussed below, we may be able to
+reason analytically about the results of certain such changes. This may be much faster than testing the changes
+by running new episodes, particularly if we wish to reason about large batches of episodes (e.g., the average
+reward of a stochastic policy). Because we know the causal structure of the environment, we may also be
+able to reason backward to identify changes that could bring about a desired improvement. Even where exact
+answers would require simulation of new episodes, we may still be able to do effective approximate reasoning
+using a simpliﬁed model. This is analogous to using variational inference in place of MCMC simulation.
+Second, our environment is mainly an arena for monotonic reasoning. A parser is a kind of theorem prover
+that gradually discovers all facts that are provable from the input—e.g., the fact that a certain substring of the
+input could be analyzed as a Noun Phrase constituent. As the parser runs, the set of discovered facts (i.e.,
+popped items) only becomes larger. This setting has three striking properties:
+• Facts are renewable resources. Once an item z has been built and added to the chart, it remains
+available forever, for use as a subconstituent in any number of larger constituents.
+• Once an item y has been pushed onto the agenda, the action of popping it remains available to the
+agent indeﬁnitely, until that action is taken.
+• If y and z are provable and the set of provable items is ﬁnite, then the parser will eventually prove
+both y and z, if it runs for long enough.2
+1
+Indeed, there are very many reasonable plans for achieving a high reward, since there are many routes to the same
+parse. However, it is not known which plans can be achieved within our policy space. The fastest plans pop only correct
+constituents, with no wasted work, but presumably no policy exists that is so clarivoyant.
+2
+This situation no longer holds if we allow actions that permanently prune parts of the search space, rather than simply
+postponing exploration of these parts through the prioritization heuristic. Heuristic pruning is commonly used in parsers.
+
+2
+
+Together, these properties mean that the environment is quite forgiving about the ordering of actions (which
+is what our policy really controls). If the agent does not choose to pop y now and combine it with z to
+obtain x, it will still be able to do so later. Moreover, the resulting delay in producing x will not reduce the
+opportunities eventually available to x. Hence small changes to the policy, which reorder items slightly on the
+agenda, tend to have small and predictable effects on the trajectory through state space. This is different from
+many reinforcement learning settings, where a single action may radically change the state, the available next
+actions, and the eventual reward.
+This situation is somewhat complicated by dynamic features. Although an item, once proved, remains around
+forever as an immutable fact on the agenda or chart, its priority on the agenda is not immutable but may
+ﬂuctuate as the item’s dynamic features change. For example, it may be important for the agent to discover
+evidence that the item should have low priority before it unnecessarily pops the item and triggers a cascade
+of useless work. Still, the agent can largely recover from such poor decisions.
+Third, we can sometimes exploit the nature of our reward function (accuracy − λ × runtime). For a given
+input, it is often tractable to ﬁnd a high-accuracy trajectory through state space, for example by running the
+agenda-based computation for long enough with a simple initial policy.3 Policy learning can then focus on
+increasing the priority of the items that already appear in a desirable trajectory or a set of desirable trajectories,
+so that they—and the HALT action—are popped earlier. Here the accuracy problem (λ = 0) has already been
+solved by previous work; we are merely trying to increase speed (λ > 0).
+
+3
+
+New Reinforcement Learning Strategies
+
+For several reasons, we ﬁnd it unlikely that classic reinforcement learning algorithms like policy gradient
+(Williams, 1992; Sutton et al., 2000) or conservative policy iteration (Kakade & Langford, 2002) will ﬁnd
+reasonable policies in a tolerable amount of time. The estimates of the policy gradient have high variance.
+Even the true policy gradient is not all that useful: it tends to be quite ﬂat, because small changes to the policy
+will at best reorder actions locally in a way that does not affect overall reward. Indeed, when we ran a small
+policy gradient experiment with just 20 features, the policies it found were signiﬁcantly worse than a simple
+hand-coded policy that used only 2 features.
+We would instead like to determine how to adjust the policy by reasoning about causality in our environment.
+We may reason that popping item y much earlier would enable or encourage another desirable item to be
+popped early. Similarly, we may reason that greatly lowering the priority of a apparently unhelpful item,
+to below the priority of STOP, would prevent that item from popping before STOP and triggering additional
+useless work.
+Intuitively, for a given input sentence w, such reasoning should allow us to adjust our policy in a direction that
+would tend to eventually improve the speed and accuracy of parsing w. Such “what if” analysis is imaginable
+because of the special properties of our setting, as discussed in section 2.
+Our outer loop is typical of policy search:4 At time t, our policy is determined by parameters θt . We consider
+the trajectory τ = τ (wt , θt ) that this current policy would take on some randomly chosen input sentence wt ,
+¯
+and choose θt+1 so that higher-reward trajectories for wt are actually chosen or come closer to being chosen.
+One version of this searches for a few speciﬁc, complete trajectories that are “near τ ” but have higher reward.
+¯
+The parameters θ can then be updated toward these trajectories. E.g., in our setting, we can efﬁciently identify
+individual actions whose priority it would be proﬁtable to change (keeping the rest of the policy the same).5
+An alternative type of adjustment is a kind of “surrogate policy gradient.” How would our reward on wt
+change with θ? Consider the function Rt (θ) that gives the reward of trajectory τ (wt , θ). Unfortunately, this
+function is piecewise constant.6 So based on the current trajectory τ = τ (wt , θt ), we construct some highly
+¯
+˜
+smoothed, differentiable surrogate function Rt (θ) that approximates Rt (θ), at least for θ in the vicinity of
+˜
+the current parameters θt . We then choose θt+1 by following the gradient of Rt (θ). We propose to ﬁnd this
+gradient analytically, not by sampling as in ordinary policy gradient. Below are two versions of this idea.
+3
+
+Agenda-based parsing will eventually ﬁnd the highest-weighted parse. For basic approaches to parsing (e.g.,
+weighted context-free grammars of natural language), the runtime of doing this is a manageable polynomial in the length
+of the sentence, and state-of-the-art models (grammars) are good enough that the highest-weighted parse is fairly accurate
+with respect to the gold standard. All this is somewhat less true for the formally similar problem of machine translation.
+4
+Loss-sensitive learners for structured prediction also have this ﬂavor (Crammer et al., 2006; McAllester et al., 2010).
+5
+Candidate actions can be identiﬁed as in section 3.2 below. We use change propagation to determine how moving
+a candidate action’s time within τ would affect the reward: a few intervening actions would also move in time because
+they would be pushed earlier/later or would pop with a different priority. While these changes may cascade somewhat,
+computing them should still be faster than recomputing the trajectory from scratch.
+6
+Small changes to θ preserve the trajectory, except when they make a new action become the highest-priority action.
+
+3
+
+3.1
+
+Variational Surrogate
+
+˜
+Rt (θ) gives the reward of the single trajectory τ (wt , θ). To smooth this, we would like Rt (θ) to measure the
+expected reward of a bundle of trajectories in a neighborhood around τ (wt , θ). Such a bundle can be deﬁned
+˜
+by adding noise to the policy deﬁned by θ. We can then take our gradient step θt+1 = θt + Rt (θt ).
+So far, this is just policy gradient. However, policy gradient would usually sample trajectories from the “cur˜
+rent” bundle (around τ = τ (wt , θt )) to estimate their expected reward Rt (θt ) and its gradient. Sampling has
+¯
+0 bias, but very high variance in our setting. We wish to improve the bias-variance tradeoff. Our setting lends
+itself well to variational approximation, for reasons discussed in section 2: within a bundle of trajectories,
+actions at different timesteps are fairly independent of one another, as are the various features of the state.
+Thus, we compute a variational approximation to the joint distribution over the current bundle’s trajectories
+and their rewards. Using this approximation, it is possible to estimate the current bundle’s expected reward
+˜
+Rt (θt ). As for its gradient, variational approximation is not a closed-form computation, but we can still use
+algorithmic differentiation to determine how our estimated reward would have been affected by changes to θ.
+˜
+The use of a distribution over trajectories—the “bundle”—is what makes Rt differentiable. To deﬁne it,
+we recommend adding a unique feature for each item y. A trajectory is sampled by running the policy
+deterministically after sampling these features’ weights θy ∼ N (0, σ 2 ). When θy < 0, y tends to pop later.
+This scheme ﬁnds a more diverse trajectory bundle than Boltzmann exploration.7 We decrease σ 2 over time.
+3.2
+
+Priority-Based Surrogate
+
+˜
+We consider another design for the approximate reward model Rt (θ). Intuitively, it is easy to see where the
+current trajectory τ would beneﬁt from popping certain constituents much sooner or later. To make x pop
+¯
+sooner, we must raise its priority and/or the priorities of the subconstituents from which it was built. We will
+˜
+raise them slightly taking a step along the gradient of Rt . The idea is that the true Rt is locally ﬂat, but the
+˜
+gradient of Rt should point toward faraway points that would actually displace x enough to affect the reward.
+We can formalize the idea as follows. We do not estimate the reward of each possible θ = θt by actually
+revising the trajectory τ (or bundle of trajectories around τ ). Instead, from θ we construct a revised estimate
+¯
+¯
+ux of each item x’s “effective priority” (deﬁned below), such that items with larger ux tend to pop sooner.
+˜
+Our reward estimate Rt is deﬁned to be a smooth function of the ux values. Thus, following the gradient
+˜
+means changing θ in a way that changes the ux values so as to increase this smooth Rt fastest.
+The basic insight is that reward = accuracy−λ×runtime is determined by which items x pop before the HALT
+action, i.e., ux > uHALT . Popping x before HALT hurts runtime (since the parser then tries to build new items
+from x). But occasionally it also helps accuracy by changing the parser output (= the top-scoring complete
+parse that is popped before HALT). Given the current trajectory τ (obtained by running the policy well past
+¯
+HALT, with parameters θt ), we can easily compute these direct effects: the change ∆x to the current reward
+¯
+˜
+¯
+R if x by itself moved to the other side of HALT. We now deﬁne Rt = R + x ∆x − ∆x · tanh((ux −uHALT )/T )
+2
+2
+tanh((¯x −¯ HALT )/T )
+u
+u
+where ux and uHALT are the effective priorities of x and HALT in the current trajectory τ . This estimates that
+¯
+¯
+¯
+the reward of the current trajectory would increase by ∆x if x were to move all the way to the other side of
+HALT (preserving the distance between ux and uHALT but reversing its sign). It interpolates by supposing that
+˜
+as x moved in that direction, R would rise gradually along a sigmoidal curve, changing fastest as ux crossed
+uHALT . The steepness of the sigmoid is controlled by temperature T . A high temperature gives a nearly linear
+˜
+∆
+∂R
+function, so that ∂ux ≈ 2(¯HALTx ux ) . A low temperature gives a locally ﬂat function that better approximates
+u
+−¯
+the true reward function; in this case, we do not try as hard to move ux toward or away from uHALT if it is
+currently far away from it. We can reduce temperature as learning proceeds.
+We use “effective priorities” ux rather than actual priorities vx to deal with the fact that items do not always
+pop in priority order. Even a high-priority item may pop late if it is built from low-priority items. To pop x
+early, we certainly need its actual priority vx to be high, but we also need to have pushed x early. Suppose
+the grammar says that x gets pushed whenever we pop and combine either (y and z) or (y and z ). Thus, we
+deﬁne ux = min(vx , max(min(uy , uz ), min(uy , uz ))). Here min corresponds to and and max corresponds
+˜
+to or. If Rt (θ) increases with ux , this deﬁnition shows that to increase it, one may have to increase not only
+x’s own priority vx , but also the priorities of a sufﬁcient set of ancestors of x that must pop before HALT in
+order for x to do so. We smooth the ux function by using softmin and softmax in place of min and max.
+7
+
+Suppose that y is the highest-priority action at time t. Boltzmann exploration may sometimes pop a lower-scoring
+acton y at time t instead. However, under Boltzmann exploration, y will retain a high priority and a high probability of
+popping at time t + 1 or t + 2, so it is unlikely that y will be delayed long enough to change the reward.
+
+4
+
+The u values depend on v values. We deﬁne vx in turn via the usual linear function θ · φ(s, x), where φ(s, x)
+extracts features of x in state s. But the state s varies with θ. For example, a certain dynamic feature φk (s, x)
+˜
+may ﬁre only if s reﬂects that y has previously popped into the chart. Our approximation R is based on u
+values rather than states, so we say that y pops (and the feature ﬁres) in time to affect vx iff uy > ux . Again
+we interpolate sigmoidally, gradually sliding the feature value from 0 to 1 or from 1 to 0 as uy passes ux .
+All this means that the u and v values are deﬁned by a recurrent system of equations. In practice, we estimate
+˜
+¯
+them at θ = θt by a few rounds of iterative update, and use these u values to compute Rt (θt ) = R. By
+applying algorithmic differentiation as before, we can compute the gradient of this result with respect to θ.
+
+4
+
+Conclusions
+
+We have described a new setting for learning, namely the speed/accuracy tradeoff in non-deterministic inference algorithms like agenda-based parsing. Because of the enormous search space in these problems,
+off-the-shelf reinforcement learning algorithms fail miserably. We have identiﬁed three unique characteristics of our problem, and suggest mechanisms to exploit these to obtain more feasible learning algorithms.
+Acknowledgments
+This material is based upon work supported by the National Science Foundation under Grant No. 0964681. We would
+like to thank our students Jiarong Jiang, Adam Teichert, Tim Vieira, and He He for useful discussions and preliminary
+experiments.
+
+References
+Bagnell, J. A., Kakade, S., Ng, A., & Schneider, J. (2003). Policy search by dynamic programming. Advances in Neural
+Information Processing Systems (NIPS).
+Caraballo, S. A., & Charniak, E. (1998). New ﬁgures of merit for best-ﬁrst probabilistic chart parsing. Computational
+Linguistics, 24, 275–298.
+Crammer, K., Dekel, O., Keshet, J., Shalev-Shwartz, S., & Singer, Y. (2006). Online passive-aggressive algorithms.
+Journal of Machine Learning Research (JMLR), 7, 551–585.
+Eisner, J., Goldlust, E., & Smith, N. A. (2005). Compiling comp ling: Weighted dynamic programming and the Dyna
+language. Proceedings of Human Language Technology Conference and Conference on Empirical Methods in Natural
+Language Processing (pp. 281–290). Vancouver: Association for Computational Linguistics.
+Felzenszwalb, P. F., & McAllester, D. (2007). The generalized A* architecture. Journal of Artiﬁcial Intelligence Research,
+29, 153–190.
+Kakade, S., & Langford, J. (2002). Approximately optimal approximate reinforcement learning. Proceedings of the
+International Conference on Machine Learning (ICML).
+Kay, M. (1986). Algorithm schemata and data structures in syntactic processing. In B. J. Grosz, K. Sparck Jones and B. L.
+Webber (Eds.), Readings in natural language processing, 35–70. Los Altos, CA: Kaufmann. First published in 1980
+as Xerox PARC Technical Report CSL-80-12 and in the Proceedings of the Nobel Symposium on Text Processing,
+Gothenburg.
+Klein, D., & Manning, C. (2003). A* parsing: Fast exact Viterbi parse selection. Proceedings of the Conference of
+the North American Chapter of the Association for Computational Linguistics and Human Language Technology
+(NAACL/HLT).
+McAllester, D., Hazan, T., & Keshet, J. (2010). Direct loss minimization for structured prediction. Advances in Neural
+Information Processing Systems (NIPS).
+Sutton, R. S., McAllester, D., Singh, S., & Mansour, Y. (2000). Policy gradient methods for reinforcement learning with
+function approximation. IN ADVANCES IN NEURAL INFORMATION PROCESSING SYSTEMS 12 (pp. 1057–1063).
+MIT Press.
+Williams, R. (1992). Simple statistical gradient-following algorithms for connectionist reinforcement learning. Machine
+Learning, 8.
+
+5
+
+

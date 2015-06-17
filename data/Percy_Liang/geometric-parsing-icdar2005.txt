@@ -1,0 +1,657 @@
+SUBMITTED TO INT. CONF ON DOCUMENTS ANALYSIS AND RECOGNITION, 2005
+
+1
+
+Eﬃcient Geometric Algorithms for Parsing in Two
+Dimensions
+Percy Liang, Mukund Narasimhan, Michael Shilman, and Paul Viola
+Abstract—
+Grammars are a powerful technique for modeling and extracting the structure of documents. One large challenge,
+however, is computational complexity. The computational
+cost of grammatical parsing is related to both the complexity of the input and the ambiguity of the grammar. For
+programming languages, where the terminals appear in a
+linear sequence and the grammar is unambiguous, parsing
+is O(N ). For natural languages, which are linear yet have
+an ambiguous grammar, parsing is O(N 3 ). For documents,
+where the terminals are arranged in two dimensions and the
+grammar is ambiguous, parsing time can be exponential in
+the number of terminals. In this paper we introduce (and
+unify) several types of geometrical data structures which
+can be used to signiﬁcantly accelerate parsing time. Each
+data structure embodies a diﬀerent geometrical constraint
+on the set of possible valid parses. These data structures
+are very general, in that they can be used by any type of
+grammatical model, and a wide variety of document understanding tasks, to limit the set of hypotheses examined and
+tested. Assuming a clean design for the parsing software,
+the same parsing framework can be tested with various geometric constraints to determine the most eﬀective combination.
+Index Terms—Document Analysis Systems;
+Methodologies
+
+Software
+
+I. Introduction
+
+G
+
+RAMMATICAL approaches for document structure
+analysis have a long history. In comprehensive reviews of the ﬁeld, a signiﬁcant percentage of the reported
+papers have used grammatical approaches [1], [2], [3].
+Grammatical document processing research relies on the
+related work in the ﬁeld of general grammatical parsing.
+It is not surprising that these document papers adopt the
+state of the art in parsing technology at the time of publication. For example, the work of Krishnamoorthy et. al.
+uses the grammatical and parsing tools available from the
+programming language community [4] (see also [5], [6]).
+Similarly the work by Hull uses attributed probabilistic
+context free grammars [7] (see also [8], [9], [10]). In the
+last few years there has been a rapid progress in research
+on grammars in the natural language community . These
+advances have led to more powerful grammatical models
+that can be learned directly from data [11]. Such models are strictly more powerful than the probabilistic context free grammars used in previous document analysis research. Simultaneously there has been progress on accelerating the parsing process in the presence of ambiguity [12],
+[13]. Motivated by these results a new wave of research on
+grammatical parsing for documents is likely to result.
+A grammar based approach selects a global description
+of the page from several competing descriptions based on a
+Microsoft Research
+Redmond, WA, 98033
+
+Fig. 1. A very simple page with four terminal objects.
+
+global ﬁgure of merit. The local interpretation which maximizes the global score is selected. This provides a principled technique for globally integrating local measurements
+and handling local ambiguity. The challenges of grammatical approaches include computational complexity, grammar design, and parameter estimation. The focus of this
+paper is computational complexity: we introduce a set of
+general purpose geometric constraints and data structures
+which can be used to accelerate the parsing of two dimensional documents.
+In related work Miller and Viola describe a system for
+parsing equations which uses geometrical data structures
+to control the complexity of the parsing process [9]. We
+improve on their algorithms and present a number of new
+geometric algorithms as well. Other researchers have used
+geometric graph data structures to constrain the set of interpretations on the page [10]. While these papers do not
+discuss grammars directly, the segmentation and recognition problem that they solve can be rephrased as a parsing
+problem with a simpliﬁed grammar. Our work improves
+on these graph structures as well.
+II. Document Grammars
+One simple example examined in detail may yield some
+intuitions regarding the algorithms presented below. Figure 1 shows a page with 4 terminal objects, which depending on the application could be connected components, pen
+stokes, text lines, etc. In this case, let us assume that the
+objects are words on a simple page and the task is to group
+the words into lines and lines into paragraphs. A simple
+grammar that expresses this process is:
+(Page → ParList)
+(ParList → Par ParList)
+(ParList → Par)
+(Par → LineList)
+
+(LineList → Line LineList)
+(LineList → Line)
+(Line → WordList)
+(WordList → Word WordList)
+(WordList → Word)
+
+The correct parse in this case is:
+(Page (ParList
+(Par (LineList
+
+2
+
+SUBMITTED TO INT. CONF ON DOCUMENTS ANALYSIS AND RECOGNITION, 2005
+
+(Line (WordList (Word 1) (WordList (Word 2)))) the parsing process arises from the number of chart entries
+(LineList (Line (WordList (Word 3)
+that must be ﬁlled and the work required to ﬁll each entry.
+(WordList (Word 4)))))))))
+
+This parse tree provides a great deal of information
+about the document structure: there is one paragraph containing two lines; the ﬁrst line contains word 1 and word
+2, etc.
+The grammatical approach can be adopted for many
+types of document analysis tasks, including the parsing
+of mathematical expressions, text information extraction,
+and table extraction.
+In general, productions in a grammar have the form (A
+→ B C) which states that the non-terminal symbol A can
+be replaced by the non-terminal B followed by the nonterminal C. Following the general conventions for grammars, non-terminals are written in upper case and terminals in lower case. We will restrict our discussion to a
+binarized grammar in which each non-terminal has either
+one or two elements on the right hand side.1 A simple
+weighted grammar, or equivalently a Probabilistic Context
+Free Grammar (PCFG), additionally assigns a cost to every production. Productions which are applicable expand
+the non-terminals with a log probability proportional to
+cost.
+Most practitioners of computer science are familiar with
+the notion of a programming language grammar. These
+grammars are specially designed to be both globally and
+locally unambiguous. For such grammars very eﬃcient linear time parsing algorithms can be used. In the case of
+English language grammars, where there are unavoidable
+ambiguities, there are often hundreds or thousands of valid
+parses for any sentence [14]. For a linear sequence of terminals parsing requires O(P N 3 ) time, where P is the number
+of productions in the grammar and N are the number of
+terminals.
+While there are a number of competing parsing algorithms, one simple yet generic framework is called Chart
+Parsing [15]. Chart parsing attempts to ﬁll in the entries
+of a chart C(A, R) which is the best score of a non-terminal
+A as an interpretation of the sub-sequence of terminals R.
+The cost of any non-terminal can be expressed as the following recurrence:
+C(A, R) =
+
+min
+
+A→BC
+R1 ∩R2 =∅
+R1 ∪R2 =R
+
+C(B, R1 ) + C(C, R2 ) + l(A → BC) (1)
+
+where {BC} ranges over all productions for A, and R is
+a subsequence of terminals (what we will call a region),
+and R1 and R2 are subsequences which are disjoint and
+whose union is R (i.e. they form a partition). Essentially
+the recurrence states that the score for A is computed by
+ﬁnding a low cost decomposition of the terminals into two
+disjoint sets. Each production is assigned a cost (or loss or
+negative log probability) in a table, l(A → BC). The entries
+in the chart (sometimes called edges) can be ﬁlled in any
+order, either top down or bottom up. The complexity of
+1 Any more general grammar can be converted to a binary grammar
+easily.
+
+When analyzing a linear sequence of terminals there are
+O(P N 2 ) entries (since there are 1 N ∈ O(N 2 ) pairs <
+2 2
+i, j >). Since the work required to ﬁll each entry is O(N ),
+the overall complexity is O(P N 3 ), where P is the number
+of productions.
+A. Geometric Parsing Is Exponential
+In this paper we will study algorithms for parsing terminals arranged on a two dimensional page. Unfortunately
+a direct application of chart parsing to two dimensional
+arrangements of terminals requires exponential time. The
+key problem is that the terminals no longer have a linear
+sequential order. Returning to (1), the region R is now a
+subset, and R1 and R2 are subsets which are disjoint and
+whose union is R (i.e. they form a partition). As before
+we can analyze the size of the chart, which is O(P |P(N )|)
+where P(N ) is set of all subsets of N terminals. In general
+there are an exponential number of subsets, and hence the
+algorithm is exponential.
+Others have certainly observed this dilemma and have
+either assumed that the 2D terminals are linearly ordered
+(by some earlier process) or have worked with other linearizations (for example [4] parses linear projections of the
+input).
+Miller and Viola introduced an eﬀective heuristic which
+signiﬁcantly improved performance. They select subsets R1 , R2 such that either chull(R1 ) ∩ R2 = ∅ or
+chull(R2 ) ∩ R1 = ∅. Calling these sets regions is now appropriate, since each set lies within a convex region of the
+page. It is worth noting that if the terminals lie along a
+line (and therefore have a strict linear ordering) the convex
+hull criterion yields the O(N 2 ) regions and is equivalent to
+the contiguous subsequence constraint used in conventional
+parsing. While this constraint is eﬀective in practice, the
+worst case complexity is still exponential and the computation of the convex hulls themselves is somewhat expensive.
+The notion of region (and subregion) is quite general. A
+region of the input is a set of the terminals, coupled with a
+constraint on the set of subsets which are valid for parsing.
+For the case of classical parsing the regions are sequential
+terminals and are represented by a pair of integers < i, j >.
+The subregions are sequential subsets of terminals < i, k >
+and < k, j >.
+In this paper we propose several new kinds of geometric
+regions. We deﬁne and motivate each region and we also
+present an eﬃcient algorithm for enumerating valid subsets. Each can lead to a signiﬁcant speed up of parsing.
+B. Rectangle Hull Region
+The ﬁrst region is called a Rectangle Hull Region. Subregions are constrained so that rhull(R1 ) ∩ rhull(R2 ) = ∅,
+where rhull(X) is smallest axis aligned rectangle which
+contains X (known as a rectangle hull). The motivation
+for this region comes from the convex hulls used by Miller
+and Viola, but it is much easier to compute. For printed
+pages which have been deskewed, the constraint implied
+
+Liang et al.: GEOMETRIC ALGORITHMS FOR PARSING
+
+by the Rectangle Hull Region is essentially equivalent to
+the convex hull constraint.
+The number of valid rectangle regions is polynomial (as
+in a conventional sequence region). To see this, notice that
+the left boundary of rhull(X) is deﬁned by the leftmost
+point in the subset of terminals X. This point must be
+the leftmost point of some terminal in X. The same argument applies to the top, bottom, and right boundaries.
+Every potential rectangle hull region < t, b, l, r > can be
+enumerated by selecting 4 terminals. The left boundary of
+the ﬁrst terminal deﬁnes the left boundary of the region,
+l; the top of the second deﬁnes the top, t; the bottom of
+the third deﬁnes the bottom, b; the right boundary of the
+ﬁnal terminal deﬁnes the right, r. There are no more than
+N
+4
+4 = O(N ) valid subregions. Note that in practice there
+are many fewer regions, since many of the regions may fail
+the disjoint test above (since a terminal may be split by
+the boundary and will neither lie inside of rhull(R1 ) nor
+entirely outside). In experiments it is often the case that
+approximately O(N 2 ) rectangular subregions are admissible.
+For top down parsing the following eﬃcient algorithm is
+used to enumerate all valid pairs of rectangle hull subregions (these pairs are used to drive the recursion in Equation 1). Insert the top, ti , and bottom, bi , of each terminal,
+i, into a single sorted list. Given a region < t, b, l, r >, it
+can be split into into two valid subregions as < t, s, l, r >
+and < s, b, l, r >, if t < s < b and the boundary does not
+intersect any terminal in the current region. All admissible
+s can be found in a single pass over the sorted list from top
+to bottom. As the list is traversed, we keep track both of
+the current element, s and the set of all terminals which
+are split: ti < s < bi (the top of terminal i is above the
+separator and the bottom is below the separator). The
+value s is a valid separator if the list of split terminals
+is empty. Note that the list of split terminals can be updated rapidly. If the previous element is a top, ti , add i
+to the list. If the previous element is a bottom, bi , remove
+i from the list. Vertical splits are computed by repeating
+the entire process for the left and right bounds of the terminals. Note that the work of sorting can be done once for
+the entire page. Thereafter sublists of the full sorted list
+are used. Also note that there can be at most 4N pairs of
+admissible subsets, though many of these are often pruned
+away since they are inadmissible.
+III. Convex Hull Region
+The convex hull criteria of Miller and Viola is a clear
+candidate for use as a type of region. The key challenge
+is to enumerate all admissible subsets eﬃciently. Recall
+that subsets R1 and R2 must satisfy the criteria that R1 ∩
+chull(R2 ) = ∅ or R2 ∩ chull(R1 ) = ∅. We have found
+that a closely related criteria is equally valuable, but has
+the advantage that it is very eﬃciently enumerable. This
+new criteria requires that chull(R1 ) ∩ chull(R2 ) = ∅.
+Note that this new criteria always implies the ﬁrst.
+Recall that valid rectangle hull subregions are enumerated by ﬁnding separating lines which are deﬁned by the
+
+3
+
+Fig. 2. The co-tangent lines for a pair of terminals. The green
+rectangles represent the bounding boxes of the terminals while the
+grey polygons are a pair of implicitly deﬁned convex hulls.
+
+boundaries of the terminals. Convex hull subregions can
+be generated similarly. First note that every pair of admissible subsets chull(R1 ) ∩ chull(R2 ) = ∅ is separated by
+a line which is tangent to both chull(R1 ) and chull(R2 )
+(see Figure 2). The proof omitted due to space. Recall
+that the goal is to enumerate subsets that satisfy the convex hull criteria eﬃciently, not to compute convex hulls.
+We do so by enumerating all potential co-tangent lines.
+Since every co-tangent line is deﬁned by a pair of terminals, all potential co-tangent lines can be enumerated in
+O( N )
+2
+Miller and Viola do not discuss the algorithm used to
+enumerate convex hull admissible subsets. It is possible
+that their algorithm, while very fast for the smaller problems they encountered, may well have been exponential.
+We believe this is the ﬁrst description of an algorithm for
+enumerating convex hull compatible subregions eﬃciently.
+IV. Graph Region
+In his work on the parsing of mathematical expressions, Matsakis proposes the use of a Minimum Spanning
+Tree(MST) on the set of terminals [10]. Given some distance measure between pairs of terminals on the page (perhaps centroid distance or nearest point distance) on can
+compute the MST in O(N 2 log N 2 ). Valid regions are subsets of the terminals which are connected in this graph.
+This criteria is based on the observation that when two
+terminals are near neighbors on the page they are often
+near neighbors in the parse tree. Conversely, if a pair of
+subsets are far apart they are rarely combined into a single
+subtree. Disappointingly, the MST criterion is worse case
+exponential, though it is quite eﬀective in practice.
+Perhaps a more serious ﬂaw is the fragility of the MST.
+One type of problem arises from expressions containing
+fractions, since the fraction bar sometimes lies closer to
+the symbols in the numerator than other symbols in the
+numerator (see Figure 3). Additionally for handwritten inputs there are many examples where the MST contradicts
+the parse tree.
+The fragility of the MST can be addressed by adding
+additional edges to the graph. A simple proposal is to
+connect the k nearest neighbors on the page. This increases
+the number of subsets signiﬁcantly, but tends to ﬁx many
+of the problems with the MST.
+
+4
+
+SUBMITTED TO INT. CONF ON DOCUMENTS ANALYSIS AND RECOGNITION, 2005
+
+Fig. 3. (Left) An arrangement of symbols for which the MST does
+not yield the correct subgroups. Note this type of arrangement
+also admits an exponential (though manageable) number of parses.
+(Right) Additional edges added to the MST which allows the correct
+grouping.
+
+One can directly enumerate all connected subsets of a
+graph using a variant of breadth ﬁrst search, being careful
+to use a hash table to exclude subsets which are encountered twice. The search proceeds using a queue of connected subsets. A subset of size n is removed from the
+queue and is extended by ﬁnding all nodes which are directly connected to some element of the subset. If there are
+k such connected nodes, a collection of k connected subsets of size n + 1 are created and placed back in the queue.
+Before insertion, a hash table is consulted to determine if
+the subset is a duplicate, and if so is discarded.
+For graphs where there are an exponential number of
+connected subgraphs, all enumeration algorithms are intractable. In practice the constraint that a subregion be
+connected is used to prune regions generated by one of the
+other region types. In this case the complexity is that of
+the enumerating region (though the ﬁnal number of regions
+is often signiﬁcantly reduced).
+V. Partial Order Region
+In his work on determining reading order, Breuel deﬁne
+a partial order on the lines of the pages [16]. Each pair
+of lines, a and b, is examined to determine if there is an
+ordering between them: (Condition 1), line a comes before
+line b if their ranges of horizontal coordinates overlap and
+if a is above b on the page; (Condition 2), line a comes
+before b if a is entirely to the left of b and if there does
+not exist a line c whose vertical coordinates are between a
+and b and whose range of horizontal coordinates overlaps
+both a and b. Surprisingly these two simple rules yield
+suﬃcient constraint so that the topological sort of the lines
+frequently matches the page reading order.
+While Breuel’s technique is quite beautiful due to its
+simplicity, we have found two types of common failures:
+ambiguity and incorrectness. Ambiguity arises whenever
+the topological sort is not unique. In this case one of the
+valid orderings is correct but many others are not. Incorrectness results when the true ordering is inconsistent
+with the partial order. The second rule is the primary
+cause of incorrectness, since it sometimes fails in situations where there are two diﬀerent two column zones on
+the page. In addition, these heuristics often fail for the
+headers and footers of pages. It is tempting to modify the
+second condition: (Condition 2 ) line a comes before b if
+a overlaps b vertically and a is to the left of b. This new
+condition is consistent with almost all pages of text, but it
+often yields a partial order which is ambiguous. Note that
+condition 2 yields a strictly weaker partial order, since if
+
+condition 2 is satisﬁed this necessarily implies condition
+2.
+Breuel’s partial order suggests a new type of region,
+which we call the Partial Order Region. In this case regions are selected so that no element in R2 comes before an
+element in R1 which is denoted R1 ≤ R2 . An eﬃcient algorithm for enumerating such regions is based on a search
+of the directed graph implied by the partial order. The
+test for an admissible subregion is simply to check that
+all children of nodes in R2 lie in R2 , or equivalently all
+parents of nodes in R1 lie in R1 . Begin by performing a
+topological sort on the nodes to form a total order. Nodes
+are then each assigned either to R1 or R2 using depth ﬁrst
+search. Before a node is assigned a label it is checked for
+admissibility.
+Recurse(Node[] n, int i)
+{
+if (n.Length == i)
+AddSubsets();
+else {
+if (NoParentR2(n[i]) {
+n[i].SetR1();
+Recurse(n, i+1);
+}
+if (NoChildR1(n[i]) {
+n[i].SetR2();
+Recurse(n, i+1);
+}
+n[i].Unset();
+}
+}
+
+If there are no links in the partial order graph the above
+algorithm is exponential. This is the worse case. Breuel’s
+graphs are quite dense and he reports that these partial orders often yield a unique topological ordering. In this case
+the algorithm is quite eﬃcient and is is computationally
+equivalent to parsing a linear sequence.
+VI. A Simple Example
+The simple example in Figure 1 can be used to demonstrate the various geometric regions. Given that there are
+four terminals, there are 16 proper subsets. A region is
+considered compatible with the correct interpretation if
+it admits all the subgroups in that parse tree. In this
+case the correct regions are [1], [2], [3], [4], [1,
+2], [3, 4].
+Table I shows the admissible subsets for each type of
+region. The sequence region is assumed to have perfect
+knowledge of the correct order. The other regions observe
+only the geometry of the terminals. The partial order region is given the following directed edges: 1 < 2, 1 < 3,
+2 < 4, 3 < 4. The graph region is given the following
+neighborhood edges: 1-2, 1-3, 2-3, 2-4, 3-4. Since
+all regions enumerate the subsets of size one, the ﬁrst differences appears among the 10 larger subsets. Both the
+“hull” based regions perform perfectly. They only admit
+subsets which are compatible the correct answer. All other
+subsets are rejected. The Graph Region performs worst,
+since in a tight collection of four symbols almost every subset is connected. The Partial Order Region is a bit better,
+but it to suﬀers from the tight placement of the terminals
+
+Liang et al.: GEOMETRIC ALGORITHMS FOR PARSING
+
+Seq
+
+1
+2
+3
+4
+1
+1
+1
+2
+2
+3
+1
+1
+1
+2
+
+2
+3
+4
+3
+4
+4
+2
+2
+3
+3
+
+Rect
+Hull
+
+Convex
+Hull
+
+X
+X
+X
+X
+X
+X
+
+X
+X
+X
+X
+X
+X
+
+X
+X
+X
+X
+X
+
+X
+X
+X
+X
+X
+
+X
+
+Totals:
+14
+
+Partial
+Order
+
+X
+X
+X
+X
+X
+
+3
+4
+4
+4
+
+Graph
+
+X
+X
+X
+X
+X
+X
+X
+
+X
+X
+X
+X
+
+5
+
+X
+X
+X
+
+X
+
+X
+
+A04GBIN
+Terminals:
+Sequence:
+Rect:
+Partial Order:
+PowerSet
+
+A04FBIN
+
+A004BIN
+
+A009BIN
+
+30
+465
+316
+1599
+1.0E+009
+
+49
+1225
+648
+2143
+5.6E+014
+
+44
+990
+948
+990
+1.8E+013
+
+47
+1128
+1040
+1128
+1.4E+014
+
+TABLE II
+Number of regions generated. First row is the number of
+lines in the file (the two right most files are two column
+files, the two leftmost are one column files).
+
+X
+
+fewest subregions.
+9
+
+13
+
+11
+
+6
+
+6
+
+TABLE I
+A table of the valid regions enumerated by the various
+types of geometric regions.
+
+as well. Both the “graph” related regions perform much
+better when the terminals are strung out in a more linear
+arrangement. Note that the sequence region, which has access to the terminal ordering of this page, performs worse
+than either hull region. In this case the geometric region
+constraint has additional value beyond the ordering of the
+nodes.
+Interestingly, it is the tight placement of the terminals
+which leads to the success of the “hull” regions. There
+are applications, like the parsing of mathematics, where
+the symbols are placed very tightly and the hull regions
+are not compatible with the correct parse (i.e. they reject
+valid subsets). One simple solution is to erode the terminals slightly, which essentially reduces the tightness of
+the placement. In the limit one can erode the terminal to
+a single point, for example the centroid. In this case the
+hulls are maximally compatible but still provide signiﬁcant
+constraint.
+VII. Experiments
+In order to support some of the claims of this paper
+we have analyzed pages from the UWIII document image database. The UWIII database gives ground truth for
+words, lines, and zones, as well as the reading order. In
+other work we are constructing a grammatical approach
+for the extraction of this and additional information such
+as sections and columns. Classiﬁcation performance on
+this problem will be described elsewhere. Here we report
+the number of subregions produced for several pages from
+the database. The goal here is to show that the geometric
+regions produce a reasonable number of subregions. One
+valid point of comparison is to compare the number of
+regions produced by a sequence region given the ground
+truth linear ordering of the page. The other regions operate with only geometric information. Another point of
+comparison is the number of subset in the power set. Note
+that the Rectangle Hull Region consistent produces the
+
+VIII. Conclusion
+Grammatical parsing has proven valuable in a number
+of document analysis problems. With recent advances in
+grammar learning and parsing, we are likely to see an increase in interest in this area. In this paper we have presented geometric algorithms which can be used to accelerate parsing for a wide variety of two dimensional parsing
+problems. Examples include document structure extraction, parsing of mathematical expressions (both printed
+and handwritten), and document information extraction.
+References
+[1] S. Mao, A. Rosenfeld, and T. Kanungo, “Document structure
+analysis algorithms: A literature survey,” in Proc. SPIE Electronic Imaging, vol. 5010, January 2003, pp. 197–207.
+[2] R. Zanibbi, D. Blostein, and J. R. Cordy, “A survey of table
+recognition: Models, observations, transformations, and inferences,” International Journal of Document Analysis and Recognition, vol. 7, no. 1, pp. 1–16, 2004.
+[3] K.-F. Chan and D.-Y. Yeung, “Mathematical expression recognition: a survey,” International Journal on Document Analysis
+and Recognition, vol. 3, pp. 3–15, 2000.
+[4] M. Krishnamoorthy, G. Nagy, S. Seth, and M. Viswanathan,
+“Syntactic segmentation and labeling of digitized pages from
+technical journals,” IEEE Transactions on Pattern Analysis
+and Machine Intelligence, vol. 15, pp. 737–747, 1993.
+[5] A. Conway, “Page grammars and page parsing. a syntactic approach to document layout recognition,” in Proceedings of the
+Second International Conference on Document Analysis and
+Recognition, Tsukuba Science City , Japan, 1993, pp. 761–764.
+[6] D. Blostein, J. R. Cordy, and R. Zanibbi, “Applying compiler
+techniques to diagram recognition,” in Proceedings of the Sixteenth International Conference on Pattern Recognition, vol. 3,
+2002, pp. 123–136.
+[7] J. F. Hull, “Recognition of mathematics using a two-dimensional
+trainable context-free grammar,” Master’s thesis, MIT, June
+1996.
+[8] P. Chou, “Recognition of equations using a two-dimensional
+stochastic context-free grammar,” in SPIE Conference on Visual Communications and Image Processing, Philadelphia, PA,
+1989.
+[9] E. G. Miller and P. A. Viola, “Ambiguity and constraint in
+mathematical expression recognition,” in Proceedings of the National Conference of Artiﬁcial Intelligence. American Association of Artiﬁcial Intelligence, 1998.
+[10] N. Matsakis, “Recognition of handwritten mathematical expressions,” Master’s thesis, Massachusetts Institute of Technology,
+Cambridge, MA, May 1999.
+[11] B. Taskar, D. Klein, M. Collins, D. Koller, and C. Manning,
+“Max-margin parsing,” in Empirical Methods in Natural Language Processing (EMNLP04), 2004.
+[12] E. Charniak, S. Goldwater, and M. Johnson, “Edge-based bestﬁrst chart parsing,” in Proceedings of the Fourteenth National
+Conference on Artiﬁcial Intelligence, 1998, pp. 127–133.
+
+6
+
+SUBMITTED TO INT. CONF ON DOCUMENTS ANALYSIS AND RECOGNITION, 2005
+
+[13] D. Klein and C. D. Manning, “A∗ parsing: Fast exact viterbi
+parse selection,” Stanford University, Tech. Rep. dbpubs/200216, 2001.
+[14] E. Charniak, “Statistical techniques for natural language parsing,” AI Magazine, 1997.
+[15] M. Kay, “Chart generation,” in Proceedings of the 34th conference on Association for Computational Linguistics. Association for Computational Linguistics, 1996, pp. 200–204.
+[16] T. Breuel, “High performance document layout analysis,” in
+2003 Symposium on Document Image Understanding Technology, Greenbelt Maryland, 2003.
+
+

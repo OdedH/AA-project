@@ -1,0 +1,1051 @@
+A Flexible Solver for Finite Arithmetic Circuits
+Nathaniel Wesley Filardo and Jason Eisner
+Department of Computer Science
+Johns Hopkins University
+3400 N. Charles St., Baltimore, MD 21218, USA
+http://cs.jhu.edu/˜{nwf,jason}/
+{nwf, jason}@cs.jhu.edu
+
+Abstract
+Arithmetic circuits arise in the context of weighted logic programming languages, such as Datalog
+with aggregation, or Dyna. A weighted logic program deﬁnes a generalized arithmetic circuit—
+the weighted version of a proof forest, with nodes having arbitrary rather than boolean values.
+In this paper, we focus on ﬁnite circuits. We present a ﬂexible algorithm for eﬃciently querying
+node values as they change under updates to the circuit’s inputs. Unlike traditional algorithms,
+ours is agnostic about which nodes are tabled (materialized), and can vary smoothly between
+the traditional strategies of forward and backward chaining. Our algorithm is designed to admit
+future generalizations, including cyclic and inﬁnite circuits and propagation of delta updates.
+1998 ACM Subject Classiﬁcation F.1.1 Models of Comp., I.2.3 Deduction and Theorem Proving
+Keywords and phrases arithmetic circuits, memoization, view maintenance, logic programming
+
+1
+
+Introduction
+
+The weighted logic programming language Dyna [10] is a convenient and modular notation
+for specifying derived data. In this paper, we begin to consider eﬃcient algorithms for
+answering queries against Dyna programs. Our methods treat arithmetic circuits, and are
+relevant to other variants of logic programming, such as Datalog with aggregation [15, 5].
+Many tasks in computer science involve computing and maintaining derived data. Deductive databases [21] store extensional (i.e., provided) data but also deﬁne additional
+intensional data speciﬁed by formulas. Algorithms in artiﬁcial intelligence or business analytics can often be written in this form [10]. The extensional data are observed facts, and
+the resulting cascades of intensional data arise from aggregation, record linkage, analysis,
+logical reasoning, statistical inference, or machine learning.
+If the extensional data can change over time, keeping the intensional data up to date is
+called view maintenance or stream processing [23]. This pattern includes traditional abstract
+data types, which maintain derived data under operations such as “insert” and “remove.”
+For example, a priority queue maintains the argmax of a function over an extensional set.
+A Dyna program is a declarative speciﬁcation of derived data. Like an abstract data type,
+it admits many correct implementations of its update and query methods. These execution
+strategies range from the laziest (“store the update stream and scan it when queried”) to
+the most eager (“recompute all intensional data upon every update”). A particular strategy
+might trade time for space, or more time now for less time later (e.g., investing time in ﬁnding
+a faster query plan or maintaining an index). We seek a uniﬁed algorithm that subsumes as
+many reasonable strategies as possible, and which supports transitioning smoothly between
+them. This allows diﬀerent strategies to be selected for diﬀerent parts of the program (static
+analysis) or for diﬀerent workloads (dynamic analysis).
+In the present work, we discuss the development of a generic algorithm for ﬁnding and
+maintaining solutions to ﬁnite arithmetic circuits, which are a subset of Datalog and Dyna
+© Nathaniel Wesley Filardo and Jason Eisner;
+licensed under Creative Commons License NC-ND
+Leibniz International Proceedings in Informatics
+Schloss Dagstuhl – Leibniz-Zentrum für Informatik, Dagstuhl Publishing, Germany
+
+2
+
+A Flexible Solver for Finite Arithmetic Circuits
+
+1
+2
+3
+4
+5
+6
+7
+8
+
+Compute(j ∈ Iint )
+return fj ({i → Lookup(i) | i ∈ Pj })
+Lookup(j ∈ I)
+v ← M[j]
+if v = unk then v ← Compute(j)
+maybe M[j] ← v
+return v
+Listing 1 Internals of basic backward
+chaining with optional memoization. M
+stores values for extensional items and initially stores unk for intensional items.
+
+a : • KK 1
+KK
+KK
+%
+
+•
+b r • OOO 2
+r:
+OOO
+ppp
+rrr
+O'
+ppp
+xp
+xrr
+3
+max
+f JJ 2
+q
+JJ
+JJ  qqqqq
+$
+xq
+7
+
+3
+
+Figure 1 An example arithmetic circuit on the
+natural numbers, showing the function for each intensional item (f, max, , where f (a, b) = ba ) and
+the symbol • for each extensional item. Item values
+are shown in red, and selected item names in blue.
+
+programs. Our algorithm oﬀers several degrees of freedom, which will allow us to compare
+various static and adaptive strategies in future. The algorithm can choose any initial guess
+for the circuit’s solution; its agenda of pending computations may be processed in any order;
+and it contains maybe directives where the algorithm has an additional free choice. Thus,
+our algorithm smoothly interpolates among traditional strategies such as forward chaining,
+backward chaining, and backward chaining with memoization.
+
+2
+
+Arithmetic Circuits
+
+An arithmetic circuit [4] is a ﬁnite directed acyclic graph on nodes I with edges E. We
+def
+refer to the nodes as items. We denote item j’s set of parents by Pj = {i | (i → j) ∈ E},
+def
+and its set of children by Cj = {k | (j → k) ∈ E}. Transitive parents are called ancestors,
+and transitive children are called descendants. We use the term generalized arithmetic
+circuit for the more general case where the graph may be inﬁnite and/or cyclic.
+Each item i ∈ I has a value in some set V. Figure 1 shows a small arithmetic circuit
+over integer values. The root or input items, those without parents, are denoted Iext
+(“extensional”) and receive their values from the environment.1 The remaining items are
+denoted Iint (“intensional”) and derive their values by rule from their parents’ values. Each
+item j ∈ Iint is equipped with a function fj to combine its parents’ values. The input to fj
+is not merely an unordered collection of the parents’ values. Rather, to specify which parent
+has which value, it is a map Pj → V, consisting of a collection of pairs i → v.
+A Datalog or pure Prolog program can be regarded as a concise speciﬁcation of a generalized boolean circuit, which is the case where V = {true, false}. The items I correspond
+to propositional terms of the logic program, and clauses of the logic program describe how
+to discover the parents or children of a given item (on demand). Speciﬁcally, each grounding
+of a clause corresponds to an and node whose parents are the body items, and whose child is
+an or node corresponding to the head item. This kind of circuit is called an and/or graph.
+Datalog is sometimes extended to allow limited use of not nodes as well.
+Arithmetic circuits are the natural analogue of boolean circuits for weighted logic programming languages, such as Datalog with aggregation [15, 5] and our own Dyna [11, 9].
+Suppose we are given a generalized arithmetic circuit, along with a map S : Iext → V
+1
+
+The literature varies as to whether extensional items are called roots or leaves, whether they are
+regarded as ancestors or descendants, and whether they are drawn at the top or the bottom of a
+ﬁgure. We treat them as roots and ancestors and draw them at the top. So edges and information ﬂow
+downward in our drawings. As a result, “bottom-up” reasoning (forward chaining) actually proceeds
+from the top of the drawing down.
+
+Nathaniel Wesley Filardo and Jason Eisner
+
+that speciﬁes the extensional data. A solution to the circuit is an extension S of this map
+over all of I such that S[j] = fj i → S[i] | i ∈ Pj for each j ∈ Iint . In the traditional
+case where the circuit is ﬁnite and acyclic a solution S always exists and is unique. This
+paper considers only that case, which also ensures that our algorithms always terminate.
+However, we will avoid using methods that rely strongly on ﬁniteness or acyclicity. This
+makes our methods relevant to the harder problem of solving generalized arithmetic circuits
+(see section 7), as needed for the general case of weighted logic programming languages.
+
+3
+
+Backward Chaining
+
+We begin with some basic strategies for querying an item’s solution value S[j], based on
+backward chaining from the item to its ancestors. We construct a map M from items to
+their solution values. M is known as the memo table or chart. For each extensional item
+j ∈ Iext , we initialize M[j] to S[j] (= S[j]). For each intensional item j ∈ Iint , the solution
+value S[j] is initially unknown, so we initialize M[j] to the special object unk ∈ V. We may
+regard the map M : I → V ∪ {unk} as a partial map I → V that stores actual values for
+only some items—initially just the extensional items.
+We deﬁne mutually recursive functions Lookup and Compute as in Listing 1. A user may
+query the solution with Lookup(j). This returns M[j] if it is known, but otherwise calls
+Compute(j) to compute j’s value using fj , which in turn requires Lookups at j’s parents.
+Pure Backward Chaining The simplest form of backward chaining simply recurses through
+ancestors until Lookup reaches the roots. Line 7 is never used in this case, so M never changes
+and intensional items remain as unk. Clearly Lookup(j) returns S[j].
+Unfortunately, pure backward chaining can have runtime exponential in the size of the
+circuit. Each call to Lookup(j) will in eﬀect enumerate all paths to j. For example, consider
+a circuit for computing Fibonacci numbers, where each item ﬁb(n) for n ≥ 2 is the sum of its
+parents ﬁb(n − 1) and ﬁb(n − 2). Then Lookup(ﬁb(n)) has runtime that is exponential in n,
+with ﬁb(n − t) being repeatedly computed ﬁb(t) ( ≈ O(1.618t )) times during the recursion.
+Optional Memoization To avoid such repeated computation, a call to Lookup(j) can
+memoize its work by caching the result of Compute(j) in M[j] for use by future calls,
+via line 7 of Listing 1. This is the backward-chaining version of dynamic programming. It
+generalizes the node-marking strategy that depth-ﬁrst search uses to avoid re-exploring a
+subgraph. However, the maybe keyword in line 7 indicates that the memoization step is not required for correctness; it merely commits space in hopes of a future speedup. Lookup(ﬁb(n))
+can even achieve O(n) expected runtime without memoizing all recursive Lookups: instead
+it can memoize Lookups on a systematic subset of items, or on a random subset of calls.
+
+4
+
+Reactive Circuits: Change Propagation
+
+Our goal is to design a dynamic algorithm for arithmetic circuits that supports not just
+queries but also updates. It must handle a stream of operations of the form Query(j) for
+any j, which returns S[j], and Update(i,v) for i ∈ Iext , which modiﬁes S[i] to v ∈ V.2
+In the case of pure backward chaining, we only have to maintain the stored extensional
+data, as intensional values are not stored, but are derived from the extensional data on
+2
+
+We also wish to support continuous queries, in which the user may request (asynchronous) notiﬁcations
+when speciﬁed items change value. This is, however, beyond the scope of the current paper.
+
+3
+
+4
+
+A Flexible Solver for Finite Arithmetic Circuits
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+
+RunAgenda()
+until A = ∅
+pop i :
+v from A
+if v = unk then v ← Compute(i)
+if v = M[i] then % else discard
+M[i] ← v
+foreach j ∈ Ci
+w ← unk
+maybe w ← Compute(j)
+Update(j, w)
+Listing 2 The core of an agenda-driven,
+tuple-at-a-time variant of the traditional
+forward chaining algorithm. M is initialized to an arbitrary but total guess
+and remains total (no unk values) thereafter. Hence, though Compute calls Lookup,
+Lookup never recurses back to Compute.
+
+1
+2
+3
+4
+
+Update(j ∈ I, w ∈ V {unk})
+delete A[j]
+if w = M[j] then % else discard
+A[j] ←
+w
+Listing 3 Updates requested by the user or
+by RunAgenda are enqueued on the agenda A as
+replacement updates.
+
+• 32 p •
+pp
+ wpppp
+
+6 =
+×
+
+5
+
+• 3 2 mm •
+mm
+§  rz mmm
+
+3
+× 10 6 =
+3
+
+5
+3
+
+Figure 2 An example iteration of the loop
+in RunAgenda. We apply the update
+5 to the
+right parent, which makes the children inconsistent with their parents, and enqueue new updates that will ﬁx the inconsistencies. Double
+arrows indicate the edges used to Compute the
+new value in the replacement update: 10 is 2×5.
+
+demand. In our terminology from above, Update(i,v) can just set M[i] ← v, and Query(j)
+can just call Lookup(j).
+However, handling updates is harder once we allow memoization of intensional values.
+The memos in M grow stale as external inputs change, yet Lookup would continue to return
+outdated results based on these memos. That is, updating i may make its intensional
+descendants inconsistent; this must be rectiﬁed before subsequent queries are answered. We
+therefore need some mechanism for restoring consistency in M, by propagating changes to
+memoized descendants.
+Formally, we say that j ∈ Iext is consistent iﬀ Lookup(j)= S[j], and that j ∈ Iint is
+consistent iﬀ Lookup(j) = Compute(j). Notice that un-memoized intensional items (those
+with M[j] = unk) are always consistent. We call M consistent if all items are consistent—in
+this case Lookup(j) will return the solution S[j] as desired. Equivalently, the memo table M
+is consistent iﬀ each extensional memo is correct and each intensional memo is in agreement
+with its visible ancestors. Here i and k are said to be visible to each other whenever there
+is a directed path from i to its descendant k that goes only through un-memoized (unk)
+items. Thus, calling Compute(k) eventually recurses to Lookup(i) at each visible parent i.
+
+5
+
+Pure Forward Chaining
+
+An alternative solution strategy, forward chaining, propagates updates. We will use it in
+section 6 to solve the update problem. First we present forward chaining in its pure form.
+Pure forward chaining eagerly ﬁlls in the entire chart M, starting at the roots and visiting
+children after their parents. Eventually M converges to S. Forward chaining algorithms
+include natural-order recalculation in spreadsheets [29] and semi-naive bottom-up evaluation
+for Datalog [28]. We use the “tuple-at-a-time” algorithm of Listing 2. It uses an agenda A
+that enqueues future updates to the chart [17, 11]. A contains at most one update for each
+item i, which we denote A[i], and supports modiﬁcation or deletion of this update.3
+3
+
+The agenda can be implemented as a simple dictionary. However, using an adaptable priority queue [14]
+can speed convergence, if one orders the updates topologically or by some informed heuristic [18, 12].
+
+Nathaniel Wesley Filardo and Jason Eisner
+
+Our updates are replacement updates of the form i :
+v (where i ∈ I and v ∈ V).4
+Iteratively, until the agenda is empty, our forward chaining algorithm pops (selects and
+removes) any update i :
+v from the agenda, and applies it to the chart by setting
+M[i] ← v. The algorithm then propagates this update to i’s children, by pushing an
+appropriate update j :
+w onto the agenda for each child j. This push operation overwrites
+any previous update to j, so we write it as A[j] ←
+w.
+The new value w is obtained by Compute(j), meaning it is recomputed from the values at
+j’s parents (including the changed value at i). If M[j] already had value w, the update is
+immediately discarded and does not propagate further. Ordinarily, w is Computed in line 9
+when the update is constructed and pushed. But if line 9 is optionally skipped, the update
+speciﬁes w as unk, meaning to compute the new value only when the update is popped and
+actually applied (line 4). Such a refresh update j :
+unk may be abbreviated as j :
+5
+and simply says to refresh j’s value so it is consistent. In any case, an inconsistent item
+always has an update pending on the agenda, which will eventually make it consistent.6
+Figure 2 shows one step of pure forward chaining. In our visual notation for circuits, we
+M[i], where i (if present) names the item, fi is the item’s
+draw the state of item i as i : fi
+function (or • if i ∈ Iext ), and M[i] is the current memo if any. If an update to i is waiting
+on the agenda, we display it over i’s line as i : fi v M[i], omitting the new value v if it is
+unk. Since information ﬂows downward in our drawings, being above i’s line indicates that
+the update has yet to be applied to M[i]. (In section 6.1 we will introduce a below-the-line
+notation.) Our textual update notation i :
+v is intended to resemble the drawing.
+The process can be started from any total (unk-free) initial chart M, provided that the
+initial agenda A is suﬃcient to correct any inconsistencies in this M. A is always suﬃcient if
+it updates every item: so the conservative initialization strategy deﬁnes each A[i] to be
+i:
+S[i] for extensional i, and either j :
+Compute(j) or j :
+for intensional j. However,
+just as Listings 2–3 discard unnecessary updates, we can also omit as unnecessary any initial
+updates to items that are consistent in the initial M. So we may wish to choose our initial
+M to be mostly consistent. For example, under the null initialization strategy, we
+initialize M[i] to a special value null ∈ V for all i ∈ I. Provided that each function fj
+outputs null whenever all its inputs are null, each intensional j is initially consistent and
+hence requires no initial update.7
+The user method Query(j) is now deﬁned as RunAgenda(); return Lookup(j). This runs
+the agenda to completion and then returns M[j]. As for the user method Update(i, v), the
+user is permitted to call Listing 3 in this case, thereby pushing a new update onto the
+agenda. Forward chaining processes all such updates at the start of the next query. This
+4
+5
+
+6
+7
+
+It will be explained shortly why an underline appears in the notation for this type of update.
+Why are there two kinds of updates? Both have potential advantages. Refresh updates ensure that j
+is only recomputed once, even if the parents change repeatedly before the update pops. On the other
+hand, ordinary updates have the chance of being discarded immediately, which avoids the expense
+of pushing and popping any update at all; and if they are not discarded, their priority order can be
+aﬀected by knowledge of w. Later algorithms in this paper cache item values temporarily, with the
+result that the cost of computing w may vary depending on when Compute(j) is called. Finally, delta
+updates (section 7) must be computed at push time.
+A consistent item might also have an update pending—a refresh that is not yet known to be unnecessary.
+In a logic programming setting, updating M[j] from null to non-null may be regarded as “proving j.”
+Forward chaining proves the extensional items from the initial agenda, and then propagation causes it to
+prove some or all of the intensional items. In unweighted logic programming, null may be interpreted as
+“not proven” and identiﬁed with false. Both and and or functions then have the necessary property.
+Similarly, in weighted logic programming, null means “no proven value.” Here Dyna [9] again uses
+functions that guarantee the necessary property, by extending arithmetic functions (which generalize
+and) as well as aggregation functions (which generalize or) over the domain that includes null.
+
+5
+
+6
+
+A Flexible Solver for Finite Arithmetic Circuits
+
+does not require recomputing the whole circuit.
+It may be instructive at this point to contemplate the physical storage of the map M :
+I → V ∪ {unk} (where null ∈ V). A large circuit may be compactly represented by a much
+smaller logic program (section 2). In this case one might also hope to store M compactly
+in space o(|I|), using a sparse data structure such as a hash table. The “natural” storage
+strategy is to treat unk as the default value in the case of backward chaining, but to treat
+null as the default value in the case of forward chaining. In each case this means that
+initialization is fast because intensional items are not initially stored. Backward chaining
+then adds items to the hash table only if they are queried (and memoized), while forward
+chaining adds them only if they are provable (see footnote 7). The ﬁnal storage size of
+M may diﬀer in these two cases owing to the diﬀerent choice of default. It can be more
+space-eﬃcient—particularly in our hybrid strategy below—to choose diﬀerent defaults for
+diﬀerent types of items, reﬂecting the fact that some type of item is “usually” unk or null
+(or even 0). One stores the pair (i, M[i]) only when M[i] diﬀers from the default for i. The
+datatype used to store M[i] does not need to be able to represent the default value.
+
+6
+
+Mixed Chaining With Selective Memoization
+
+Both pure algorithms above are fully reactive, but sometimes ineﬃcient. Backward chaining
+may redo work. Forward chaining requires storage for all items, and updates fully before
+answering a query. Yet each has advantages. Backward chaining visits only the nodes that
+are needed for a given query; forward chaining visits only the nodes that need updating.
+A hybrid algorithm should combine the best of both, visiting nodes only as necessary
+and using M to materialize some useful subset of them. Our core insight is that
+The job of backward chaining is to compute values for which the memo is missing (unk).
+The job of forward chaining is to refresh any memos that are present but potentially stale.
+Pure backward chaining is the case where all memos are missing. So a query triggers a
+cascade of backward computation; but forward chaining is unnecessary (no stale memos).
+Pure forward chaining is the dual case where all memos are present. So an initial or
+subsequent update triggers a cascade of forward computation; but backward chaining is
+unnecessary (no missing memos). We regard the arbitrarily initialized chart of section 5
+as a complete but potentially stale memo table.
+We will develop a hybrid algorithm that can memoize any subset of the intensional items.
+This subset can change over time: memos are optionally created while answering queries
+by backward chaining, and can be freely created or ﬂushed at any time. Why bother?
+Computing only values that are needed for a given query can reduce asymptotic time and
+space requirements, a fact exploited by the magic sets technique [25]. Furthermore, materializing some or all of these values only temporarily can reduce the cost of storing and
+maintaining many memos. For example, [30] thereby solve the arithmetic circuit for the
+forward-backward algorithm in O(log n) rather than O(n) space, while increasing runtime
+only from O(n) to O(n log n).
+
+6.1
+
+Updates vs. Notiﬁcations
+
+The essential (and novel) challenge here is to make forward chaining work with an incomplete
+memo table M. Intuitively, we merely need to propagate updates as usual down through
+unmemoized regions of the circuit, so that they reach and refresh any stale memos below.
+
+Nathaniel Wesley Filardo and Jason Eisner
+
+7
+
+However, updates in such a region have a diﬀerent nature. When we update the memo
+for an item i, each visible unmemoized descendant j remains consistent (in the terminology
+of section 4). After all, the result of calling Lookup(j) would already reﬂect the change to i.
+Thus, what we propagate to j is not really an update but a notiﬁcation. It does not
+say “change the value of j,” but rather “the value of j has already [implicitly] changed.”
+Crucially, this notiﬁcation must be propagated to the descendants of j. When it ﬁnally
+reaches i’s visible memoized descendants k—which became inconsistent the moment that i’s
+memo was updated—it will trigger updates there to repair the inconsistencies.8
+The agenda A now contains two kinds of messages: A[j] may be either an update to j
+or a notiﬁcation from j. Recall from section 5 that an update to j is graphically displayed
+above the line. A notiﬁcation from j is drawn as j : f
+, with the change displayed below
+the line to indicate that it has already descended through item j. In this paper, the change
+is always a replacement by an unspeciﬁed (unk) value, written textually as j : .9
+
+6.2
+
+Push-Time Updates and Invalidations
+
+The resulting code is shown in Figure 3. Our code also takes the opportunity to exploit
+notiﬁcations even for memoized items. In the old Listing 3, Update(j, w) always enqueued
+j :
+w for later. Our new Update(j, w) in Listing 4 can still choose that option provided
+that j is memoized (Line 4:8, a pop-time update), but its default is to Apply the update
+immediately (Line 4:14, a push-time update). If so, it pushes only the notiﬁcation j :
+and there is no need to Apply the update at pop time. What does still happen at pop time
+is propagation: it is not until we pop an update or a notiﬁcation to j (Line 5:5) that we
+visit j’s children (Line 6:2).10
+What happens if Line 6:4 is optionally skipped (so that w =
+
+unk)?
+
+Then the resulting
+
+Update is a refresh update as before (section 5) if processed at pop time. However, if processed
+
+at push time, it is an invalidation update that deletes a memo instead of correcting it.
+Propagating invalidations can clear out stale portions of the chart at lower computational
+cost. Separately, the Flush method can also be called by the user or by FreelyManipulateM
+(Listing 5) to delete individual memos without the need to propagate.
+Like the forward chaining algorithm, the hybrid algorithm may start from any initial
+chart M—but intensional items j now have the option of M[j] = unk. The initial agenda
+does not contain any notiﬁcations, but as before, it must include enough updates to correct
+any inconsistencies in the initial chart. Since unmemoized intensional unk items are always
+consistent by deﬁnition (section 4), the initial agenda never needs to have updates for them.
+For example, the unk initialization strategy initializes just as in backward chaining
+(section 3), with extensional items set correctly and everything else initially unk.
+8
+
+This algorithm has a more complicated invariant than that of section 5: When k is inconsistent, the
+agenda contains either an update at k (as in section 5) or a notiﬁcation at some visible ancestor of k.
+9
+However, in general, any change that can appear in an update could appear in a notiﬁcation, e.g., a
+more speciﬁc replacement
+w, or a delta ⊕ w (see section 7).
+10
+Why allow both pop-time and push-time updates? Pop-time updates are required for correctness in
+certain settings involving delta updates (section 7). Also, pop-time updates include refresh updates,
+which are useful in avoiding premature computation of the new value w (footnote 5). On the other
+hand, push-time updates ensure fresher lookup results by immediately updating M[j] to a new value
+(or invalidating it to unk). If the same update is deferred to pop time, then any calls to Lookup(j)
+while the update is waiting on the agenda will unfortunately get a stale memo for j, resulting in stale
+descendants that must be updated after the update pops.
+
+8
+
+A Flexible Solver for Finite Arithmetic Circuits
+
+6.3
+
+Correctness: Avoiding A Subtle Bug
+
+Returning to the setting of section 6.1, again suppose that i was updated, making its descendant k inconsistent, and that j is an unmemoized intermediate item on an i-to-k path.
+Updating some other visible descendant of j (i.e., other than k) may cause j to get
+recursively looked up and optionally memoized before its notiﬁcation arrives. If j gets
+memoized, it will receive an update rather than a notiﬁcation. But the Compute(j) that
+computes the update value will get the same answer as the Compute(j) that computed the
+memo. That is, the memo M[j] was not stale but already reﬂected the change to i. This
+causes a subtle bug: forward chaining will discard the apparently unnecessary update, rather
+than propagating it on downward to k. Thus, k may remain inconsistent forever.
+To prevent this bug, memoizing j must also enqueue a notiﬁcation that the memo at j
+has been updated. The correct behavior is illustrated in Figure 4. This notiﬁcation reﬂects
+the past update to i; it restores the invariant mentioned in footnote 8, and it will propagate
+down to k as desired. Such a notiﬁcation must be enqueued when memoizing any item j
+such that Compute(j) recursed to some item that had a notiﬁcation on the agenda. The
+functions in Listing 7 return (as a second value) a ﬂag that is true if this condition holds,
+and enqueue the required notiﬁcation at Line 7:22.
+
+6.4
+
+Eﬃciency: Obligation Tracking
+
+Recall our challenge in section 4: backward chaining with optional memoization was a good
+algorithm, but to support Update, we needed change propagation to refresh stale memos.
+In our hybrid algorithm, we can use the unk initialization strategy (section 6.2) to recover
+backward chaining. Change propagation will now be handled correctly.
+Unfortunately, our propagation of notiﬁcation through unmemoized regions is overly aggressive. For example, if no intensional items have been memoized, then change propagation
+should be completely unnecessary—this is the pure backward chaining case of section 4—
+and yet our algorithm will visit all descendants of an Updated item! Our method visits all
+children of an updated item to check whether they too may need updating. In pure forward
+chaining, we can stop propagating (discard the update) at a child whose value is consistent;
+but for an unk child the value is unknown, so we conservatively keep propagating.
+In general, we should propagate down along an edge only when this may eventually reach
+a memoized descendant. This requires obligation tracking: for every item in the circuit,
+we desire to know if it has descendant memos which must be visited if its value changes.
+We deﬁne the predicate obl(A[i] , j) (used on Line 6:2) to mean that i is obligated to
+inform its child j of the update A[i]. By deﬁnition, this is so if j is memoized or is in turn
+obligated to any of j’s children. As a result, obligation of items in an arithmetic circuit
+C is naturally expressed as a boolean circuit Cobl that determines transitive reachability.
+Roughly speaking, Cobl has the same topology as C but with the edge direction reversed.
+We can be even more precise about determining obligation. Speciﬁcally, in the recursive
+deﬁnition, i is not obligated to its child j if there is a notiﬁcation at i or a refresh update
+at j. In these cases, j and its descendants are guaranteed to get refreshed anyway, so it is
+not necessary to propagate messages to j from i or its ancestors. One can again express this
+tighter deﬁnition as a boolean circuit Cobl , whose boolean inputs are updated as M and A
+evolve. Line 6:2 then queries this Cobl using our algorithm.
+We can maintain Cobl in turn using (Cobl )obl , or by falling back to a cheaper obligation
+tracking strategy at this stage. For example, obligation tracking is cheap on a circuit that
+uses a memoization and ﬂushing policy such that the memoized items always have memoized
+
+Nathaniel Wesley Filardo and Jason Eisner
+
+Query(i ∈ I)
+RunAgenda()
+(v, ·) ← Lookup(i)
+return v
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+
+% · will be false
+
+Update(j ∈ I, w ∈ V {unk})
+maybe
+if (A[j] = ) ∧ (M[j] = unk) then
+delete A[j]
+if (w = unk) ∨ (M[j] = w) then
+A[j] ←
+w
+return
+% else fall through
+Apply(j, w)
+Flush(j ∈ Iint )
+if A[j] =
+· then A[j] ←
+M[j] ← unk
+Listing 4 User interface methods. (A user
+call to Update must have j ∈ Iext , w ∈ V.)
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+
+Propagate(i ∈ I)
+foreach j ∈ Ci such that obl(A[i] , j)
+w ← unk
+maybe (w, ·) ← Compute(j)
+Update(j, w)
+delete A[i]
+% Convert update to notiﬁcation
+HandleUpdate(i :
+v)
+vcur ← M[i] % will not be unk
+maybe if v = unk then
+(v, ·) ← Compute(i)
+if v = vcur then % else discard
+foreach j ∈ Ci maybe Lookup(j)
+maybe v ← unk
+Apply(i, v)
+Apply(j ∈ Iint , w ∈ V
+M[j] ← w
+A[j] ←
+
+{unk})
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+
+9
+
+RunAgenda()
+until A = ∅
+FreelyManipulateM()
+peek u from A
+case u of
+i:
+→ Propagate(i)
+·:
+· → HandleUpdate(u)
+FreelyManipulateM()
+done ← false
+until done
+foreach i ∈ Iint maybe Lookup(i)
+foreach i ∈ Iint maybe Flush(i)
+maybe done ← true
+Listing 5 Nondeterministic high-level
+control.
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+
+% Derive j’s value from parents
+Compute(j ∈ Iint )
+foreach i ∈ Pj
+(vi , mi ) ← LookupFromBelow(i)
+FreelyManipulateM()
+return (fj ({i → vi | i ∈ Pj }),
+maxi∈Pj mi )
+% Interaction with forward chaining
+LookupFromBelow(i ∈ I)
+mc ← (A[i] = )
+(v, mt ) ← Lookup(i)
+return (v, mc ∨ mt )
+% Derive i’s value from memo or parents
+Lookup(i ∈ I)
+if M[i] = unk then
+return (M[i], false)
+(v,m) ← Compute(i)
+maybe
+M[i] ← v
+if m then A[i] ←
+return (v, m)
+
+Listing 7 Backward chaining internals.
+Listing 6 Forward chaining internals.
+Figure 3 The internals of our initial mixed-chaining algorithm, which combines forward and
+backward reasoning and supports arbitrary Flushes during execution.
+
+parents. In that case, i is obligated to its child j only when j is memoized, which can be
+checked directly without an auxiliary circuit. Also, obligation tracking tolerates one-sided
+error: it is always safe for an obligation query to conservatively return true, which at worst
+just results in unnecessary propagation. This leads to cheap approximate obligation tracking
+strategies, such as always returning true, or coarse-to-ﬁne approximations where the circuits
+C, Cobl , (Cobl )obl , . . . are progressively smaller because a node in one circuit corresponds to a
+set of nodes in the previous circuit and is true if any of them are obligated.
+
+10
+
+A Flexible Solver for Finite Arithmetic Circuits
+• 21 •
+
+
+= PPP =
+PPP 
+'+
+
+=
+
+2 •
+•
+
+
+=S
+=
+SSSS 
+§
+S)
+5
++
+
+=
+5
+4
+
+2 •
+•
+
+
+=
+=
+SSSSS 
+§
+%- +
+
+=
+5
+4
+
+4
+6
+5
+
+Figure 4 Backward chaining may need to enqueue notiﬁcations. After the top left update (“i”)
+at its child, the + item (“j”) is ﬂushed. Backward chaining from
+propagates to a notiﬁcation
+the + item (through un-memoized items) memoizes an up-to-date result of 6. Because backward
+chaining encountered a , the memoization enqueues another
+at the + item, which ensures that
+its child (“k”) will later be updated from 5 to 6.
+
+6.5
+
+Related Work
+
+The recent constraint solver Kangaroo [24] was independently motivated by similar concerns.
+Like us, it mixes backward and forward chaining. In Kangaroo, queries seek out relevant
+updates—the reverse of our obligation approach, in which updates seek out relevant memoized queries. We are more selective about storage than Kangaroo, which stores memos at
+all nodes of the circuit.11 On the other hand, Kangaroo is more selective about runtime.
+While it may have more memos, it updates only stale memos that are relevant to current
+queries, whereas our current algorithm updates all stale memos.
+Previous mixed-chaining algorithms have been simpler. For functional programming,
+Acar et al. [1, 3] answer queries by backward chaining with full memoization; they update
+these memos by forward chaining of replacement updates. The same strategy is used for
+Prolog by Saha and Ramakrishnan [26, 27], who contrast it with the “DRed” strategy that
+forward-chains invalidation updates [16]. The “magic sets” transformation for Datalog [25]
+can be seen as a variant of these strategies. It uses only forward chaining, but restricted to
+items that would have been visited by backward chaining from the given query. All of these
+strategies memoize every computed item. In contrast, we are more economical with space.
+Acar et al. [2] do separately consider selective memoization, but do not handle updates in
+this more challenging case (see section 6). A diﬀerent selective strategy [19] relies primarily
+on unmemoized backward chaining. It ﬁrst performs forward chaining on a given sub-circuit
+to identify and memoize a subset of true values. However, this relies on the special property
+of Datalog that a true node of a sub-circuit is also true in the full circuit.
+We believe that our framework can naturally be extended with richer computational
+strategies (see section 7). This is because it integrates fully selective memoization with a
+mixed chaining strategy, and because it has a general notion of an agenda of pending work,
+which can support a variety of update types, prioritization heuristics, and parallelizations.
+
+7
+
+Extensions
+
+Some of the following extensions to our hybrid algorithm of section 6 are not too diﬃcult.
+We sketch the extensions here, deferring full treatments to a longer version of this paper.
+Richer Vocabulary of Updates For simplicity, this paper has focused on replacement updates i :
+v. However, our prototype of Dyna [11] actually used agenda-based forward
+chaining with delta updates such as i : ⊕ v for some operator ⊕. Applying this update at
+11
+
+Selective memoization is an added reason for mixed chaining. Our forward chaining sometimes invokes
+backward chaining, in order to re-Compute the value of a stale item with an unmemoized parent.
+
+Nathaniel Wesley Filardo and Jason Eisner
+
+pop time increments the old memo M[i] to M[i] ⊕ v. Similarly, Dijkstra’s shortest-path algorithm [7] chooses to use forward chaining with push-time delta updates, which are applied
+immediately and push delta notiﬁcations i : ⊕ v onto the agenda (where ⊕ is min). A delta
+update or notiﬁcation at i is sometimes cheap to propagate to j, compared to a replacement.
+This is because one can sometimes avoid a full call to Compute(j) at Line 6:4—which looks up
+or computes all the parents of j—by exploiting arithmetic properties such as distributivity
+of fj over ⊕, or associativity and commutativity of ⊕ if fj = ⊕.12 Also, associativity and
+commutativity of ⊕ updates can be used to simplify the agenda data structure.
+Circuit Transformation Even replacement updates can sometimes be propagated to j without a full call to Compute(j). Consider the case where fj aggregates a large set of parents Pj
+using an associative binary operator. We can statically or dynamically transform the circuit
+to replace the direct edges from Pj to j with a binary aggregation tree. As this tree is
+just part of the circuit, it can use any strategy. In particular, if we maintain memos at the
+tree’s internal nodes, then we can propagate a change from i ∈ Pj to j in time O(log |Pj |).
+Circuits can also be rearranged into more eﬃcient forms by refactoring arithmetic expressions. It is possible to carry out such rearrangements by transforming the weighted logic
+program from which the circuit is derived [8]. But in principle, one might also rearrange the
+circuit locally as inference proceeds.
+Aborting Backward Chaining by Guessing Our algorithm can be extended to handle cyclic
+arithmetic circuits.13 Pure forward chaining can propagate updates around cycles indeﬁnitely in hopes that the memos will converge [11]. If so, it ﬁnds a ﬁxed-point solution S.
+But backward chaining does not work on the same circuit: it can recurse around the cycles
+forever without ever making progress by creating a memo. The solution is interesting.
+In general, we can interrupt any long backward-chaining recursion—cyclic or otherwise—
+by allowing Compute(j) to optionally guess and return an arbitrary memo for M[j], such as
+null. In this case we must enqueue a refresh update j : . Popping this update later will
+resume backward chaining (i.e., it serves as a continuation) to check that our guess at j is
+consistent with j’s visible ancestors (perhaps now including j itself, cyclically). If not, it will
+use the agenda to propagate a ﬁx by forward chaining (perhaps cyclically until convergence).
+to
+If j is already obligated to any children k, we must also enqueue a notiﬁcation j :
+alert k that guessing M[j] may have changed it from the previous value of Lookup(j). As in
+section 6.3, this notiﬁcation preserves the invariant of footnote 8 at a new memo, avoiding
+the same subtle bug where an update that leaves M[j] unchanged is never propagated to k.
+Fine-Grained Obligation Suppose j is an or node whose parent i has value true, or a ×
+node whose parent i has value 0. As long as i has this value, j is insensitive to its other
+parents, who should not be obligated to propagate their updates to j. This generalizes the
+watched variable trick from the satisﬁability community [22].
+On-Demand Propagation Our current algorithm calls RunAgenda at the start of every
+Query, which refreshes all stale memos—including those that are not relevant to this query.
+This can be especially ineﬃcient for cyclic or inﬁnite circuits. We would prefer to propagate
+only the currently relevant updates, as in Kangaroo [24].
+12
+13
+
+This is slightly tricky when ⊕ is not idempotent, but solved in [11].
+Our current deﬁnition of obligation is overly broad in the cyclic case. It can create self-supporting
+obligation, where updates are unnecessarily propagated around cycles without actually refreshing any
+memos, merely because each item believes it is obligated to the next. Restoring eﬃciency in this case
+has been considered by [20].
+
+11
+
+12
+
+A Flexible Solver for Finite Arithmetic Circuits
+
+Continuous Queries and Snapshots A continuous query of item i in an arithmetic circuit is a request to be notiﬁed (e.g., via callback) whenever Updates have caused Query(i) to
+change. Continuous queries are also used in databases and in functional reactive programming [13, 6]. Some users may also like to be notiﬁed of any updates that reach i as our
+algorithm runs, allowing them to peek at intermediate states M[i].
+Programs We are actively working to extend the algorithms presented here to work not
+on arithmetic circuit descriptions directly but on Prolog-like weighted rules of Datalog with
+Aggregation [15, 5] and Dyna [9]. These programs can describe inﬁnite generalized arithmetic circuits with value-dependent structure and with inﬁnite fan-in or fan-out. A query,
+update, or memo may now be speciﬁed using a pattern that makes it apply to inﬁnitely
+many items. This is the most challenging extension we have discussed.
+
+8
+
+Conclusion
+
+We have developed a dynamic algorithm for solving arithmetic circuits and maintaining the
+solution under updates to the inputs. The solver can smoothly mix backward and forward
+chaining, while selectively memoizing results (and ﬂushing memos). Diﬀerent chaining and
+memoization strategies can be used as needed for diﬀerent parts of the circuit, which does
+not aﬀect correctness but can potentially improve time or space eﬃciency. Our framework
+also provides a basis for several extensions.
+Acknowledgements This research was funded in part by the JHU Human Language Technology Center of Excellence. We would further like to thank John Blatz for useful early
+discussions, and an anonymous reviewer for calling our attention to Kangaroo [24].
+
+References
+1
+2
+3
+
+4
+5
+
+6
+7
+8
+
+Umut A. Acar, Guy E. Blelloch, and Robert Harper. Adaptive functional programming.
+In Proc. of POPL, pages 247–259, 2002.
+Umut A. Acar, Guy E. Blelloch, and Robert Harper. Selective memoization. In Proc. of
+POPL, pages 14–25, 2003.
+Umut A. Acar and Ruy Ley-Wild. Self-adjusting computation with Delta ML. In Pieter
+W. M. Koopman, Rinus Plasmeijer, and S. Doaitse Swierstra, editors, Advanced Functional
+Programming, volume 5832 of Lecture Notes in Computer Science, pages 1–38. Springer,
+2008.
+A. Borodin and I. Munro. The computational complexity of algebraic and numeric problems.
+Elsevier, 1975.
+Sara Cohen, Werner Nutt, and Alexander Serebrenik. Algorithms for rewriting aggregate queries using views. In Proc. of ADBIS-DASFAA, pages 65–78, London, UK, 2000.
+Springer-Verlag.
+Antony Courtney and Conal Elliott. Genuinely functional user interfaces. In 2001 Haskell
+Workshop, September 2001.
+Edsger W. Dijkstra. A note on two problems in connexion with graphs. Numerische
+Mathematik, 1:269–271, 1959.
+Jason Eisner and John Blatz. Program transformations for optimization of parsing algorithms and other weighted logic programs. In Shuly Wintner, editor, Proc. of FG 2006:
+The 11th Conference on Formal Grammar, pages 45–85. CSLI Publications, 2007.
+
+Nathaniel Wesley Filardo and Jason Eisner
+
+9
+
+10
+
+11
+
+12
+
+13
+14
+15
+16
+
+17
+
+18
+19
+
+20
+
+21
+22
+
+23
+
+24
+
+25
+
+Jason Eisner and Nathaniel W. Filardo. Dyna: Extending Datalog for modern AI. In Tim
+Furche, Georg Gottlob, Oege de Moor, and Andrew Sellers, editors, Datalog 2.0, volume
+(to be published) of LNCS. Springer, 2011.
+Jason Eisner and Nathaniel W. Filardo. Dyna: Extending Datalog for modern AI (full
+version). Technical report, Johns Hopkins University, 2011. Available at dyna.org/
+Publications. A condensed version appeared as [9].
+Jason Eisner, Eric Goldlust, and Noah A. Smith. Compiling comp ling: Weighted dynamic
+programming and the Dyna language. In Proc. of HLT-EMNLP, pages 281–290, Vancouver,
+October 2005. Association for Computational Linguistics.
+Gal Elidan, Ian Mcgraw, and Daphne Koller. Residual belief propagation: Informed
+scheduling for asynchronous message passing. In Proceedings of the 22nd Conference on
+Uncertainty in Artiﬁcial Intelligence, 2006.
+Conal Elliott and Paul Hudak. Functional reactive animation. In International Conference
+on Functional Programming, 1997.
+Michael T. Goodrich and Roberto Tamassia. Data Structures and Algorithms in JAVA.
+Wiley, 1998.
+Sergio Greco. Dynamic programming in datalog with aggregates. IEEE Transactions on
+Knowledge and Data Engineering, 11(2):265–283, 1999.
+Ashish Gupta, Inderpal Singh Mumick, and V. S. Subrahmanian. Maintaining views incrementally. In Peter Buneman and Sushil Jajodia, editors, SIGMOD Conference, pages
+157–166. ACM Press, May 1993.
+Martin Kay. Algorithm schemata and data structures in syntactic processing. In B. J. Grosz,
+K. Sparck Jones, and B. L. Webber, editors, Readings in Natural Language Processing,
+pages 35–70. Kaufmann, Los Altos, CA, 1986. First published in 1980 as Xerox PARC
+Technical Report CSL-80-12 and in the Proceedings of the Nobel Symposium on Text
+Processing, Gothenburg.
+Dan Klein and Christopher D. Manning. A∗ parsing: Fast exact Viterbi parse selection. In
+Proc. of HLT-NAACL, 2003.
+Thomas Labish. Developing a combined forward/backward-chaining system for logic programs in a hybrid expertsystem shell. Master’s thesis, Universität Kaiserlautern, June
+1993. In German.
+Mengmeng Liu, Nicholas E. Taylor, Wenchao Zhou, Zachary G. Ives, and Boon Thau Loo.
+Recursive computation of regions and connectivity in networks. IEEE 25th International
+Conference on Data Engineering, 2009.
+J.W. Lloyd and R.W. Topor. A basis for deductive database systems. The Journal of Logic
+Programming, 2(2):93 – 109, 1985.
+Matthew W. Moskewicz, Conor F. Madigan, Ying Zhao, Lintao Zhang, and Sharad Malik.
+Chaﬀ: Engineering an eﬃcient sat solver. In DAC, pages 530–535, Las Vegas, NV, USA,
+June 2001. ACM.
+Rajeev Motwani, Jennifer Widom, Arvind Arasu, Brian Babcock, Shivnath Babu, Mayur
+Datar, Gurmeet Singh Manku, Chris Olston, Justin Rosenstein, and Rohit Varma. Query
+processing, approximation, and resource management in a data stream management system.
+In CIDR, 2003.
+M. A. Hakim Newton, Duc Nghia Pham, Abdul Sattar, and Michael Maher. Kangaroo:
+An eﬃcient constraint-based local search system using lazy propagation. In 17th International Conference on Principles and Practice of Constraint Programming, pages 645–659,
+Perugia/Italy, September 2011.
+Raghu Ramakrishnan. Magic templates: a spellbinding approach to logic programs. Journal
+of Logic Programming, 11(3-4):189–216, 1991.
+
+13
+
+14
+
+A Flexible Solver for Finite Arithmetic Circuits
+
+26
+27
+
+28
+29
+30
+
+Diptikalyan Saha. Incremental Evaluation of Tabled Logic Programs. PhD thesis, Stony
+Brook University, December 2006.
+Terrance Swift and David Scott Warren. XSB: Extending Prolog with tabled logic programming. CoRR, abs/1012.5123, 2010. Under consideration for publication in Theory
+and Practice of Logic Programming.
+Jeﬀrey D. Ullman. Principles of Database and Knowledge-Base Systems, volume 1. Computer Science Press, 1988.
+Alan G. Yoder and David L. Cohn. Domain-speciﬁc and general-purpose aspects of spreadsheet languages. In Proceedings of the Workshop on Domain-Speciﬁc Languages, 1997.
+G. Zweig and M. Padmanabhan. Exact alpha-beta computation in logarithmic space with
+application to map word graph construction. In Proceedings of ICSLP, 2000.
+
+

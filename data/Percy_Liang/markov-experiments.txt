@@ -1,0 +1,1234 @@
+Methods and Experiments With Bounded Tree-width Markov
+Networks
+Percy Liang, Nathan Srebro
+{pliang,nati}@mit.edu
+MIT Computer Science and Artiﬁcial Intelligence Laboratory, Cambridge, MA 02139, USA
+
+Abstract
+Markov trees generalize naturally to bounded
+tree-width Markov networks, on which exact computations can still be done eﬃciently.
+However, learning the maximum likelihood
+Markov network with tree-width greater than
+1 is NP-hard, so we discuss a few algorithms
+for approximating the optimal Markov network. We present a set of methods for training a density estimator. Each method is speciﬁed by three arguments: tree-width, model
+scoring metric (maximum likelihood or minimum description length), and model representation (using one joint distribution or
+several class-conditional distributions). On
+these methods, we give empirical results on
+density estimation and classiﬁcation tasks
+and explore the implications of these arguments.
+
+1. Introduction
+Density estimation is a useful tool that can be applied
+to a variety of tasks involving inference, classiﬁcation,
+and prediction. The problem is to train a model involving a set of interdependent variables given data
+points drawn from some ﬁxed distribution. Markov
+networks use undirected graphs to explicitly represent
+the dependencies (Pearl, 1997). The qualitative graph
+structure gives an intuitive explanation of the model
+for humans while the quantitative parameters provide
+the model with rigor.
+In general, learning the best model with respect to
+a metric such as Bayesian score is NP-hard (Chickering et al., 1994), but the problem is tractable if
+we restrict our family of models. For instance, Chow
+and Liu (1968) showed that the maximum likelihood
+Preliminary work. Under review by the International Conference on Machine Learning (ICML). Do not distribute.
+
+Markov tree can found exactly in polynomial time.
+Their work has spurred many generalizations that permit more dependencies: mixture trees (Meila & Jordan, 2000), thin junction trees (Bach & Jordan, 2001),
+polytrees (Dasgupta, 1999), and large node Chow-Liu
+trees (Huang et al., 2002a).
+In this paper, we focus on one speciﬁc generalization
+of Chow and Liu (1968)’s work: bounded tree-width
+Markov networks (Srebro, 2000). Learning the maximum likelihood bounded tree-width Markov network
+reduces to the problem of ﬁnding the maximum weight
+hyperforest in a hypergraph, which is NP-hard even for
+tree-width 2. Section 3 discusses various algorithms for
+approximating the maximum hyperforest.
+The maximum likelihood (ML) score is not suitable for
+model selection because it will always add the maximum number of hyperedges to the model. We consider
+using an alternative scoring metric based on minimum
+description length (MDL) (Rissanen, 1987) for regularization.
+If all variables are treated equally, then we would train
+a single joint model over all the variables. But if there
+is a class variable, it might be advantageous to train
+a separate model for each class. In that case, we can
+either force each class-conditional model to have a single shared graph structure or let them have varying
+structures. We consider all three of these model representations.
+Thus, there are three arguments that specify a
+method for training a density estimator: tree-width
+(0, 1, 2, . . .), scoring metric (ML or MDL), and model
+representation (joint, conditional with shared structure, or conditional with free structure). We present
+the ﬁrst set of comprehensive experimental results on
+a large number of empirical data sets for each of these
+methods (Section 6).
+
+2. Bounded tree-width Markov
+networks
+2.1. Overview
+This section reviews bounded tree-width Markov networks (Srebro, 2000). A Markov network associated
+with a graph G speciﬁes a probability distribution PG .
+The n vertices (variables) of G are connected by edges,
+which represent allowable dependencies between variables. A variable v, conditioned on its neighbors, is
+independent of all other variables.
+The distribution PG of the Markov network can be decomposed into the product of potential functions over
+the cliques1 in G:
+φh (xh )
+
+PG (x) =
+
+(1)
+
+h∈Cliques(G)
+
+forest (times a constant). Then to ﬁnd the best khyperforest, we can compute in advance all the weights
+wh of the candidate (≤k)-hyperedges, and feed these
+abstracted weights into an algorithm for ﬁnding the
+maximum weight hyperforest. It is crucial that the
+ˆ
+computation of wh depend only on Ph .
+Finding the best bounded tree-width Markov network
+with respect to a scoring metric reduces to ﬁnding the
+maximum weight hyperforest with the corresponding
+weights. Section 3 will discuss algorithms for ﬁnding
+the maximum weight hyperforest.
+2.2. Weights for likelihood
+ˆ
+The likelihood of PH with respect to P is given by the
+following:
+L(H)
+
+ˆ
+= −D(P
+
+PH )
+
+= EX∼P log PH (X)
+ˆ
+A word about notation: if x is a vector of the values
+of all the variables, then xh is the vector of the values
+of the variables in h. If G is triangulated2 , exact inference and computation of marginal probabilities are
+possible. If the maximum clique size k+1 of G is small,
+then relatively few parameters are necessary to specify
+PG . If these two properties are satisﬁed, then G has
+tree-width k.
+Every tree-width k graph G has a covering khyperforest H whose hyperedges are exactly the cliques
+(not necessarily maximal) in G. From now on, we will
+speak of hyperedges in H rather than cliques in G.
+In that case, each potential function φh can be expressed purely in terms of the marginal probabilities
+over xh , completely independent of the structure and
+marginals elsewhere in the hyperforest in the following
+way:
+Ph (xh )
+φh (xh ) =
+(2)
+h h φh (xh )
+The parameters that specify the Markov network PG =
+PH are the marginal probabilities Ph over the hyperedges h ∈ H. If the hyperforest H is ﬁxed, and
+our data points are drawn independently from some
+ˆ
+ﬁxed target distribution P . The maximum likelihood Markov network PH over H is the one in which
+ˆ
+Ph = Ph for all hyperedges h ∈ H.
+In the following two sections, we show how the two
+scoring metrics, ML and MDL, can be expressed as
+a sum of weights over the hyperedges of a hyper1
+
+A clique is a fully-connected subgraph.
+A graph is triangulated if there are no minimal cycles
+of more than 3 edges.
+2
+
+= EX∼P log
+ˆ
+
+φh (Xh )
+h∈H
+
+=
+
+EXh ∼Ph log φh (Xh )
+ˆ
+h∈H
+
+wh
+h∈H
+
+In the last step, we deﬁned the weight wh of an hyperedge h to be a function of the target marginal probabilities over h. If h is a single vertex v, then wh is
+−H(Pv ), the negative entropy of the marginal probability distribution with respect to variable v. If h is an
+edge {u, v}, then wh is I(Xu ; Xv ) = H(Xu )+H(Xv )−
+H(Xu , Xv ), the mutual information between random
+variables Xu and Xv .
+All weights except those of single vertices are monotone, meaning that the weight of any hyperforest H
+is at least the weight of any sub-hyperforest H ⊂ H.
+The single vertices always have negative weight and
+are included in any hyperforest by default.
+2.3. Weights for minimum description length
+Since the weights for the likelihood scoring metric are
+monotone, the maximum weight hyperforest will always be a hypertree. However, the hypertree may contain more hyperedges than warranted, and is bound to
+overﬁt the data, even though we are already limiting
+the tree-width.
+To regularize the model for model selection, we can
+ﬁnd the bound tree-width Markov network with the
+minimum description length (MDL) (Rissanen, 1987;
+Bouckaert, 1994). The description length of PH with
+
+ˆ
+respect to m data points drawn from P is as follows:
+
+DL(H)
+
+1
+PH ) + NH log m
+2
+1
+PH ) + log m
+Nh
+2
+
+ˆ
+= mD(P
+ˆ
+= mD(P
+
+h∈H
+
+= −m
+
+wh −
+h∈H
+
+h∈H
+
+wh −
+
+= −m
+h∈H
+
+−m
+
+Nh
+log m
+2m
+
+Nh
+log m
+2m
+
+wh
+h∈H
+
+NH is the number of parameters in H, which can be
+decomposed into Nh over all hyperedges h ∈ H. Let
+Nh = NumParams(Ph ) − h h Nh .
+NumParams(Ph ) is the number of parameters needed
+to specify the marginal probabilities of Ph . If h contains d discrete variables, and the variables can take
+on n1 , n2 , . . . , nd diﬀerent values, respectively, then
+d
+NumParams(Ph ) =
+i=1 ni − 1.
+Clearly, minimizing the description length is equivalent to maximizing the weight of the hyperforest. Note
+that these weights wh are no longer monotone, since
+we have introduced a penalty on each hyperedge that
+is related to the number of parameters associated with
+it.
+
+3. Maximum hyperforest algorithms
+Now we turn our attention to ﬁnding the maximum
+weight hyperforest in a hypergraph. For tree-width
+1, the problem is essentially the standard maximum
+spanning tree problem (Cormen et al., 1989). Note
+that if we use MDL, we might have negative weights
+on some edges, in which case we might end up with a
+forest instead of a tree.
+The two most common algorithms for ﬁnding the maximum spanning tree are due to Kruskal and Prim. The
+former takes a global approach by greedily adding the
+maximum weight edge that does not form a cycle. The
+latter takes an incremental approach by starting at a
+vertex and greedily connecting new vertices to the current tree to maximize the weight of the resulting tree.
+3.1. A global algorithm
+Srebro (2000) presents a randomized approximation
+algorithm that ﬁnds a hypertree whose weight is at
+least 1/(8k k!(k + 1)!) times the weight of the optimum
+
+hypertree (assuming weights are monotone). The algorithm ﬁrst approximates the maximum weight windmill farm in the hypergraph. A windmill farm is a special kind of hyperforest, so it can greedily extended by
+adding hyperedges, as long as we maintain acyclicity.
+To facilitate the greedy Kruskal-like extension, (Liang
+& Srebro, 2003) developed a data structure for detecting hypercycles.
+We can consider a simpler algorithm that does the
+greedy extension starting with an empty hyperforest
+instead of a windmill farm. This algorithm has no
+theoretical guarantees. But we tested these two variants on both artiﬁcial and real data and found that in
+practice, the algorithm based on windmill farms performs no better. This is not too surprising given the
+weak lower bound.
+3.2. An incremental algorithm
+Instead of taking a global approach to the problem, consider incrementally constructing a hyperforest3 from some initial hyperedge (Malvestuto, 1991).
+At each iteration of the algorithm, we choose a new
+vertex v to connect to the current hyperforest via a
+hyperedge h, as to maximize the weight of the resulting hyperforest. h must be the union of v and some
+(not necessarily maximal) hyperedge h in the current
+hyperforest. Note that if h is the empty hyperedge,
+the new hyperedge h would just be {v}, which breaks
+away from the current hyperforest. When h is added,
+all sub-hyperedges of h not already in the hyperforest
+must also be added.
+The incremental algorithm has the computational advantage that we do not need to detect hypercycles,
+which is a complicated task. The algorithm always
+maintains a hyperforest, since it is adding hyperedges
+in reverse order of a Graham reduction.
+One might expect that the global algorithm to perform better than the incremental algorithm because
+it makes choices that are in some sense more globally
+wise. But surprisingly, based on empirical evidence,
+exactly the opposite is true.
+Finally, we can incorporate limited backtracking into
+these greedy algorithms to increase quality. Our backtracking variant of the incremental algorithm tries
+each of the 100 heaviest hyperedges as the starting
+hyperedge. It chooses the best resulting hyperforest. This simple modiﬁcation increased the hyperforest
+weight a modest amount. This is the variant that we
+will use from now on.
+3
+
+This hyperforest will always be a hypertree if all
+weights are monotone.
+
+4. Model representation and
+classiﬁcation
+If we are simply want a density estimator and no variable is distinguished as a class variable, then we can
+ﬁnd a joint distribution to model the data using the
+techniques discussed in Section 3. However, in classiﬁcation tasks, the class variable is distinguished. It
+might be beneﬁcial to model each class separately and
+then combine all the class-conditional models into our
+ﬁnal model. For notational purposes, let us split a
+data point x into the class y ∈ Y and the values of all
+other variables z. The three model representations are
+detailed below.
+Joint (J) We model the data directly using a single
+Markov network trained on all our training data:
+P (x) = P (y, z).
+Class-conditional with free structure (Cf ) We
+build a separate model Py (z) for each class
+y using only the data with the corresponding class.
+Our ﬁnal model is described by
+P (x) = P (y, z) = P (y)P (z|y) = P (y)Py (z).
+Each Markov network Py (z) may have a diﬀerent
+structure.
+Class-conditional with shared structure (Cs )
+Like Cf , we build Py (z) for each class, but now,
+we want to enforce that they all have the same
+structure. To accomplish that goal, for each class
+y, we compute the vector of weights wy over all
+hyperedges not involving y. We ﬁnd the best
+shared hyperforest using a convex combination
+of these weights: w =
+Cs is
+y∈Y P (y)wy .
+a compromise between J and Cf in that the
+parameters are speciﬁc to each class, but the
+structure is global.
+We can directly use a probabilistic model as a classiﬁer
+by doing inference on the missing class variable. Given
+input z, we output argmaxy P (y, z). Such a classiﬁer
+has the advantage that if other variables in z have
+missing values, they can be inferred using the same
+machinery.
+Note that for the J representation, only the vertices
+directly connected to the class variable are relevant for
+classiﬁcation.4
+
+5. Related work
+Each method shall be denoted by its three arguments
+as f -R-k, where k is the tree-width, R is the model rep4
+
+These variables are called the Markov blanket.
+
+{MDL,ML}-0-J
+{MDL,ML}-{Cf ,Cs }-0
+ML-Cf -1
+ML-Cs -1
+
+Choose the most common label
+Naive Bayes (NB)
+Chow and Liu (CL)
+Tree-Augmented Naive Bayes (TAN)
+
+Table 1. Relating previous work to our methods.
+
+resentation, and f is the scoring metric. Notice that
+changing an argument aﬀects the complexity (number
+of parameters) of the model: higher tree-width results
+in more complex models than lower tree-width; ML is
+more complex than MDL; Cf is more complex than Cs
+which is more complex than J. The simplest model is
+MDL-0-J, and the most complex model is ML-3-Cf .
+Some of these methods are old news. Three methods
+that have been Table 1 shows how those methods ﬁt
+into our framework.
+Friedman et al. (1997) discusses the three non-trivial
+methods in Table 1 as well as a algorithm that builds
+a Bayesian networks by adding edges based on MDL
+score. An issue with the algorithm is that it would stop
+adding edges if variables were pairwise independent,
+but there are dependencies involving more than two
+variables. Our algorithm considers all k-hyperedges
+at once, so we can capture up to (k + 1)-th order dependencies. Of course, we could still fail if we were
+trying to learn the parity function over all n variables,
+in which case any proper subset of the n variables exhibit independence, but the n variables are dependent.
+Huang et al. (2002a) builds a classiﬁer from ML-kCf . To construct the hyperforest, they ﬁrst ﬁnds the
+maximum likelihood Markov tree and then greedily
+contracts edges into large nodes of maximum size j.
+thus constructing a (2j − 1)-hyperforest. In their experiments, they considered j = 3.
+Semi-naive Bayes models are hyperforests in which all
+the hyperedges intersect at exactly the class variable.
+They form a subset of ML-k-Cs . Huang et al. (2002b)
+uses uses linear programming relaxation to approximate the maximum likelihood model.
+
+6. Experiments
+6.1. Synthetic data: recovering a hidden
+hypertree
+We generated a random tree-width k Markov network
+T ∗ , and we sampled sampled 10,000 data points from
+it (all variables are binary). From this data, we tried
+ﬁnding the best k -hyperforest from the data. For
+k = k, both algorithms were able to recover the hidden hypertree. For k > k, MDL was able to recover
+the structure, while ML overﬁt the data with a model
+whose tree-width was k , whereas the true tree-width
+
+k
+LL
+
+0
+-29.54
+
+1
+-16.89
+
+2
+-15.26
+
+3
+-14.99
+
+4
+-14.75
+
+5
+-14.48
+
+Table 2. Test log-likelihood for ML-k-J on the ALARM
+network. The log-likelihood (negative entropy) of the
+ALARM network is -13.26. Numbers are averaged over
+10 trials.
+
+is k.
+6.2. ALARM network
+In another experiment, we generated a training set
+of 10,000 data points and a test set of 2,000 data
+points using the Bayesian network ALARM (Heckerman et al., 1995). Our goal was to approximate this
+network by using a bounded tree-width Markov network. In this case, ML found a better network than
+MDL. We evaluate the quality of a network by computing the log-likelihood on the held out test data.
+The test log-likelihood increased with the tree-width
+(Table 2).
+6.3. MNIST handwritten digit recognition
+The MNIST data set includes 28 × 28 4-bit grayscale
+pixels, which we downsampled to 14 × 14. We trained
+on the 60,000 examples and tested on the remaining
+10,000. Due to time and space limits, we only tried
+tree-widths 1 and 2. ML-Cf -2 achieves 5.845% classiﬁcation error, while Chow and Liu achieve 6.875%
+error. Here, having a separate model for each class
+(digit) helps because the relationship between pixels
+is diﬀerent for each digit. Indeed, the structures of the
+Markov networks for each digit roughly outlines the
+digit.
+6.4. UCI machine learning data sets
+We tested our algorithm on 28 data sets from the UCI
+machine learning repository (Blake et al., 1998), summarized in Table 3.
+In a preprocessing step, numeric variables that had at
+least 10 distinct values, were discretized into 5 intervals, with each interval containing the same number of
+points.
+Although hyperforests have the ability to deal with
+data points with missing variables, we decided for simplicity to designate “missing” as an ordinary value that
+a variable can take on. We apply smoothing by adding
+a pseudo-count of 0.001 to each possible conﬁguration
+for each hyperedge.
+For each data set, we ran 50 trials, except connect4
+(10 trials) due to time complexity. In each trial, we
+
+Data set
+
+n
+
+adult
+australian
+breast
+car
+connect4
+crx
+dna
+ecoli
+ﬂare
+german
+glass
+heart
+hepatitis
+ionosphere
+iris
+letter
+lymphography
+mushroom
+nursery
+pima
+satimage
+segment
+shuttle
+soybean
+splice
+tic-tac-toe
+vote
+waveform
+wine
+
+15 (6 N, 3 M)
+15 (7 N, 0 M)
+10 (8 N, 1 M)
+7 (0 N, 0 M)
+43 (0 N, 0 M)
+16 (6 N, 7 M)
+181 (0 N, 0 M)
+8 (5 N, 0 M)
+13 (0 N, 0 M)
+21 (3 N, 0 M)
+10 (9 N, 0 M)
+14 (5 N, 0 M)
+20 (6 N, 15 M)
+35 (32 N, 0 M)
+5 (4 N, 0 M)
+17 (16 N, 0 M)
+19 (0 N, 0 M)
+23 (0 N, 1 M)
+9 (0 N, 0 M)
+9 (8 N, 0 M)
+37 (36 N, 0 M)
+20 (16 N, 0 M)
+10 (9 N, 0 M)
+36 (0 N, 34 M)
+61 (0 N, 0 M)
+10 (0 N, 0 M)
+17 (0 N, 16 M)
+22 (21 N, 0 M)
+14 (13 N, 0 M)
+
+m
+
+|Y |
+
+r
+
+48842
+690
+699
+1728
+67557
+690
+3186
+336
+1066
+1000
+214
+270
+155
+351
+150
+20000
+148
+8124
+12960
+768
+6435
+2310
+58000
+683
+3175
+958
+435
+5000
+178
+
+2
+2
+2
+4
+3
+2
+3
+8
+6
+2
+6
+2
+2
+2
+3
+26
+4
+2
+5
+2
+6
+7
+7
+19
+3
+2
+2
+3
+3
+
+8.9
+3.9
+5.2
+3.6
+3.0
+4.9
+2.0
+4.6
+3.7
+4.0
+5.1
+3.6
+3.6
+4.7
+4.6
+6.2
+3.3
+5.2
+3.6
+4.7
+5.0
+4.8
+5.2
+4.2
+4.0
+2.9
+2.9
+4.9
+4.9
+
+Table 3. Statistics about the data sets. n is the total number of variables. In addition, we give the number of numeric variables with at least 10 diﬀerent values (N) and
+the number of variables with missing values (M). m is the
+number of data points, |Y | is the number of classes, r is
+the average number of possible values per variable.
+
+randomly split all the data points into a training set
+containing 90% of the points and a test set containing
+10%. We trained each algorithm on the training set
+and measured 4 values: likelihood on the training set,
+classiﬁcation error on the training set, likelihood on
+the test set, and classiﬁcation error on the test set.
+Tables 4 shows the average log-likelihood of the test set
+over all the data sets; Table 5 shows the classiﬁcation
+error on the test set. In case of a tie, the most simple
+method is chosen.
+To measure overall quality of each method, we averaged the measurements across all datasets (Table 6).
+On the training data, the most complex model family,
+ML-Cf -3, is clearly the best for both maximizing loglikelihood and minimizing classiﬁcation error. However, it overﬁts the data, and performs badly on the
+test data.
+On the test data, MDL generally performed better
+than ML. For maximizing the log-likelihood, Cf is better than J or Cs for every data set (ﬁxing the other
+two method arguments), since Cf allows a more ﬁnegrained modeling of class-speciﬁc dependencies. For
+minimizing classiﬁcation error, Cs outperformed the
+other two representations. Although it can be useful
+to model each class separately, Cf suﬀers because the
+data spread very thin across all the classes. For den-
+
+Method
+
+Data set
+
+Best method
+
+adult
+australian
+breast
+car
+connect4
+crx
+ecoli
+ﬂare
+german
+glass
+heart
+hepatitis
+ionosphere
+iris
+letter
+lymph.
+mushroom
+nursery
+pima
+satimage
+segment
+shuttle
+soybean
+splice
+tic-tac-toe
+vote
+waveform
+wine
+
+MDL-Cs -2
+MDL-J-2
+MDL-Cs -1
+MDL-Cs -1
+ML-Cf -3
+ML-J-1
+MDL-J-2
+MDL-Cf -3
+MDL-J-1
+MDL-J-1
+MDL-J-1
+MDL-Cs -1
+MDL-Cf -1
+MDL-J-1
+ML-Cf -3
+MDL-J-1
+ML-Cf -3
+MDL-Cf -2
+ML-J-1
+ML-Cf -2
+MDL-Cf -3
+ML-Cf -3
+MDL-Cf -1
+ML-Cs -1
+ML-Cs -2
+ML-J-1
+MDL-Cf -2
+MDL-J-1
+
+Best
+
+MDL-Cf -3
+
+CL
+
+TAN
+
+-18.47
+-19.60
+-11.71
+-11.16
+-21.34
+-21.85
+-10.66
+-8.91
+-29.61
+-18.29
+-19.98
+-24.72
+-57.00
+-6.78
+-18.19
+-22.16
+-13.14
+-13.91
+-15.53
+-29.47
+-19.47
+-6.19
+-18.25
+-114.30
+-13.73
+-15.28
+-38.66
+-25.69
+
+-18.47
+-19.87
+-11.71
+-11.18
+-21.46
+-21.96
+-11.26
+-8.91
+-29.83
+-19.54
+-20.09
+-25.10
+-57.00
+-7.14
+-19.41
+-23.36
+-13.89
+-13.91
+-15.72
+-30.81
+-19.47
+-6.27
+-18.29
+-114.62
+-13.97
+-15.77
+-38.66
+-26.24
+
+-18.61
+-20.30
+-12.46
+-11.20
+-22.51
+-23.42
+-12.90
+-9.37
+-30.35
+-23.73
+-22.43
+-31.87
+-58.72
+-6.95
+-19.62
+-27.44
+-16.02
+-13.94
+-15.91
+-30.86
+-19.51
+-6.72
+-21.50
+-114.49
+-14.40
+-15.78
+-38.80
+-33.07
+
+-18.61
+-20.28
+-12.13
+-11.16
+-22.52
+-23.52
+-12.16
+-9.23
+-30.52
+-22.46
+-22.06
+-30.83
+-59.08
+-6.95
+-20.55
+-26.30
+-17.54
+-13.96
+-15.80
+-31.74
+-20.03
+-6.86
+-22.62
+-114.30
+-14.36
+-15.79
+-38.83
+-32.29
+
+Table 4. The test log-likelihood is given for the best
+method out of the ones we tried, MDL-Cf -3 (which had
+the overall best performance), Chow and Liu (CL), and
+Tree-Augmented Naive Bayes (TAN).
+
+Data set
+
+Best family
+
+Best
+
+MDL-Cs -3
+
+CL
+
+TAN
+
+adult
+australian
+breast
+car
+connect4
+crx
+ecoli
+ﬂare
+german
+glass
+heart
+hepatitis
+ionosphere
+iris
+letter
+lymph.
+mushroom
+nursery
+pima
+satimage
+segment
+shuttle
+soybean
+splice
+tic-tac-toe
+vote
+waveform
+wine
+
+MDL-J-3
+MDL-J-1
+MDL-Cs -3
+ML-Cs -3
+ML-Cs -3
+MDL-Cf -1
+MDL-Cs -3
+MDL-J-3
+MDL-Cs -0
+MDL-Cf -3
+MDL-J-3
+ML-J-1
+MDL-Cf -1
+MDL-J-3
+ML-Cf -2
+MDL-Cs -3
+MDL-Cs -3
+ML-Cs -3
+MDL-J-3
+MDL-Cs -3
+ML-Cf -1
+MDL-Cs -3
+MDL-Cf -1
+ML-J-2
+ML-Cs -3
+ML-J-1
+MDL-Cs -3
+MDL-Cf -1
+
+0.15
+0.12
+0.02
+0.02
+0.19
+0.13
+0.15
+0.25
+0.24
+0.33
+0.17
+0.15
+0.08
+0.03
+0.22
+0.18
+0.00
+0.02
+0.24
+0.14
+0.08
+0.02
+0.05
+0.03
+0.08
+0.04
+0.19
+0.02
+
+0.15
+0.13
+0.02
+0.06
+0.19
+0.14
+0.15
+0.26
+0.24
+0.36
+0.18
+0.15
+0.09
+0.04
+0.30
+0.18
+0.00
+0.06
+0.24
+0.14
+0.09
+0.02
+0.07
+0.05
+0.16
+0.07
+0.19
+0.02
+
+0.15
+0.16
+0.03
+0.05
+0.24
+0.20
+0.22
+0.26
+0.28
+0.35
+0.24
+0.16
+0.09
+0.07
+0.27
+0.23
+0.00
+0.05
+0.27
+0.15
+0.08
+0.02
+0.06
+0.05
+0.26
+0.07
+0.19
+0.06
+
+0.15
+0.16
+0.03
+0.05
+0.24
+0.20
+0.22
+0.27
+0.28
+0.41
+0.23
+0.18
+0.09
+0.04
+0.29
+0.36
+0.00
+0.06
+0.26
+0.14
+0.10
+0.02
+0.13
+0.04
+0.23
+0.07
+0.19
+0.06
+
+Table 5. The test classiﬁcation error is given for the best
+method out of the ones we tried, MDL-Cs -3 (which had
+the overall best performance), Chow and Liu (CL), and
+Tree-Augmented Naive Bayes (TAN).
+
+train LL
+
+train error
+
+test LL
+
+test error
+
+ML-Cf -0 (NB)
+ML-Cf -1 (CL)
+ML-Cf -2
+ML-Cf -3
+ML-Cs -1 (TAN)
+ML-Cs -2
+ML-Cs -3
+ML-J-1
+ML-J-2
+ML-J-3
+
+-25.82
+-21.14
+-18.91
+-16.54
+-21.56
+-19.32
+-16.94
+-23.27
+-20.88
+-18.41
+
+0.142
+0.084
+0.051
+0.036
+0.089
+0.063
+0.043
+0.164
+0.130
+0.097
+
+-26.44
+-24.75
+-28.71
+-30.72
+-24.73
+-28.19
+-30.20
+-24.48
+-26.89
+-29.92
+
+0.159
+0.153
+0.206
+0.295
+0.161
+0.243
+0.336
+0.177
+0.175
+0.206
+
+MDL-J-1
+MDL-J-2
+MDL-J-3
+MDL-Cs -1
+MDL-Cs -2
+MDL-Cs -3
+MDL-Cf -1
+MDL-Cf -2
+MDL-Cf -3
+
+-23.61
+-23.02
+-22.92
+-22.46
+-22.31
+-22.27
+-22.05
+-21.90
+-21.87
+
+0.170
+0.155
+0.149
+0.109
+0.106
+0.105
+0.106
+0.102
+0.102
+
+-24.37
+-23.82
+-23.73
+-23.76
+-23.62
+-23.58
+-23.54
+-23.39
+-23.35
+
+0.182
+0.168
+0.163
+0.139
+0.135
+0.134
+0.139
+0.136
+0.137
+
+Table 6. Performance for a few model families averaged
+over all data sets. The best ﬁgures are bolded.
+
+sity estimation, the overall best method is MDL-Cf -3,
+which performed at least as well as TAN and CL on 25
+out of the 28 datasets. For classiﬁcation, the overall
+best method is MDL-Cs -3, which performed at least
+as well as TAN and CL on 21 out of the 28 datasets.
+However, out of the 8 data sets containing at least 5000
+examples, ML-Cf -2 performs better than MDL-Cf -3
+in test log-likelihood (-20.21 versus -20.36), and MDLCf -3 performs better than MDL-Cs -3 (0.127 versus
+0.132). With more data sets, we can aﬀord to transition to more complicated models, from Cs to Cf and
+from MDL to ML.
+The graphical model helps us understand the relationships in data. For example, on the splice data set, the
+variables form a linear sequence of DNA base pairs. It
+is expected that dependencies will be spatially local,
+and the class variable to have interactions mostly with
+the base pairs around the splice site. The hypertree
+structure of ML-J-3 reﬂects this.
+
+7. Discussion
+We introduced several methods by varying the treewidth, scoring metric, and model representation. We
+demonstrated how Markov networks with tree-width 2
+and 3 can improve performance in both density estimation and classiﬁcation. Increasing tree-width allows us
+to capture more dependencies between the variables,
+but can lead to overﬁtting with the ML scoring metric.
+MDL largely prevents this problem.
+We could also consider Bayesian model averaging as it
+is applied in Meila and Jordan (2000; 2003) to trees.
+We can formulate a decomposable prior over hypertrees as for trees. To further improve density estimation and classiﬁcation performance, we may wish to
+
+model continuous variables with a Gaussian distribution (Friedman et al., 1998), and use inference to ﬁll
+in the missing values of query points prior to classiﬁcation.
+As we increase tree-width in order to model the data
+more accurately, we pay a severe penalty. The time
+and space complexity of our algorithm increases exponentially with the tree-width. From m data points, we
+construct a complete k-hypergraph of all O(nk+1 ) candidate hyperedges. A major bottleneck is constructing this hypergraph from the data, which requires
+O(mnk+1 ) time. Pelleg and Moore (2002) suggests
+sampling a small portion of the training data to get
+an initial estimate of edge weights and sampling more
+data to reﬁne the estimate as necessary. They showed
+that it drastically reduces the running time while sacriﬁcing a little quality. Adapting this technique to hypertrees would bring bounded tree-width Markov networks closer to the practicality of Chow and Liu, while
+also allowing us to explore higher tree-width.
+
+References
+Bach, F., & Jordan, M. (2001). Thin junction trees.
+Advances in Neural Information Processing Systems.
+Blake, C., Keogh, E., & Merz, C. (1998). Uci repository of machine learning databases.
+Bouckaert, R. R. (1994). Minimum description length
+principle.
+Cerquides, J., & de Mantaras, R. (2003). Tractable
+bayesian learning of tree augmented naive bayes
+classiﬁers.
+Chickering, D. M., Geiger, D., & Heckerman, D.
+(1994). Learning bayesian networks is np-hard
+(Technical Report MSR-TR-94-17). Microsoft Research.
+Chow, C. K., & Liu, C. N. (1968). Approximating
+discrete probability distributions with dependence
+trees. IEEE Transactions on Information Theory,
+IT-14, 462–467.
+Cormen, T. H., Leiserson, C. E., & Rivest, R. L.
+(1989). Introduction to algorithms. MIT Press.
+Dasgupta, S. (1999). Learning polytrees. Proceedings
+of the Conference on Uncertainty in Artiﬁcial Intelligence.
+Friedman, N., Geiger, D., & Goldszmidt, M. (1997).
+Bayesian network classiﬁers. Machine Learning, 29,
+131–163.
+
+Friedman, N., Goldszmidt, M., & Lee, T. J. (1998).
+Bayesian network classiﬁcation with continuous attributes: getting the best of both discretization and
+parametric ﬁtting. Proceedings of the 15th International Conference on Machine Learning (pp. 179–
+187). Morgan Kaufmann, San Francisco, CA.
+Heckerman, D., Geiger, D., & Chickering, D. (1995).
+Learning bayesian networks: the combination of
+knowledge and statistical data. 20(3), 197–243.
+Huang, K., King, I., & Lyu, M. (2002a). Constructing
+a large node chow-liu tree based on frequent itemsets. Proceedings of the International Conference on
+Neural Information Processing.
+Huang, K., King, I., & Lyu, M. R. (2002b). Learning maximum likelihood semi-naive bayesian network classiﬁer.
+Liang, P., & Srebro, N. (2003). A dynamic data structure for checking hyperacyclicity (Technical Report).
+Massachusetts Institute of Technology.
+Malvestuto, F. M. (1991). Approximating discrete
+probability distributions with decomposable models.
+IEEE Transactions on Systems, Man and Cybernetics, 21, 1287–1294.
+Meila, M., & Jordan, M. (2000). Learning with mixtures of trees. Journal of Machine Learning Research, 1, 1–48.
+Pearl, J. (1997). Probabilistic reasoning in intelligent
+systems. Morgan Kaufmann Publishers. Revised
+second printing edition.
+Pelleg, D., & Moore, A. (2002). Using tarjan’s red rule
+for fast dependency tree construction (Technical Report CMU-CS-02-116). Carnegie Mellon University.
+Rissanen, J. (1987). Stochastic complexity. J. Royal
+Statistical Society, Series B, 49, 223–239.
+Srebro, N. (2000). Maximum likelihood markov networks: An algorithmic approach. Master’s thesis,
+Massachusetts Institute of Technology.
+
+

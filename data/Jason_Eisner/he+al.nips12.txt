@@ -1,0 +1,900 @@
+Imitation Learning by Coaching∗
+
+Jason Eisner
+Department of Computer Science
+Johns Hopkins University
+Baltimore, MD 21218
+jason@cs.jhu.edu
+
+ee
+di
+ng
+s
+
+He He Hal Daumé III
+Department of Computer Science
+University of Maryland
+College Park, MD 20740
+{hhe,hal}@cs.umd.edu
+
+Abstract
+
+1
+
+epr
+oc
+
+Imitation Learning has been shown to be successful in solving many challenging
+real-world problems. Some recent approaches give strong performance guarantees by training the policy iteratively. However, it is important to note that these
+guarantees depend on how well the policy we found can imitate the oracle on the
+training data. When there is a substantial difference between the oracle’s ability and the learner’s policy space, we may fail to ﬁnd a policy that has low error
+on the training set. In such cases, we propose to use a coach that demonstrates
+easy-to-learn actions for the learner and gradually approaches the oracle. By a
+reduction of learning by demonstration to online learning, we prove that coaching can yield a lower regret bound than using the oracle. We apply our algorithm
+to cost-sensitive dynamic feature selection, a hard decision problem that considers a user-speciﬁed accuracy-cost trade-off. Experimental results on UCI datasets
+show that our method outperforms state-of-the-art imitation learning methods in
+dynamic feature selection and two static feature selection methods.
+
+Introduction
+
+pr
+
+Imitation learning has been successfully applied to a variety of applications [1, 2]. The standard
+approach is to use supervised learning algorithms and minimize a surrogate loss with respect to
+an oracle. However, this method ignores the difference between distributions of states induced by
+executing the oracle’s policy and the learner’s, thus has a quadratic loss in the task horizon T . A
+recent approach called Dataset Aggregation [3] (DAgger) yields a loss linear in T by iteratively
+training the policy in states induced by all previously learned policies. Its theoretical guarantees
+are relative to performance of the policy that best mimics the oracle on the training data. In difﬁcult
+decision-making problems, however, it can be hard to ﬁnd a good policy that has a low training error,
+since the oracle’s policy may resides in a space that is not imitable in the learner’s policy space. For
+instance, the task loss function can be highly non-convex in the learner’s parameter space and very
+different from the surrogate loss.
+When the optimal action is hard to achieve, we propose to coach the learner with easy-to-learn
+actions and let it gradually approach the oracle (Section 3). A coach trains the learner iteratively in a
+fashion similar to DAgger. At each iteration it demonstrates actions that the learner’s current policy
+prefers and have a small task loss. The coach becomes harsher by showing more oracle actions
+as the learner makes progress. Intuitively, this allows the learner to move towards a better action
+without much effort. Thus our algorithm achieves the best action gradually instead of aiming at an
+impractical goal from the beginning. We analyze our algorithm by a reduction to online learning
+and show that our approach achieves a lower regret bound than DAgger that uses the oracle action
+(Section 3.1). Our method is also related to direct loss minimization [4] for structured prediction
+and methods of selecting oracle translations in machine translation [5, 6] (Section 5).
+∗
+
+This material is based upon work supported by the National Science Foundation under Grant No. 0964681.
+
+1
+
+Our approach is motivated by a formulation of budgeted learning as a sequential decision-making
+problem [7, 8] (Section 4). In this setting, features are acquired at a cost, such as computation
+time and experiment expense. In dynamic feature selection, we would like to sequentially select a
+subset of features for each instance at test time according to a user-speciﬁed accuracy-cost trade-off.
+Experimental results show that coaching has a more stable training curve and achieves lower task
+loss than state-of-the-art imitation learning algorithms.
+Our major contribution is a meta-algorithm for hard imitation learning tasks where the available
+policy space is not adequate for imitating the oracle. Our main theoretical result is Theorem 4 which
+states that coaching as a smooth transition from the learner to the oracle have a lower regret bound
+than only using the oracle.
+
+2
+
+Background
+
+In a sequential decision-making problem, we have a set of states S, a set of actions A and a policy
+space Π. An agent follows a policy π : S → A that determines which action to take in a given
+state. After taking action a in state s, the environment responds by some immediate loss L(s, a).
+We assume L(s, a) is bounded in [0, 1]. The agent is then taken to the next state s according to the
+transition probability P (s |s, a). We denote dt the state distribution at time t after executing π from
+π
+time 1 to t − 1, and dπ the average distribution of states over T steps. Then the T -step expected
+T
+loss of π is J(π) =
+t=1 Es∼dt [L(s, π(s)] = T Es∼dπ [L(s, π(s))]. A trajectory is a complete
+π
+sequence of s, a, L(s, a) tuples from the starting state to a goal state. Our goal is to learn a policy
+π ∈ Π that minimizes the task loss J(π). We assume that Π is a closed, bounded and non-empty
+convex set in Euclidean space; a policy π can be parameterized by a vector w ∈ Rd .
+In imitation learning, we deﬁne an oracle that executes policy π ∗ and demonstrates actions a∗ =
+s
+arg min C(s, a) in state s, where C(s, a) is the oracle’s measure of the quality of a given s, for
+a∈A
+
+example, the Q-value of the state-action pair. The learner only attempts to imitate the oracle’s
+behavior without any notion of the task loss function. Thus minimizing the task loss is reduced to
+minimizing a surrogate loss with respect to the oracle’s policy.
+2.1
+
+Imitation by Classiﬁcation
+
+A typical approach to imitation learning is to use the oracle’s trajectories as supervised data and learn
+a policy (multiclass classiﬁer) that predicts the oracle action under distribution of states induced
+by running the oracle’s policy. At each step t, we collect a training example (st , π ∗ (st )), where
+π ∗ (st ) is the oracle’s action (class label) in state st . Let (π(s), π ∗ (s)) denote the surrogate loss of
+executing π in state s with respect to π ∗ (s). This can be any convex loss function used for training
+the classiﬁer, for example, hinge loss in SVM. Using any standard supervised learning algorithm,
+we can learn a policy
+π = arg min Es∼dπ∗ [ (π(s), π ∗ (s))].
+ˆ
+(1)
+π∈Π
+
+We then bound J(ˆ ) based on how well the learner imitates the oracle. Assuming (π(s), π ∗ (s)) is
+π
+an upper bound on the 0-1 loss and L(s, a) is bounded in [0,1], Ross and Bagnell [9] have shown
+that:
+Theorem 1. Let Es∼ dπ∗ [ (ˆ (s), π ∗ (s))] = , then J(ˆ ) ≤ J(π ∗ ) + T 2 .
+π
+π
+One drawback of the supervised approach is that it ignores the fact that the state distribution is
+different for the oracle and the learner. When the learner cannot mimic the oracle perfectly (i.e.
+classiﬁcation error occurs), the wrong action will change the following state distribution. Thus the
+learned policy is not able to handle situations where the learner follows a wrong path that is never
+chosen by the oracle, hence the quadratically increasing loss. In fact in the worst case, performance
+can approach random guessing, even for arbitrarily small [10].
+Ross et al. [3] generalized Theorem 1 to any policy that has surrogate loss under its own state
+distribution, i.e. Es∼dπ [ (π(s), π ∗ (s))] = . Let Qπ (s, π) denote the t-step loss of executing π in
+t
+the initial state and then running π . We have the following:
+2
+
+∗
+
+∗
+
+Theorem 2. If Qπ −t+1 (s, π) − Qπ −t+1 (s, π ∗ ) ≤ u for all action a, t ∈ {1, 2, . . . , T }, then
+T
+T
+J(π) ≤ J(π ∗ ) + uT .
+It basically says that when π chooses a different action from π ∗ at time step t, if the cumulative cost
+due to this error is bounded by u, then the relative task loss is O(uT ).
+2.2
+
+Dataset Aggregation
+
+The above problem of insufﬁcient exploration can be alleviated by iteratively learning a policy
+trained under states visited by both the oracle and the learner. For example, during training one
+can use a “mixture oracle” that at times takes an action given by the previous learned policy [11].
+Alternatively, at each iteration one can learn a policy from trajectories generated by all previous
+policies [3].
+In its simplest form, the Dataset Aggregation (DAgger) algorithm [3] works as follows. Let
+sπ denote a state visited by executing π. In the ﬁrst iteration, we collect a training set D1 =
+{(sπ∗ , π ∗ (sπ∗ ))} from the oracle (π1 = π ∗ ) and learn a policy π2 . This is the same as the supervised approach to imitation. In iteration i, we collect trajectories by executing the previous policy
+πi and form the training set Di by labeling sπi with the oracle action π ∗ (sπi ); πi+1 is then learned
+on D1 . . . Di . Intuitively, this enables the learner to make up for past failures to mimic the oracle.
+Thus we can obtain a policy that performs well under its own induced state distribution.
+2.3
+
+Reduction to Online Learning
+
+Let i (π) = Es∼dπi [ (π(s), π ∗ (s))] denote the expected surrogate loss of executing π in states
+distributed according to dπi . In an online learning setting, in iteration i an algorithm executes policy
+πi and observes loss i (πi ). It then provides a different policy πi+1 in the next iteration and observes
+i+1 (πi+1 ). A no-regret algorithm guarantees that in N iterations
+1
+N
+
+N
+
+i=1
+
+i (πi ) − min
+π∈Π
+
+1
+N
+
+N
+i (π)
+i=1
+
+≤ γN
+
+(2)
+
+and limN →∞ γN = 0.
+Assuming a strongly convex loss function, Follow-The-Leader is a simple no-regret algorithm. In
+i
+each iteration it picks the policy that works best so far: πi+1 = arg min
+j=1 j (π). Similarly,
+π∈Π
+
+in DAgger at iteration i we choose the policy that has the minimum surrogate loss on all previous
+data. Thus it can be interpreted as Follow-The-Leader where trajectories collected in each iteration
+are treated as one online-learning example.
+Assume that (π(s), π ∗ (s)) is a strongly convex loss in π upper bounding the 0-1
+loss. We denote the sequence of learned policies π1 , π2 , . . . , πN by π1:N . Let N =
+N
+1
+minπ∈Π N i=1 Es∼dπi [ (π(s), π ∗ (s))] be the minimum loss we can achieve in the policy space
+Π. In the inﬁnite sample per iteration case, following proofs in [3] we have:
+∗
+
+∗
+
+Theorem 3. For DAgger, if N is O(uT log T ) and Qπ −t+1 (s, π)−Qπ −t+1 (s, π ∗ ) ≤ u, there exists
+T
+T
+a policy π ∈ π1:N s.t. J(π) ≤ J(π ∗ ) + uT N + O(1).
+This theorem holds for any no-regret online learning algorithm and can be generalized to the ﬁnite
+sample case as well.
+
+3
+
+Imitation by Coaching
+
+An oracle can be hard to imitate in two ways. First, the learning policy space is far from the space
+that the oracle policy lies in, meaning that the learner only has limited learning ability. Second,
+the environment information known by the oracle cannot be sufﬁciently inferred from the state,
+meaning that the learner does not have access to good learning resources. In the online learning
+setting, a too-good oracle may result in adversarially varying loss functions over iterations from the
+learner’s perspective. This may cause violent changes during policy updating. These difﬁculties
+3
+
+Algorithm 1 DAgger by Coaching
+Initialize D ← ∅
+Initialize π1 ← π ∗
+for i = 1 to N do
+Sample T -step trajectories using πi
+Collect coaching dataset Di = {(sπi , arg max λi · scoreπi (sπi , a) − C(sπi , a))}
+a∈A
+
+Aggregate datasets D ← D Di
+Train policy πi+1 on D
+end for
+Return best πi evaluated on validation set
+
+result in a substantial gap between the oracle’s performance and the best performance achievable in
+the policy space Π (i.e. a large N in Theorem 3).
+To address this problem, we deﬁne a coach in place of the oracle. To better instruct the learner, a
+coach should demonstrate actions that are not much worse than the oracle action but are easier to
+achieve within the learner’s ability. The lower an action’s task loss is, the closer it is to the oracle
+action. The higher an action is ranked by the learner’s current policy, the more it is preferred by the
+learner, thus easier to learn. Therefore, similar to [6], we deﬁne a hope action that combines the task
+loss and the score of the learner’s current policy. Let scoreπi (s, a) be a measure of how likely πi
+chooses action a in state s. We deﬁne πi by
+˜
+πi (s) = arg max λi · scoreπi (s, a) − C(s, a)
+˜
+
+(3)
+
+a∈A
+
+where λi is a nonnegative parameter specifying how close the coach is to the oracle. In the ﬁrst
+iteration, we set λ1 = 0 as the learner has not learned any model yet. Algorithm 1 shows the
+training process. Our intuition is that when the learner has difﬁculty performing the optimal action,
+the coach should lower the goal properly and let the learner gradually achieving the original goal in
+a more stable way.
+3.1
+
+Theoretical Analysis
+
+Let ˜i (π) = Es∼dπi [ (π(s), πi (s))] denote the expected surrogate loss with respect to πi . We denote
+˜
+˜
+N ˜
+1
+˜N = N minπ∈Π i=1 i (π) the minimum loss of the best policy in hindsight with respect to hope
+actions. The main result of this paper is the following theorem:
+∗
+
+∗
+
+Theorem 4. For DAgger with coaching, if N is O(uT log T ) and Qπ −t+1 (s, π)−Qπ −t+1 (s, π ∗ ) ≤
+T
+T
+u, there exists a policy π ∈ π1:N s.t. J(π) ≤ J(π ∗ ) + uT ˜N + O(1).
+It is important to note that both the DAgger theorem and the coaching theorem provide a relative
+guarantee. They depend on whether we can ﬁnd a policy that has small training error in each FollowThe-Leader step. However, in practice, for hard learning tasks DAgger may fail to ﬁnd such a good
+policy. Through coaching, we can always adjust λ to create a more learnable oracle policy space,
+thus get a relatively good policy that has small training error, at the price of running a few more
+iterations.
+To prove this theorem, we ﬁrst derive a regret bound for coaching, and then follows the proofs of
+DAgger.
+We consider a policy π parameterized by a vector w ∈ Rd . Let φ : S × A → Rd be a feature map
+describing the state. The predicted action is
+aπ,s = arg max wT φ(s, a)
+ˆ
+
+(4)
+
+a∈A
+
+and the hope action is
+aπ,s = arg max λ · wT φ(s, a) − C(s, a).
+˜
+
+(5)
+
+a∈A
+
+We assume that the loss function : Rd → R is a convex upper bound of the 0-1 loss. Further, it
+can be written as (π(s), π ∗ (s)) = f (wT φ(s, π(s)), π ∗ (s)) for a function f : R → R and a feature
+4
+
+vector φ(s, a) 2 ≤ R. We assume that f is twice differentiable and convex in wT φ(s, π(s)), which
+is common for most loss functions used by supervised classiﬁcation methods.
+It has been shown that given a strongly convex loss function , Follow-The-Leader has O(log N )
+regret [12, 13]. More speciﬁcally, given the above assumptions we have:
+Theorem 5. Let D = maxw1 ,w2 ∈Rd w1 − w2 2 be the diameter of the convex set Rd . For some
+b, m > 0, assume that for all w ∈ Rd , we have |f (wT φ(s, a))| ≤ b and |f (wT φ(s, a))| ≥ m.
+Then Follow-The-Leader on functions have the following regret:
+N
+
+N
+
+− min
+
+i (πi )
+
+π∈Π
+
+i=1
+
+N
+i (π)
+
+i=1
+
+≤
+
+N
+i (πi )
+
+i=1
+
+−
+
+2nb2
+log
+m
+
+≤
+
+i (πi+1 )
+i=1
+
+DRmN
+b
+
++1
+
+To analyze the regret using surrogate loss with respect to hope actions, we use the following lemma:
+N
+N ˜
+N
+N ˜
+Lemma 1.
+i (πi ) − minπ∈Π
+i (π) ≤
+i (πi ) −
+i (πi+1 ).
+i=1
+
+i=1
+
+i=1
+
+N ˜
+i=1 i (πi+1 )
+
+Proof. We prove inductively that
+
+i=1
+
+≤ minπ∈Π
+
+N ˜
+i=1 i (π).
+
+When N = 1, by Follow-The-Leader we have π2 = arg min ˜1 (π), thus ˜1 (π2 ) = minπ∈Π ˜1 (π).
+π∈Π
+
+Assume correctness for N − 1, then
+N
+
+i=1
+
+˜i (πi+1 ) ≤
+
+N −1
+
+˜i (π) + ˜N (πN +1 ) (inductive assumption)
+
+min
+π∈Π
+
+i=1
+
+N −1
+
+N
+
+˜i (πN +1 ) + ˜N (πN +1 ) = min
+
+≤
+
+π∈Π
+
+i=1
+
+The last equality is due to the fact that πN +1 = arg min
+π∈Π
+
+˜i (π)
+i=1
+
+N ˜
+i=1 i (π).
+
+To see how learning from πi allows us to approaching π ∗ , we derive the regret bound of
+˜
+N
+N ˜
+i (πi ) − minπ∈Π
+i=1
+i=1 i (π).
+Theorem 6. Assume that wi is upper bounded by C, i.e. for all i wi 2 ≤ C, φ(s, a) 2 ≤ R and
+|C(s, a) − C(s, a )| ≥ for some action a, a ∈ A. Assume λi is non-increasing and deﬁne nλ as
+. Let max be an upper bound on the loss, i.e. for all i,
+the largest n < N such that λnλ ≥
+2RC
+(πi (s), π ∗ (s)) ≤ max . We have
+i
+N
+
+N
+
+i (πi )
+i=1
+
+− min
+π∈Π
+
+i=1
+
+˜i (π) ≤ 2
+
+max nλ
+
++
+
+2nb2
+log
+m
+
+DRmN
+b
+
++1
+
+Proof. Given Lemma 1, we only need to bound the RHS, which can be written as
+N
+
+N
+i (πi )
+
+i=1
+
+− ˜i (πi )
+
++
+i=1
+
+˜i (πi ) − ˜i (πi+1 ) .
+
+(6)
+
+To bound the ﬁrst term, we consider a binary action space A = {1, −1} for clarity. The proof can
+be extended to the general case in a straightforward manner.
+Note that in states where a∗ = aπ,s , (π(s), π ∗ (s)) = (π(s), π (s)). Thus we only need to consider
+˜
+˜
+s
+situations where a∗ = aπ,s :
+˜
+s
+˜
+i (πi ) − i (πi )
+=
+
+Es∼dπi ( i (πi (s), −1) − i (πi (s), 1)) 1{s : aπi ,s =1,a∗ =−1}
+˜
+s
++Es∼dπi ( i (πi (s), 1) − i (πi (s), −1)) 1{s:˜πi ,s =−1,a∗ =1}
+a
+s
+5
+
+In the binary case, we deﬁne ∆C(s) = C(s, 1) − C(s, −1) and ∆φ(s) = φ(s, 1) − φ(s, −1).
+Case 1
+
+aπi ,s = 1 and a∗ = −1.
+˜
+s
+
+aπi ,s = 1 implies λi wT ∆φ(s) ≥ ∆C(s) and a∗ = −1 implies ∆C(s) > 0. Together we have
+˜
+s
+i
+∆C(s) ∈ (0, λi wT ∆φ(s)]. From this we know that wT ∆φ(s) ≥ 0 since λi > 0, which implies
+i
+i
+aπi = 1. Therefore we have
+ˆ
+p(a∗ = −1, aπi ,s = 1, aπi ,s = 1)
+˜
+ˆ
+s
+= p(˜πi ,s = 1|a∗ = −1, aπi ,s = 1)p(ˆπi , s = 1)p(a∗ = −1)
+a
+ˆ
+a
+s
+s
+∆C(s)
+T
+= p λi ≥ T
+· p(wi ∆φ(s) ≥ 0) · p(∆C(s) > 0)
+wi ∆φ(s)
+≤ p λi ≥
+
+· 1 · 1 = p λi ≥
+
+2RC
+
+Let nλ be the largest n < N such that λi ≥
+
+2RC
+
+2RC
+
+, we have
+
+N
+
+i=1
+
+Es∼dπi ( i (πi (s), −1) − i (πi (s), 1)) 1{s : aπi ,s =1,a∗ =−1} ≤
+˜
+s
+
+max nλ
+
+eN
+For example, let λi decrease exponentially, e.g., λi = λ0 e−i . If λ0 <
+, Then nλ =
+2RC
+2λ0 RC
+log
+.
+Case 2
+bound.
+
+aπi ,s = −1 and a∗ = 1. This is symmetrical to Case 1. Similar arguments yield the same
+˜
+s
+
+In the online learning setting, imitating the coach is to obsearve the loss ˜i (πi ) and learn a policy
+i
+˜
+πi+1 = arg min
+j=1 j (π) at iteration i. This is indeed equivalent to Follow-The-Leader except
+π∈Π
+
+that we replaced the loss function. Thus Theorem 5 gives the bound of the second term.
+Equation 6 is then bounded by 2
+
+max nλ
+
++
+
+2nb2
+log
+m
+
+DRmN
+b
+
++1 .
+
+Now we can prove Theorem 4. Consider the best policy in π1:N , we have
+min Es∼dπ [ (π(s), π ∗ (s))] ≤
+
+π∈π1:N
+
+≤
+
+1
+N
+
+N
+
+Es∼dπi [ (πi (s), π ∗ (s))]
+i=1
+
+˜N +
+
+2
+
+max nλ
+
+N
+
++
+
+2nb2
+log
+mN
+
+DRmN
+b
+
++1
+
+When N is Ω(T log T ), the regret is O(1/T ). Applying Theorem 2 completes the proof.
+
+4
+
+Experiments
+
+We apply imitation learning to a novel dynamic feature selection problem. We consider the setting
+where a pretrained model (data classiﬁer) on a complete feature set is given and each feature has a
+known cost. At test time, we would like to dynamically select a subset of features for each instance
+and be able to explicitly specify the accuracy-cost trade-off. This can be naturally framed as a
+sequential decision-making problem. The state includes all features selected so far. The action space
+includes a set of non-selected features and the stop action. At each time step, the policy decides
+whether to stop acquiring features and make a prediction; if not, which feature(s) to purchase next.
+Achieving an accuracy-cost trade-off corresponds to ﬁnding the optimal policy minimizing a loss
+function. We deﬁne the loss function as a combination of accuracy and cost:
+L(s, a) = α · cost(s) − margin(a)
+6
+
+(7)
+
+where margin(a) denote the margin of classifying the instance after action a; cost(s) denote the
+user-deﬁned cost of all selected features in the current state s; and α is a user-speciﬁed trade-off
+parameter. Since we consider feature selection for each single instance here, the average margin
+reﬂects accuracy on the whole datasets.
+4.1
+
+Dynamic Feature Selection by Imitation Learning
+
+Ideally, an oracle should lead to a subset of features having the maximum reward. However, we
+have too large a state space to exhaustedly search for the optimal subset of features. In addition,
+the oracle action may not be unique since the optimal subset of features do not have to be selected
+in a ﬁxed order. We address this problem by using a forward-selection oracle. Given a state s, the
+oracle iterates through the action space and calculates each action’s loss; it then chooses the action
+that leads to the minimum immediate loss in the current state. We deﬁne φ(st , a) as a concatenation
+of the current feature vector and a meta-feature vector that provides information about previous
+classiﬁcation results and cost.
+In most cases, our oracle can achieve high accuracy with rather small cost. Considering a linear
+classiﬁer, as the oracle already knows the correct class label of an instance, it can simply choose,
+for example, a positive feature that has a positive weight to correctly classify a positive instance. In
+addition, at the start state even when φ(s0 , a) are almost the same for all instances, the oracle may
+tend to choose features that favor the instance’s class. This makes the oracle’s behavior very hard to
+imitate. In the next section we show that in this case coaching achieves better results than using an
+oracle.
+4.2
+
+Experimental Results
+
+We perform experiments on three UCI datasets (radar signal, digit recognition, image segmentation).
+Random costs are assigned to features. We ﬁrst compare the learning curve of DAgger and Coaching
+over 15 iterations on the digit dataset with α = 0.5 in Figure 1(a). We can see that DAgger makes
+a big improvement in the second iteration, while Coaching takes smaller steps but achieves higher
+reward gradually. In addition, the reward of Coaching changes smoothly and grows stably, which
+means coaching avoids drastic change of the policy.
+To test the effect of dynamic selection, we compare our results with DAgger and two static feature selection baselines that sequentially add features according to a ranked list. The ﬁrst baseline
+(denoted by Forward) ranks features according to the standard forward feature selection algorithm
+without any notion of the cost. The second baseline (denoted by |w|/cost) uses a cost-sensitive
+ranking scheme based on |w|/cost, the weight of a feature divided by its cost. Therefore, features
+having high scores are expected to be cost-efﬁcient. We give the results in Figure 1(b) to 1(d). To
+get results of our dynamic feature selection algorithm at different costs, we set α in the loss function
+to be 0.0, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0 and use the best policy evaluated on the development set for
+each α. For coaching, we set λ2 = 1 and decrease it by e−1 in each iteration. First, we can see that
+dynamically selecting features for each instance signiﬁcantly improves the accuracy at a small cost.
+Sometimes, it even achieves higher accuracy than using all features. Second, we notice that there is
+a substantial gap between the learned policy’s performance and the oracle’s, however, in almost all
+settings Coaching achieves higher reward, i.e. higher accuracy at a lower cost as shown in the ﬁgures. Through coaching, we can reduce the gap by taking small steps towards the oracle. However,
+the learned policy is still much worse compared to the oracle’s policy. This is because coaching
+is still inherently limited by the insufﬁcient policy space, which can be ﬁxed by using expensive
+kernels and nonlinear policies.
+
+5
+
+Related Work
+
+The idea of using hope action is similar to what Chiang et al. [6] and Liang et al. [5] have used
+for selecting oracle translations in machine translation. They maximized a linear combination of the
+BLEU score (similar to negative task loss in our case) and the model score to ﬁnd good translations
+that are easier to train against. More recently, McAllester et al. [4] deﬁned the direct label that
+combines model score and task loss from a different view: they showed that using a perceptron-like
+7
+
+1.00
+0.95
+0.90
+
+reward
+
+accuracy
+
+0.55
+
+0.50
+
+0.45
+
+0.85
+0.80
+0.75
+
+|w|/cost
+Forward
+DAgger
+Coaching
+Oracle
+
+0.70
+
+DAgger
+Coaching
+0.40
+0.26
+
+0.28
+
+0.30
+
+0.32
+
+0.34
+
+0.36
+
+average cost per example
+
+0.65
+0.60
+0.0
+
+0.38
+
+0.2
+
+(a) Reward of DAgger and Coaching.
+
+0.4
+
+0.6
+
+average cost per example
+
+0.8
+
+1.0
+
+(b) Radar dataset.
+
+0.9
+0.90
+0.85
+
+accuracy
+
+accuracy
+
+0.8
+
+0.7
+|w|/cost
+Forward
+DAgger
+Coaching
+Oracle
+
+0.6
+
+0.5
+
+0.4
+0.0
+
+0.2
+
+0.4
+
+0.6
+
+average cost per example
+
+0.8
+
+0.80
+0.75
+|w|/cost
+Forward
+DAgger
+Coaching
+Oracle
+
+0.70
+0.65
+0.60
+0.0
+
+1.0
+
+(c) Digit dataset.
+
+0.2
+
+0.4
+
+0.6
+
+average cost per example
+
+0.8
+
+1.0
+
+(d) Segmentation dataset.
+
+Figure 1: 1(a) shows reward versus cost of DAgger and Coaching over 15 iterations on the digit
+dataset with α = 0.5. 1(b) to 1(d) show accuracy versus cost on the three datasets. For DAgger and
+Coaching, we show results when α = 0, 0.1, 0.25, 0.5, 1.0, 1.5, 2.
+training methods and update towards the direct label is equivalent to perform gradient descent on
+the task loss.
+Coaching is also similar to proximal methods in online learning [14, 15]. They avoid large changes
+during updating and achieve the original goal gradually. In proximal regularization, we want the
+updated parameter vector to stay close to the previous one. Do et al. [14] showed that solving the
+original learning problem through a sequence of modiﬁed optimization tasks whose objectives have
+greater curvature can achieve a lower regret bound.
+
+6
+
+Conclusion and Future Work
+
+In this paper, we consider the situation in imitation learning where an oracle’s performance is far
+from what is achievable in the learning space. We propose a coaching algorithm that lets the learner
+target at easier goals ﬁrst and gradually approaches the oracle. We show that coaching has a lower
+regret bound both theoretically and empirically. In the future, we are interested in formally deﬁning
+the hardness of a problem so that we know exactly in which cases coaching is more suitable than
+DAgger. Another direction is to develop a similar coaching process in online convex optimization by
+optimizing a sequence of approximating functions. We are also interested in applying coaching to
+more complex structured prediction problems in natural language processing and computer vision.
+8
+
+References
+[1] P. Abbeel and A. Y. Ng. Apprenticeship learning via inverse reinforcement learning. In ICML,
+2004.
+[2] B. D. Argall, S. Chernova, M. Veloso, and B. Browning. A survey of robot learning from
+demonstration. 2009.
+[3] Stéphane. Ross, Geoffrey J. Gordon, and J. Andrew. Bagnell. A reduction of imitation learning
+and structured prediction to no-regret online learning. In AISTATS, 2011.
+[4] D. McAllester, T. Hazan, and J. Keshet. Direct loss minimization for structured prediction. In
+NIPS, 2010.
+[5] P. Liang, A. Bouchard-Ct, D. Klein, and B. Taskar. An end-to-end discriminative approach to
+machine translation. In ACL, 2006.
+[6] D. Chiang, Y. Marton, and P. Resnik. Online large-margin training of syntactic and structural
+translation features. In EMNLP, 2008.
+[7] D. Benbouzid, R. Busa-Fekete, and B. Kégl. Fast classiﬁcation using space decision DAGs. In
+ICML, 2012.
+[8] G. Dulac-Arnold, L. Denoyer, P. Preux, and P. Gallinari. Datum-wise classiﬁcation: a sequential approach to sparsity. In ECML, 2011.
+[9] Stéphane Ross and J. Andrew Bagnell. Efﬁcient reductions for imitation learning. In AISTATS,
+2010.
+[10] Kääriäinen. Lower bounds for reductions. In Atomic Learning Workshop, 2006.
+[11] Hal Daumé III, John Langford, and Daniel Marcu. Search-based structured prediction. Machine Learning Journal (MLJ), 2009.
+[12] Elad Hazan, Adam Kalai, Satyen Kale, and Amit Agarwal. Logarithmic regret algorithms for
+online convex optimization. In COLT, pages 499–513, 2006.
+[13] Sham M. Kakade and Shai Shalev-shwartz. Mind the duality gap: Logarithmic regret algorithms for online optimization. In NIPS, 2008.
+[14] C. B. Do, Q. Le, and C.S. Foo. Proximal regularization for online and batch learning. In ICML,
+2009.
+[15] H. Brendan Mcmahan. Follow-the-regularized-leader and mirror descent : Equivalence theorems and l1 regularization. JMLR, 15:525–533, 2011.
+
+9
+
+

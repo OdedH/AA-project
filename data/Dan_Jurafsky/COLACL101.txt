@@ -1,0 +1,978 @@
+Semantic Taxonomy Induction from Heterogenous Evidence
+Rion Snow
+
+Daniel Jurafsky
+
+Andrew Y. Ng
+
+Computer Science Department
+
+Linguistics Department
+
+Computer Science Department
+
+Stanford University
+
+Stanford University
+
+Stanford University
+
+Stanford, CA 94305
+
+Stanford, CA 94305
+
+Stanford, CA 94305
+
+rion@cs.stanford.edu
+
+jurafsky@stanford.edu
+
+ang@cs.stanford.edu
+
+Abstract
+
+synonyms (Lin et al., 2003), a variety of verb relations (Chklovski and Pantel, 2004), and general
+purpose analogy relations (Turney et al., 2003).
+Such classiﬁers use hand-written or automaticallyinduced patterns like Such N Py as N Px or N Py
+like N Px to determine, for example that N Py is a
+hyponym of N Px (i.e., N Py IS-A N Px ). While
+such classiﬁers have achieved some degree of success, they frequently lack the global knowledge
+necessary to integrate their predictions into a complex taxonomy with multiple relations.
+Past work on semantic taxonomy induction includes the noun hypernym hierarchy created in
+(Caraballo, 2001), the part-whole taxonomies in
+(Girju, 2003), and a great deal of recent work described in (Buitelaar et al., 2005). Such work has
+typically either focused on only inferring small
+taxonomies over a single relation, or as in (Caraballo, 2001), has used evidence for multiple relations independently from one another, by for example ﬁrst focusing strictly on inferring clusters
+of coordinate terms, and then by inferring hypernyms over those clusters.
+Another major shortfall in previous techniques
+for taxonomy induction has been the inability to
+handle lexical ambiguity. Previous approaches
+have typically sidestepped the issue of polysemy
+altogether by making the assumption of only a single sense per word, and inferring taxonomies explicitly over words and not senses. Enforcing a
+false monosemy has the downside of making potentially erroneous inferences; for example, collapsing the polysemous term Bush into a single
+sense might lead one to infer by transitivity that
+a rose bush is a kind of U.S. president.
+Our approach simultaneously provides a solution to the problems of jointly considering evidence about multiple relationships as well as lexical ambiguity within a single probabilistic framework. The key contribution of this work is to offer
+a solution to two crucial problems in taxonomy in-
+
+We propose a novel algorithm for inducing semantic taxonomies. Previous algorithms for taxonomy
+induction have typically focused on independent
+classiﬁers for discovering new single relationships
+based on hand-constructed or automatically discovered textual patterns. By contrast, our algorithm
+ﬂexibly incorporates evidence from multiple classiﬁers over heterogenous relationships to optimize
+the entire structure of the taxonomy, using knowledge of a word’s coordinate terms to help in determining its hypernyms, and vice versa. We apply our
+algorithm on the problem of sense-disambiguated
+noun hyponym acquisition, where we combine the
+predictions of hypernym and coordinate term classiﬁers with the knowledge in a preexisting semantic taxonomy (WordNet 2.1). We add 10, 000 novel
+synsets to WordNet 2.1 at 84% precision, a relative error reduction of 70% over a non-joint algorithm using the same component classiﬁers. Finally, we show that a taxonomy built using our algorithm shows a 23% relative F-score improvement
+over WordNet 2.1 on an independent testset of hypernym pairs.
+
+1
+
+Introduction
+
+The goal of capturing structured relational knowledge about lexical terms has been the motivating
+force underlying many projects in lexical acquisition, information extraction, and the construction
+of semantic taxonomies. Broad-coverage semantic taxonomies such as WordNet (Fellbaum, 1998)
+and CYC (Lenat, 1995) have been constructed by
+hand at great cost; while a crucial source of knowledge about the relations between words, these taxonomies still suffer from sparse coverage.
+Many algorithms with the potential for automatically extending lexical resources have been
+proposed, including work in lexical acquisition
+(Riloff and Shepherd, 1997; Roark and Charniak,
+1998) and in discovering instances, named entities, and alternate glosses (Etzioni et al., 2005;
+Pasca, 2005). Additionally, a wide variety of
+¸
+relationship-speciﬁc classiﬁers have been proposed, including pattern-based classiﬁers for hyponyms (Hearst, 1992), meronyms (Girju, 2003),
+801
+
+Proceedings of the 21st International Conference on Computational Linguistics and 44th Annual Meeting of the ACL, pages 801–808,
+Sydney, July 2006. c 2006 Association for Computational Linguistics
+
+subsumer (LCS)2 is within exactly m and n links,
+mn
+respectively.3 We use the notation Cij to denote
+that i and j are (m, n)-cousins. Thus coordinate
+terms are (1, 1)-cousins; technically the hypernym
+relation may also be seen as a speciﬁc case of this
+representation; an immediate parent in the hypernym hierarchy is a (1, 0)-cousin, and the k-th ancestor is a (k, 0)-cousin.
+
+duction and hyponym acquisition: the problem of
+combining heterogenous sources of evidence in a
+ﬂexible way, and the problem of correctly identifying the appropriate word sense of each new word
+added to the taxonomy.1
+
+2
+
+A Probabilistic Framework for
+Taxonomy Induction
+
+Taxonomic Constraints
+
+In section 2.1 we introduce our deﬁnitions for taxonomies, relations, and the taxonomic constraints
+that enforce dependencies between relations; in
+section 2.2 we give a probabilistic model for deﬁning the conditional probability of a set of relational
+evidence given a taxonomy; in section 2.3 we formulate a local search algorithm to ﬁnd the taxonomy maximizing this conditional probability; and
+in section 2.4 we extend our framework to deal
+with lexical ambiguity.
+2.1
+
+A semantic taxonomy such as WordNet enforces certain taxonomic constraints which disallow particular taxonomies T. For example, the
+ISA transitivity constraint in WordNet requires
+that each synset inherits the hypernyms of its hypernym, and the part-inheritance constraint requires that each synset inherits the meronyms of
+its hypernyms.
+For the case of hyponym acquisition we enforce
+the following two taxonomic constraints on the
+hypernym and (m, n)-cousin relations:
+
+Taxonomies, Relations, and Taxonomic
+Constraints
+
+1. ISA Transitivity:
+
+We deﬁne a taxonomy T as a set of pairwise relations R over some domain of objects DT . For
+example, the relations in WordNet include hypernymy, holonymy, verb entailment, and many others; the objects of WordNet between which these
+relations hold are its word senses or synsets. We
+deﬁne that each relation R ∈ R is a set of ordered
+or unordered pairs of objects (i, j) ∈ DT ; we deﬁne Rij ∈ T if relationship R holds over objects
+(i, j) in T.
+
+m+n
+m
+n
+Hij ∧ Hjk ⇒ Hik .
+
+2. Deﬁnition of (m, n)-cousinhood:
+mn
+m
+n
+Cij ⇔ ∃k.k = LCS(i, j) ∧ Hik ∧ Hjk .
+
+Constraint (1) requires that the each synset inherits
+the hypernyms of its direct hypernym; constraint
+(2) simply deﬁnes the (m, n)-cousin relation in
+terms of the atomic hypernym relation.
+The addition of any new hypernym relation to a
+preexisting taxonomy will usually necessitate the
+addition of a set of other novel relations as implied
+by the taxonomic constraints. We refer to the full
+set of novel relations implied by a new link Rij as
+I(Rij ); we discuss the efﬁcient computation of the
+set of implied links for the purpose of hyponym
+acquisition in Section 3.4.
+
+Relations for Hyponym Acquisition
+For the case of hyponym acquisition, the objects in our taxonomy are WordNet synsets. In
+this paper we focus on two of the many possible
+relationships between senses: the hypernym relation and the coordinate term relation. We treat the
+hypernym or ISA relation as atomic; we use the
+n
+notation Hij if a sense j is the n-th ancestor of a
+sense i in the hypernym hierarchy. We will simply use Hij to indicate that j is an ancestor of i
+at some unspeciﬁed level. Two senses are typically considered to be “coordinate terms” or “taxonomic sisters” if they share an immediate parent
+in the hypernym hierarchy. We generalize this notion of siblinghood to state that two senses i and
+j are (m, n)-cousins if their closest least common
+
+2.2
+
+A Probabilistic Formulation
+
+We propose that the event Rij ∈ T has some
+prior probability P (Rij ∈ T), and P (Rij ∈
+2
+A least common subsumer LCS(i, j) is deﬁned as a
+synset that is an ancestor in the hypernym hierarchy of both
+i and j which has no child that is also an ancestor of both i
+and j. When there is more than one LCS (due to multiple
+inheritance), we refer to the closest LCS, i.e.,the LCS that
+minimizes the maximum distance to i and j.
+3
+An (m, n)-cousin for m ≥ 2 corresponds to the English
+kinship relation “(m − 1)-th cousin |m − n|-times removed.”
+
+1
+The taxonomies discussed in this paper are available for
+download at http://ai.stanford.edu/∼rion/swn.
+
+802
+
+R
+P (Rij |Eij ) using Bayes Rule, we obtain:
+
+T) + P (Rij ∈ T) = 1. We deﬁne the probability
+of the taxonomy as a whole as the joint probability
+of its component relations; given a partition of all
+possible relations R = {A, B} where A ∈ T and
+B ∈ T, we deﬁne:
+
+P (E|T) =
+Rij ∈T
+
+·
+
+P (T) = P (A ∈ T, B ∈ T).
+
+Rij ∈T
+
+We assume that we have some set of observed evidence E consisting of observed features over pairs
+of objects in some domain DE ; we’ll begin with
+the assumption that our features are over pairs of
+words, and that the objects in the taxonomy also
+correspond directly to words.4 Given a set of feaR
+tures Eij ∈ E, we assume we have some model
+R
+for inferring P (Rij ∈ T|Eij ), i.e., the posterior
+probability of the event Rij ∈ T given the correR
+sponding evidence Eij for that relation. For examH
+ple, evidence for the hypernym relation Eij might
+be the set of all observed lexico-syntactic patterns
+containing i and j in all sentences in some corpus.
+For simplicity we make the following independence assumptions: ﬁrst, we assume that each
+R
+item of observed evidence Eij is independent of
+all other observed evidence given the taxonomy T,
+R
+i.e., P (E|T) = E R ∈E P (Eij |T).
+
+T
+
+2.3
+
+Local Search Over Taxonomies
+
+ˆ
+We propose a search algorithm for ﬁnding T for
+the case of hyponym acquisition. We assume we
+begin with some initial (possibly empty) taxonomy T. We restrict our consideration of possible
+new taxonomies to those created by the single operation A DD -R ELATION(Rij , T), which adds the
+single relation Rij to T.
+We deﬁne the multiplicative change ∆T (Rij )
+to the conditional probability P (E|T) given the
+addition of a single relation Rij :
+
+ij
+
+=
+
+∆T (Rij ) = P (E|T )/P (E|T)
+R
+R
+P (Rij ∈ T|Eij )P (Eij ) P (Rij ∈ T)
+·
+R
+R
+P (Rij ∈ T|Eij )P (Eij ) P (Rij ∈ T)
+
+
+R
+P Rij ∈ T|Eij
+.
+= k
+R
+1 − P Rij ∈ T|Eij
+
+R
+P (Eij |Rij ∈ T) if Rij ∈ T
+R
+P (Eij |Rij ∈ T) if Rij ∈ T
+
+=
+
+H
+For example, if our evidence Eij is a set of observed lexico-syntactic patterns indicative of hypernymy between two words i and j, we assume
+that whatever dependence the relations in T have
+on our observations may be explained entirely by
+dependence on the existence or non-existence of
+the single hypernym relation H(i, j).
+Applying these two independence assumptions
+we may express the conditional probability of our
+evidence given the taxonomy:
+
+Here k is the inverse odds of the prior on the event
+Rij ∈ T; we consider this to be a constant independent of i, j, and the taxonomy T.
+To enforce the taxonomic constraints in T, for
+each application of the A DD -R ELATION operator
+we must add all new relations in the implied set
+I(Rij ) not already in T.5 Thus we deﬁne the multiplicative change of the full set of implied relations as the product over all new relations:
+
+R
+P (Eij |Rij ∈ T)
+
+P (E|T) =
+Rij ∈T
+
+R
+P (Eij |Rij ∈ T).
+
+·
+
+R
+R
+P (Rij ∈ T|Eij )P (Eij )
+.
+P (Rij ∈ T)
+
+Within our model we deﬁne the goal of taxonˆ
+omy induction to be to ﬁnd the taxonomy T that
+maximizes the conditional probability of our observations E given the relationships of T, i.e., to
+ﬁnd
+ˆ
+T = arg max P (E|T).
+
+Further, we assume that each item of observed
+R
+evidence Eij depends on the taxonomy T only by
+way of the corresponding relation Rij , i.e.,
+R
+P (Eij |T)
+
+R
+R
+P (Rij ∈ T|Eij )P (Eij )
+P (Rij ∈ T)
+
+∆T (I(Rij )) =
+
+Rij ∈T
+
+∆T (R).
+R∈I(Rij )
+
+Rewriting the conditional probability in terms
+of our estimates of the posterior probabilities
+
+5
+
+For example, in order to add the new synset
+microsoft under the noun synset company#n#1
+in WordNet 2.1, we must necessarily add the
+new
+relations
+H 2 (microsof t, institution#n#1)
+C 11 (microsof t, dotcom#n#1), and so on.
+
+4
+In section 2.4 we drop this assumption, extending our
+model to manage lexical ambiguity.
+
+803
+
+3 Extending WordNet
+
+This deﬁnition leads to the following best-ﬁrst
+search algorithm for hyponym acquisition, which
+at each iteration deﬁnes the new taxonomy as the
+union of the previous taxonomy T and the set of
+novel relations implied by the relation Rij that
+maximizes ∆T (I(Rij )) and thus maximizes the
+conditional probability of the evidence over all
+possible single relations:
+
+We demonstrate the ability of our model to use
+evidence from multiple relations to extend WordNet with novel noun hyponyms. While in principle we could use any number of relations, for
+simplicity we consider two primary sources of evidence: the probability of two words in WordNet
+being in a hypernym relation, and the probability
+of two words in WordNet being in a coordinate relation.
+In sections 3.1 and 3.2 we describe the construction of our hypernym and coordinate classiﬁers,
+respectively; in section 3.3 we outline the efﬁcient
+algorithm we use to perform local search over
+hyponym-extended WordNets; and in section 3.4
+we give an example of the implicit structure-based
+word sense disambiguation performed within our
+framework.
+
+W HILE max ∆T (I(Rij )) > 1
+Rij ∈T
+
+T ← T ∪ I(arg max ∆T (I(Rij ))).
+Rij ∈T
+
+2.4
+
+Extending the Model to Manage Lexical
+Ambiguity
+
+Since word senses are not directly observable, if
+the objects in the taxonomy are word senses (as in
+WordNet), we must extend our model to allow for
+a many-to-many mapping (e.g., a word-to-sense
+mapping) between DE and DT . For this setting
+we assume we know the function senses(i), mapping from the word i to all of i s possible corresponding senses.
+We assume that each set of word-pair evidence
+R
+R
+Eij we possess is in fact sense-pair evidence Ekl
+for a speciﬁc pair of senses k0 ∈ senses(i), l0 ∈
+senses(j). Further, we assume that a new relation
+between two words is probable only between the
+correct sense pair, i.e.:
+
+3.1
+
+Hyponym Classiﬁcation
+
+Our classiﬁer for the hypernym relation is derived
+from the “hypernym-only” classiﬁer described in
+(Snow et al., 2005). The features used for predicting the hypernym relationship are obtained by
+parsing a large corpus of newswire and encyclopedia text with MINIPAR (Lin, 1998). From the
+H
+resulting dependency trees the evidence Eij for
+each word pair (i, j) is constructed; the evidence
+takes the form of a vector of counts of occurrences
+that each labeled syntactic dependency path was
+found as the shortest path connecting i and j in
+some dependency tree. The labeled training set is
+constructed by labeling the collected feature vectors as positive “known hypernym” or negative
+“known non-hypernym” examples using WordNet
+2.0; 49,922 feature vectors were labeled as positive training examples, and 800,828 noun pairs
+were labeled as negative training examples. The
+H
+model for predicting P (Hij |Eij ) is then trained
+using logistic regression, predicting the noun-pair
+hypernymy label from WordNet from the feature
+vector of lexico-syntactic patterns.
+The hypernym classiﬁer described above predicts the probability of the generalized hypernymH
+ancestor relation over words P (Hij |Eij ). For
+the purposes of taxonomy induction, we would
+prefer an ancestor-distance speciﬁc set of classiﬁers over senses, i.e., for k ∈ senses(i), l ∈
+senses(j), the set of classiﬁers estimating
+H
+H
+2
+1
+{P (Hkl |Eij ), P (Hkl |Eij ), . . . }.
+
+R
+R
+P (Rkl |Eij ) = 1{k = k0 , l = l0 } · P (Rij |Eij ).
+
+When computing the conditional probability of a
+speciﬁc new relation Rkl ∈ I(Rab ), we assume
+that the relevant sense pair k0 , l0 is the one which
+maximizes the probability of the new relation, i.e.
+for k ∈ senses(i), l ∈ senses(j),
+R
+(k0 , l0 ) = arg max P (Rkl ∈ T|Eij ).
+k,l
+
+Our independence assumptions for this extension need only to be changed slightly; we now asR
+sume that the evidence Eij depends on the taxonomy T via only a single relation between sensepairs Rkl . Using this revised independence assumption the derivation for best-ﬁrst search over
+taxonomies for hyponym acquisition remains unchanged. One side effect of this revised independence assumption is that the addition of the single
+“sense-collapsed” relation Rkl in the taxonomy T
+R
+will explain the evidence Eij for the relation over
+words i and j now that such evidence has been revealed to concern only the speciﬁc senses k and l.
+
+804
+
+erarchy, or with min(m, n) > 7, are assigned to
+a single class C ∞ . Further, due to the symmetry of the similarity score, we merge each class
+C mn = C mn ∪ C nm ; this implies that the resulting classiﬁer will predict, as expected given a symmn
+C
+nm
+C
+metric input, P (Ckl |Eij ) = P (Ckl |Eij ).
+We ﬁnd 333,473 noun synset pairs in our training set with similarity score greater than 0.15. We
+next apply softmax regression to learn a classiﬁer
+mn
+C
+that predicts P (Cij |Eij ), predicting the WordNet class labels from the single similarity score
+derived from the noun pair’s cluster similarity.
+
+One problem that arises from directly assignn
+H
+H
+ing the probability P (Hij |Eij ) ∝ P (Hij |Eij ) for
+all n is the possibility of adding a novel hyponym
+to an overly-speciﬁc hypernym, which might still
+n
+H
+satisfy P (Hij |Eij ) for a very large n. In order to discourage unnecessary overspeciﬁcation,
+k
+H
+we penalize each probability P (Hij |Eij ) by a
+factor λk−1 for some λ < 1, and renormalize:
+k
+H
+H
+P (Hij |Eij ) ∝ λk−1 P (Hij |Eij ). In our experiments we set λ = 0.95.
+3.2
+
+(m, n)-cousin Classiﬁcation
+
+The classiﬁer for learning coordinate terms relies
+on the notion of distributional similarity, i.e., the
+idea that two words with similar meanings will be
+used in similar contexts (Hindle, 1990). We extend this notion to suggest that words with similar
+meanings should be near each other in a semantic taxonomy, and in particular will likely share a
+hypernym as a near parent.
+Our classiﬁer for (m, n)-cousins is derived
+from the algorithm and corpus given in (Ravichandran et al., 2005). In that work an efﬁcient randomized algorithm is derived for computing clusters of similar nouns. We use a set of more than
+1000 distinct clusters of English nouns collected
+by their algorithm over 70 million webpages6 ,
+with each noun i having a score representing its
+cosine similarity to the centroid c of the cluster to
+which it belongs, cos(θ(i, c)).
+We use the cluster scores of noun pairs as input
+to our own algorithm for predicting the (m, n)cousin relationship between the senses of two
+words i and j. If two words i and j appear in
+a cluster together, with cluster centroid c, we set
+our single coordinate input feature to be the minimum cluster score min(cos(θ(i, c)), cos(θ(j, c))),
+and zero otherwise. For each such noun pair feature, we construct a labeled training set of (m, n)cousin relation labels from WordNet 2.1. We deﬁne a noun pair (i, j) to be a “known (m, n)cousin” if for some senses k ∈ senses(i), l ∈
+mn
+senses(j), Cij ∈ WordNet; if more than one
+such relation exists, we assume the relation with
+smallest sum m + n, breaking ties by smallest
+absolute difference |m − n|. We consider all
+such labeled relationships from WordNet with 0 ≤
+m, n ≤ 7; pairs of words that have no corresponding pair of synsets connected in the hypernym hi-
+
+3.3
+
+Details of our Implementation
+
+Hyponym acquisition is among the simplest and
+most straightforward of the possible applications
+of our model; here we show how we efﬁciently
+implement our algorithm for this problem. First,
+we identify the set of all the word pairs (i, j) over
+which we have hypernym and/or coordinate evidence, and which might represent additions of
+a novel hyponym to the WordNet 2.1 taxonomy
+(i.e., that has a known noun hypernym and an unknown hyponym, or has a known noun coordinate term and an unknown coordinate term). This
+yields a list of 95,000 single links over threshold
+P (Rij ) > 0.12.
+For each unknown hyponym i we may have
+several pieces of evidence; for example, for the
+unknown term continental we have 21 relevant
+pieces of hypernym evidence, with links to possible hypernyms {carrier, airline, unit, . . . }; and we
+have 5 pieces of coordinate evidence, with links to
+possible coordinate terms {airline, american eagle, airbus, . . . }.
+For each proposed hypernym or coordinate link
+involved with the novel hyponym i, we compute
+the set of candidate hypernyms for i; in practice
+we consider all senses of the immediate hypernym
+j for each potential novel hypernym, and all senses
+of the coordinate term k and its ﬁrst two hypernym
+ancestors for each potential coordinate.
+In the continental example, from the 26 individual pieces of evidence over words we construct the
+set of 99 unique synsets that we will consider as
+possible hypernyms; these include the two senses
+of the word airline, the ten senses of the word carrier, and so forth.
+Next, we iterate through each of the possible hypernym synsets l under which we might
+add the new word i; for each synset l we com-
+
+6
+
+As a preprocessing step we hand-edit the clusters to remove those containing non-English words, terms related to
+adult content, and other webpage-speciﬁc clusters.
+
+805
+
+idence are implied by adding the single link
+H 1 (continental,airline#n#1); thus the resulting
+change in the set of implied links given by the correct “carrier” sense of airline is much higher than
+that of the “hose” sense. In fact it is the largest of
+all the 99 considered hypernym links for continental; H 1 (continental, airline#n#2) is link #18,736
+added to the taxonomy by our algorithm.
+
+pute the change in taxonomy score resulting from
+1
+adding the implied relations I(Hil ) required by
+the taxonomic constraints of T. Since typically
+our set of all evidence involving i will be much
+1
+smaller than the set of possible relations in I(Hil ),
+we may efﬁciently check whether, for each sense
+s ∈ senses(w), for all words where we have
+R
+some evidence Eiw , whether s participates in
+some relation with i in the set of implied rela1
+tions I(Hil ).7 If there is more than one sense
+1
+s ∈ senses(w), we add to I(Hil ) the single relationship Ris that maximizes the taxonomy likelihood, i.e. arg maxs∈senses(w) ∆T (Ris ).
+3.4
+
+4
+
+Evaluation
+
+In order to evaluate our framework for taxonomy
+induction, we have applied hyponym acquisition
+to construct several distinct taxonomies, starting
+with the base of WordNet 2.1 and only adding
+novel noun hyponyms. Further, we have constructed taxonomies using a baseline algorithm,
+which uses the identical hypernym and coordinate
+classiﬁers used in our joint algorithm, but which
+does not combine the evidence of the classiﬁers.
+In section 4.1 we describe our evaluation
+methodology; in sections 4.2 and 4.3 we analyze
+the ﬁne-grained precision and disambiguation precision of our algorithm compared to the baseline;
+in section 4.4 we compare the coarse-grained precision of our links (motivated by categories deﬁned by the WordNet supersenses) against the
+baseline algorithm and against an “oracle” for
+named entity recognition.
+Finally, in section 4.5 we evaluate the taxonomies inferred by our algorithm directly against
+the WordNet 2.1 taxonomy; we perform this evaluation by testing each taxonomy on a set of human
+judgments of hypernym and non-hypernym noun
+pairs sampled from newswire text.
+
+Hypernym Sense Disambiguation
+
+A major strength of our model is its ability to correctly choose the sense of a hypernym to which
+to add a novel hyponym, despite collecting evidence over untagged word pairs. In our algorithm word sense disambiguation is an implicit
+side-effect of our algorithm; since our algorithm
+chooses to add the single link which, with its implied links, yields the most likely taxonomy, and
+since each distinct synset in WordNet has a different immediate neighborhood of relations, our algorithm simply disambiguates each node based on
+its surrounding structural information.
+As an example of sense disambiguation in practice, consider our example of continental. Suppose we are iterating through each of the 99 possible synsets under which we might add continental as a hyponym, and we come to the synset
+airline#n#2 in WordNet 2.1, i.e. “a commercial organization serving as a common carrier.”
+In this case we will iterate through each piece
+of hypernym and coordinate evidence; we ﬁnd
+that the relation H(continental, carrier) is satisﬁed with high probability for the speciﬁc synset
+carrier#n#5, the grandparent of airline#n#2; thus
+the factor ∆T (H 3 (continental, carrier#n#5)) is
+included in the factor of the set of implied relations ∆T I(H 1 (continental, airline#n#2)) .
+Suppose we instead evaluate the ﬁrst synset
+of airline, i.e., airline#n#1, with the gloss “a
+hose that carries air under pressure.” For this
+synset none of the other 20 relationships directly implied by hypernym evidence or the
+5 relationships implied by the coordinate ev-
+
+4.1
+
+Methodology
+
+We evaluate the quality of our acquired hyponyms by direct judgment.
+In four separate annotation sessions, two judges labeled
+{50,100,100,100} samples uniformly generated
+from the ﬁrst {100,1000,10000,20000} single
+links added by our algorithm.
+For the direct measure of ﬁne-grained precision,
+we simply ask for each link H(X, Y ) added by the
+system, is X a Y ? In addition to the ﬁne-grained
+precision, we give a coarse-grained evaluation, inspired by the idea of supersense-tagging in (Ciaramita and Johnson, 2003). The 26 supersenses
+used in WordNet 2.1 are listed in Table 1; we label
+a hyponym link as correct in the coarse-grained
+evaluation if the novel hyponym is placed under
+the appropriate supersense. This evaluation task
+
+7
+1
+Checking whether or not Ris ∈ I(Hil ) may be efﬁciently computed by checking whether s is in the hypernym
+ancestors of l or if it shares a least common subsumer with l
+within 7 steps.
+
+806
+
+1 Tops
+2 act
+3 animal
+4 artifact
+5 attribute
+6 body
+7 cognition
+
+8 communication
+9 event
+10 feeling
+11 food
+12 group
+13 location
+14 motive
+
+15 object
+16 person
+17 phenomenon
+18 plant
+19 possession
+20 process
+21 quantity
+
+22 relation
+23 shape
+24 state
+25 substance
+26 time
+
+#Links
+100
+1000
+10000
+20000
+
+Table 1: The 26 WordNet supersenses
+
+# Links
+100
+1000
+10000
+20000
+
+NER
+Oracle
+1.00
+0.69
+0.45
+0.54
+
+Base
+
+Joint
+
+0.72
+0.68
+0.69
+0.69
+
+1.00
+0.99
+0.96
+0.92
+
+ER vs.
+NER
+0%
+97%
+93%
+83%
+
+ER vs.
+Base
+100%
+85%
+70%
+41%
+
+Table 3: Coarse-grained precision and error reduction vs. Non-joint baseline and NER Oracle
+
+be attributed to the observation that the highestconﬁdence hypernyms predicted by individual
+classiﬁers are likely to be polysemous, whereas
+hypernyms of lower conﬁdence are more frequently monosemous (and thus trivially easy to
+disambiguate).
+
+c1 : Correct sense-disambiguated hypernym.
+c2 : Correct hypernym word, but incorrect sense of
+that word.
+c3 : Incorrect hypernym, but correct supersense.
+
+4.4
+
+c4 : Any other relation is considered incorrect.
+
+Coarse-grained evaluation
+
+We compute coarse-grained precision as (c1 +
+c3 )/total. Inferring the correct coarse-grained supersense of a novel hyponym can be viewed as a
+ﬁne-grained (26-category) Named Entity Recognition task; our algorithm for taxonomy induction
+can thus be viewed as performing high-accuracy
+ﬁne-grained NER. Here we compare against both
+the baseline non-joint algorithm as well as an
+“oracle” algorithm for Named Entity Recognition, which perfectly classiﬁes the supersense of
+all nouns that fall under the four supersenses
+{person, group, location, quantity}, but works
+only for those supersenses. Table 3 shows the
+results of this coarse-grained evaluation. We see
+that the baseline non-joint algorithm has higher
+precision than the NER oracle as 10,000 and
+20,000 links; however, both are signiﬁcantly outperformed by our joint algorithm, which maintains high coarse-grained precision (92%) even at
+20,000 links.
+
+A single hyponym/hypernym pair is allowed to be
+simultaneously labeled 2 and 3.
+Fine-grained evaluation
+
+Table 2 displays the results of our evaluation of
+ﬁne-grained precision for the baseline non-joint
+algorithm (Base) and our joint algorithm (Joint),
+as well as the relative error reduction (ER) of our
+algorithm over the baseline. We use the minimum of the two judges’ scores. Here we deﬁne
+ﬁne-grained precision as c1 /total. We see that
+our joint algorithm strongly outperforms the baseline, and has high precision for predicting novel
+hyponyms up to 10,000 links.
+4.3
+
+Disambiguation Pre.
+Base Joint
+ER
+0.86
+1.00 100%
+0.84
+1.00 100%
+0.90
+1.00 100%
+0.94
+0.98
+68%
+
+Table 2: Fine-grained and disambiguation precision and error reduction for hyponym acquisition
+
+is similar to a ﬁne-grained Named Entity Recognition (Fleischman and Hovy, 2002) task with 26
+categories; for example, if our algorithm mistakenly inserts a novel non-capital city under the hyponym state capital, it will inherit the correct supersense location. Finally, we evaluate the ability of our algorithm to correctly choose the appropriate sense of the hypernym under which a
+novel hyponym is being added. Our labelers categorize each candidate sense-disambiguated hypernym synset suggested by our algorithm into the
+following categories:
+
+4.2
+
+Fine-grained Pre.
+Base Joint
+ER
+0.60
+1.00 100%
+0.52
+0.93
+85%
+0.46
+0.84
+70%
+0.46
+0.68
+41%
+
+Hypernym sense disambiguation
+
+Also in Table 2 we compare the sense disambiguation precision of our algorithm and the
+baseline. Here we measure the precision of
+sense-disambiguation among all examples where
+each algorithm found a correct hyponym word;
+our calculation for disambiguation precision is
+c1 / (c1 + c2 ). Again our joint algorithm outperforms the baseline algorithm at all levels of recall. Interestingly the baseline disambiguation
+precision improves with higher recall; this may
+
+4.5
+
+Comparison of inferred taxonomies and
+WordNet
+
+For our ﬁnal evaluation we compare our learned
+taxonomies directly against the currently existing hypernym links in WordNet 2.1. In order to
+compare taxonomies we use a hand-labeled test
+807
+
+PRE
+REC
+F
+
+WN
+0.524
+0.165
+0.251
+
++10K
+0.524
+0.165
+0.251
+
++20K
+0.574
+0.203
+0.300
+
++30K
+0.583
+0.211
+0.309
+
++40K
+0.571
+0.211
+0.307
+
+S. Cederberg and D. Widdows. 2003. Using LSA and
+Noun Coordination Information to Improve the Precision and Recall of Automatic Hyponymy Extraction. Proc. CoNLL-2003, pp. 111–118.
+T. Chklovski and P. Pantel. 2004. VerbOcean: Mining
+the Web for Fine-Grained Semantic Verb Relations.
+Proc. EMNLP-2004.
+
+Table 4: Taxonomy hypernym classiﬁcation vs.
+WordNet 2.1 on hand-labeled testset
+
+M. Ciaramita and M. Johnson. 2003. Supersense
+Tagging of Unknown Nouns in WordNet. Proc.
+EMNLP-2003.
+
+set of over 5,000 noun pairs, randomly-sampled
+from newswire corpora (described in (Snow et al.,
+2005)). We measured the performance of both our
+inferred taxonomies and WordNet against this test
+set.8 The performance and comparison of the best
+WordNet classiﬁer vs. our taxonomies is given in
+Table 4. Our best-performing inferred taxonomy
+on this test set is achieved after adding 30,000
+novel hyponyms, achieving an 23% relative improvement in F-score over the WN2.1 classiﬁer.
+
+5
+
+O. Etzioni, M. Cafarella, D. Downey, A. Popescu,
+T. Shaked, S. Soderland, D. Weld, and A. Yates.
+2005. Unsupervised Named-Entity Extraction from
+the Web: An Experimental Study. Artiﬁcial Intelligence, 165(1):91–134.
+C. Fellbaum. 1998. WordNet: An Electronic Lexical
+Database. Cambridge, MA: MIT Press.
+R. Girju, A. Badulescu, and D. Moldovan. 2003.
+Learning Semantic Constraints for the Automatic
+Discovery of Part-Whole Relations. Proc. HLT-03.
+
+Conclusions
+
+M. Fleischman and E. Hovy. 2002. Fine grained classiﬁcation of named entities. Proc. COLING-02.
+
+We have presented an algorithm for inducing semantic taxonomies which attempts to globally
+optimize the entire structure of the taxonomy.
+Our probabilistic architecture also includes a new
+model for learning coordinate terms based on
+(m, n)-cousin classiﬁcation. The model’s ability
+to integrate heterogeneous evidence from different
+classiﬁers offers a solution to the key problem of
+choosing the correct word sense to which to attach
+a new hypernym.
+
+M. Hearst. 1992. Automatic Acquisition of Hyponyms
+from Large Text Corpora. Proc. COLING-92.
+D. Hindle. 1990. Noun classiﬁcation from predicateargument structures. Proc. ACL-90.
+D. Lenat. 1995. CYC: A Large-Scale Investment in
+Knowledge Infrastructure, Communications of the
+ACM, 38:11, 33–35.
+D. Lin. 1998. Dependency-based Evaluation of MINIPAR. Workshop on the Evaluation of Parsing Systems, Granada, Spain.
+D. Lin, S. Zhao, L. Qin and M. Zhou. 2003. Identifying Synonyms among Distributionally Similar
+Words. Proc. IJCAI-03.
+
+Acknowledgements
+Thanks to Christiane Fellbaum, Rajat Raina, Bill
+MacCartney, and Allison Buckley for useful discussions and assistance annotating data. Rion
+Snow is supported by an NDSEG Fellowship
+sponsored by the DOD and AFOSR. This work
+was supported in part by the Disruptive Technology Ofﬁce (DTO)’s Advanced Question Answering for Intelligence (AQUAINT) Program.
+
+M. Pasca. 2005. Finding Instance Names and Alter¸
+native Glosses on the Web: WordNet Reloaded. CICLing 2005, pp. 280-292.
+D. Ravichandran, P. Pantel, and E. Hovy. 2002. Randomized Algorithms and NLP: Using Locality Sensitive Hash Function for High Speed Noun Clustering. Proc. ACL-2002.
+E. Riloff and J. Shepherd. 1997. A Corpus-Based
+Approach for Building Semantic Lexicons. Proc
+EMNLP-1997.
+
+References
+
+B. Roark and E. Charniak. 1998. Noun-phrase cooccurerence statistics for semi-automatic-semantic
+lexicon construction. Proc. ACL-1998.
+
+P. Buitelaar, P. Cimiano and B. Magnini. 2005. Ontology Learning from Text: Methods, Evaluation and
+Applications. Volume 123 Frontiers in Artiﬁcial Intelligence and Applications.
+
+R. Snow, D. Jurafsky, and A. Y. Ng. 2005. Learning syntactic patterns for automatic hypernym discovery. NIPS 2005.
+
+S. Caraballo.
+2001.
+Automatic Acquisition of
+a Hypernym-Labeled Noun Hierarchy from Text.
+Brown University Ph.D. Thesis.
+
+P. Turney, M. Littman, J. Bigham, and V. Shnayder. 2003. Combining independent modules to
+solve multiple-choice synonym and analogy problems. Proc. RANLP-2003, pp. 482–489.
+
+8
+We found that the WordNet 2.1 model achieving the
+highest F-score used only the ﬁrst sense of each hyponym,
+and allowed a maximum distance of 4 edges between each
+hyponym and its hypernym.
+
+808
+
+

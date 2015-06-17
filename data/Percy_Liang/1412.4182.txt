@@ -1,0 +1,4798 @@
+THE STATISTICS OF
+STREAMING SPARSE REGRESSION
+By Jacob Steinhardt, Stefan Wager, and Percy Liang
+
+arXiv:1412.4182v1 [math.ST] 13 Dec 2014
+
+Stanford University
+We present a sparse analogue to stochastic gradient descent that
+is guaranteed to perform well under similar conditions to the lasso.
+In the linear regression setup with irrepresentable noise features, our
+algorithm recovers the support set of the optimal parameter vector
+with high probability, and achieves a statistically quasi-optimal rate
+of convergence of OP (k log(d)/T ), where k is the sparsity of the solution, d is the number of features, and T is the number of training
+examples. Meanwhile, our algorithm does not require any more computational resources than stochastic gradient descent. In our experiments, we ﬁnd that our method substantially out-performs existing
+streaming algorithms on both real and simulated data.
+
+1. Introduction. In many areas such as astrophysics [1, 6], environmental sensor networks [42], distributed computer systems diagnostics [61],
+and advertisement click prediction [36], a system generates a high-throughput
+stream of data in real-time. We wish to perform parameter estimation and
+prediction in this streaming setting, where we have neither memory to store
+all the data nor time for complex algorithms. Furthermore, this data is also
+typically high-dimensional, and thus obtaining sparse parameter vectors is
+desirable. This article is about the design and analysis of statistical procedures that exploit sparsity in the streaming setting.
+More formally, the streaming setting (for linear regression) is as follows:
+At each time step t, we (i) observe covariates xt ∈ Rd , (ii) make a prediction
+yt (using some weight vector wt ∈ Rd which we maintain), (iii) observe the
+ˆ
+true response yt ∈ R, and (iv) update wt to wt+1 . We are interested in two
+measures of performance after T time steps. The ﬁrst is regret, which is the
+excess online prediction error compared to a ﬁxed weight vector u ∈ Rd
+(typically chosen to be w∗ , the population loss minimizer):
+T
+
+(1)
+
+def
+
+(ft (wt ) − ft (u)),
+
+Regret(u) =
+
+t=1
+
+JS and SW contributed equally to this paper. JS is supported by a Hertz Foundation
+Fellowship and an NSF Fellowship; SW is supported by a BC and EJ Eaves Stanford
+Graduate Fellowship. We are grateful for helpful conversations with Emmanuel Cand`s
+e
+and John Duchi.
+
+1
+
+2
+
+STEINHARDT, WAGER, AND LIANG
+
+1
+where ft (w) = 2 (yt − w xt )2 is the squared loss on the t-th data point. The
+second is the classic parameter error, which is
+
+(2)
+
+wT − w ∗ 2 ,
+ˆ
+2
+
+where wT is some weighted average of w1 , . . . , wT . Note that, while Regret(u)
+ˆ
+appears to measure loss on a training set, it is actually more closely related
+to generalization error, since wt is chosen before observing ft , and thus there
+is no opportunity for wt to be overﬁt to the function ft .
+Although the ambient dimension d is large, we assume that the population
+loss minimizer w∗ ∈ Rd is a k-sparse vector, where k
+d. In this setting, the
+standard approach to sparse regression is to use the lasso [55] or basis pursuit
+[14], which both penalize the L1 norm of the weight vector to encourage
+sparsity. There is a large literature showing that the lasso attains good
+performance under various assumptions on the design matrix [e.g., 38, 45, 46,
+58, 59, 63]. Most relevant to us, Raskutti et al. [46] show that the parameter
+error behaves as OP (k log(d)/T ). However, these results require solving a
+global optimization problem over all the points, which is computationally
+infeasible in our streaming setting.
+In the streaming setting, an algorithm can only store one training example
+at a time in memory, and can only make one pass over the data. This kind
+of streaming constraint has been studied in the context of, e.g., optimizing
+database queries [4, 21, 39], hypothesis testing with ﬁnite memory [15, 30],
+and online learning or online convex optimization [e.g., 9, 16, 29, 34, 49, 50,
+51, 53]. This latter case is the most relevant to our setting, and the resulting
+online algorithms are remarkably simple to implement and computationally
+eﬃcient in practice. However, their treatment of sparsity is imperfect. For
+strongly convex functions [28], one can ignore sparsity altogether and obtain
+average regret O (d log T /T ), which is clearly much worse than the optimal
+rate when k
+d. One could also ignore strong convexity to obtain average
+regret O
+k log d/T , which has the proper logarithmic dependence on d,
+but does not have the optimal dependence on T .
+Our main contribution is an algorithm, streaming sparse regression (SSR),
+which takes only O (d) time per data point and O (d) memory, but achieves
+the same convergence rate as the lasso in the batch (oﬄine) setting under
+irrepresentability conditions similar to the ones studied by Zhao and Yu
+[63]. The algorithm is very simple, alternating between taking gradients, averaging, and soft-thresholding. The bulk of this paper is dedicated to the
+analysis of this algorithm, which starts with tools from online convex optimization, but additionally requires carefully controlling the support of our
+weight vectors using new martingale tail bounds. Recently, Agarwal et al.
+
+3
+
+0.3
+0.2
+0.1
+−0.1
+
+0.0
+
+Logistic Regression Weights
+
+0.4
+
+0.5
+
+STREAMING SPARSE REGRESSION
+
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+Number of Training Examples
+
+Fig 1: Behavior of our Algorithm 1 as it incorporates the ﬁrst T = 2, 000
+training examples for a logistic regression trained on the spambase dataset
+[5]. Due to the streaming nature of the algorithm, the parameters are incrementally updated with each new example. All parameter estimates start
+at 0; our algorithm then gradually adds variables to the active set as it
+sees more training examples and accumulates evidence that certain variables
+are informative. We see that the algorithm found more words with positive
+weights (i.e., indicative of spam) than negative weights. In this example, we
+also used an unpenalized intercept term (not shown) that was negative. The
+ﬁrst positive words selected by the algorithm were remove, you, your, and
+$, whereas the ﬁrst negative words were hp and hpl; this ﬁts in well with
+standard analyses [27]. Before running our algorithm, we centered, scaled,
+and clipped the features, and randomly re-ordered the training examples.
+
+4
+
+STEINHARDT, WAGER, AND LIANG
+
+[2] proposed a very diﬀerent epoch-based Lp -norm algorithm that also attains the desired OP (k log d/T ) bound on the parameter error. However,
+unlike our algorithm that is conceptually related to the lasso, their algorithm does not generate exactly sparse iterates. Based on our experiments,
+our algorithm also appears to be faster and substantially more accurate in
+practice.
+To provide empirical intuition about our algorithm, Figure 1 shows its
+behavior on the spambase dataset [5], the goal of which is to distinguish
+spam (1) from non-spam (0) using 57 features of the e-mail. The plot shows
+how the parameters change as the algorithm sees more data. For the ﬁrst
+159 training examples, all of the weights are zero. Then, as the algorithm
+gets to see more data and amasses more evidence on the association between
+various features and the response, it gradually enters new variables into the
+model. By the time the algorithm has seen 2000 examples, it has 22 non-zero
+weights. A striking diﬀerence between Figure 1 and the lasso or least-angle
+regression paths of Efron et al. [18] is that the lasso path moves along straight
+lines between knots, whereas our paths look more like Brownian motion once
+they leave zero. This is because Efron et al. vary the L1 regularization for a
+ﬁxed amount of data, while in our case the L1 regularization and data size
+change simultaneously.
+1.1. Adapting Stochastic Gradient Descent for Sparse Regression. To
+provide a ﬂavor of our algorithm and the theoretical results involved, let
+us begin with classic stochastic gradient descent (SGD), which is known to
+work in the non-sparse streaming setting [9, 47, 48, 57]. Given a sequence of
+convex loss functions ft (w), e.g., ft (w) = 1 (yt − w xt )2 for linear regression
+2
+with features xt and response yt , SGD updates the weight vector as follows:
+(3)
+
+wt+1 = wt −
+
+1
+ηt
+
+ft (wt )
+
+with some step size η > 0. As shown by Toulis et al. [57], if the losses ft are
+generated by a well-conditioned generalized linear model, then the weights
+√
+wt will converge to a limiting Gaussian distribution at a 1/ t rate.
+While this simple algorithmic form is easy to understand, it is less convenient to extend to exploit sparsity. Let us then rewrite stochastic gradient
+descent using the adaptive mirror descent framework [7, 40, 41]. With some
+algebra, one can verify that the update in (3) is equivalent to the following
+
+5
+
+STREAMING SPARSE REGRESSION
+
+Algorithm 1 Streaming sparse regression. Sλ denotes the soft-thresholding
+operator: Sλ (x) = 0 if |x| < λ, and x − λ sign(x) otherwise.
+Input: sequence of loss functions f1 , . . . , fT
+Output: parameter estimate wT
+Algorithm parameters: η, λ,
+θ1 = 0
+for t = 1 to T do
+√
+λt ← λ t + 1
+1
+wt ← +η (t−1) Sλt (θt ) £ sparsiﬁcation step
+θt+1 = θt − [ ft (wt ) − η wt ] £ gradient step
+end for
+return wT
+
+adaptive mirror descent update:
+t−1
+
+(4)
+
+θt =
+
+fs (ws )
+s=1
+
+(5)
+
+wt = arg min
+w
+
+η
+2
+
+t−1
+
+w − ws
+
+2
+2
+
++ w θt
+
+s=1
+
+for t = 1, 2, . . . At each step, mirror descent solves an optimization problem
+(usually in closed form) that (i) encourages weights wt to be close to previous
+weights w1 , . . . , wt−1 , and (ii) moves towards the average gradient θt .
+The advantage of using the mirror descent framework is that it reveals a
+natural way to induce sparsity: we can add an L1 -penalty to the minimization step (5). For some λ > 0 and t = 1, 2, . . . , we set
+t−1
+
+(6)
+
+θt =
+
+fs (ws )
+s=1
+
+(7)
+
+wt = arg min
+w
+
+η
+2
+
+t−1
+
+w − ws
+
+2
+2
+
+√
++ w θt + λ t + 1 w
+
+1
+
+.
+
+s=1
+
+The above update (7) can be eﬃciently implemented in a streaming setting
+using Algorithm 1, which is suitable for making online predictions. We also
+propose an adaptation (Algorithm 2) aimed at classic parameter estimation;
+see Section 7 for more details.
+These algorithms are closely related to recent proposals in the stochastic
+and online convex optimization literature [e.g., 17, 33, 51, 52, 60]; in particular, the step (7) can be described as a proximal version of the regularized
+dual averaging algorithm of Xiao [60]. These papers, however, all analyze the
+
+6
+
+STEINHARDT, WAGER, AND LIANG
+
+Algorithm 2 Streaming sparse regression with averaging. Sλ denotes the
+soft-thresholding operator: Sλ (x) = 0 if |x| < λ, and x − λ sign(x) otherwise.
+Input: sequence of functions f1 , . . . , fT
+Output: parameter estimate wT
+ˆ
+Algorithm parameters: η, λ,
+w0 = 0, θ1 = 0
+ˆ
+for t = 1 to T do
+3
+λt ← t 2 λ
+1
+wt ← +η t(t−1)/2 Sλt (θt ) £ sparsiﬁcation step
+θt+1 ← θt − t [ ft (wt ) − η wt ] £ gradient step
+wt ← 1 −
+ˆ
+end for
+return wT
+ˆ
+
+2
+t+1
+
+wt−1 +
+ˆ
+
+2
+w
+t+1 t
+
+£ averaging step
+
+algorithm making no statistical assumptions about the data generating process. Under these adversarial conditions, it is diﬃcult to provide performance
+guarantees that take advantage of sparsity. In fact, the sparsiﬁed version of
+stochastic gradient descent in general attains weaker worst-case guarantees
+than even the simple algorithm given in (3), at least under existing analyses.
+It is well known that the batch lasso works well under some statistical
+assumptions [e.g., 11, 38, 45, 58, 59, 63], but even the lasso can fail spectacularly when these assumptions do not hold, even for i.i.d. data, e.g., Section
+2.1 of Cand`s and Plan [12]. It is therefore not surprising that statistical
+e
+assumptions should also be required to guarantee good performance for our
+streaming sparse regression algorithm.
+The following theorem gives a ﬂavor (though not the strongest) for the
+kind of results proved in this paper, using simpliﬁed assumptions and restricting attention to linear regression. As we will show later, the orthogonality constraint on the non-signal features is not in fact needed and an
+irrepresentability-like condition on the design is enough.
+Theorem 1.1 (parameter error with uncorrelated noise). Suppose that
+we are given an i.i.d. sequence of data points (x1 , y1 ), (x2 , y2 ), · · · ∈ Rd × R
+def
+
+satisfying yt = (w∗ ) xt + εt , where S = supp(w∗ ) has size k and εt is
+centered noise. Let xt [S] denote the coordinates of xt indexed by S and xt [¬S]
+the coordinates in the complement of S. Also suppose that
+E [εt xt ] = 0,
+E xt [¬S]xt [S]
+
+E [xt [¬S]yt ] = 0,
+= 0,
+
+λmin E xt [S]xt [S]
+
+>0
+
+for all t ∈ N, where λmin (M ) denotes the smallest eigenvalue of M . Then
+
+7
+
+STREAMING SPARSE REGRESSION
+
+for suﬃciently large λ and suﬃciently small η, if we run Algorithm 2 on
+{(xt , yt )}T , with the squared loss ft (w) = 1 (yt − w xt )2 , we will obtain a
+t=1
+2
+parameter vector wT with supp(wT ) ⊆ S satisfying
+ˆ
+ˆ
+(8)
+
+wT − w ∗
+ˆ
+
+2
+2
+
+= OP
+
+k log(d log(T ))
+T
+
+,
+
+where OP is a with-high-probability version of O notation.1
+The bound (8) matches the minimax optimal rate for sparse regression
+when d
+k [46], namely
+(9)
+
+wT − w ∗
+ˆ
+
+2
+2
+
+= OP
+
+k log(d)
+T
+
+,
+
+to within a factor of 1 + log log(T ) , which is eﬀectively bounded by a constant
+log(d)
+since log log(T )/ log(d) ≤ 5 in any reasonable regime.2
+1.2. Related work. There are many existing online algorithms for solving
+optimization problems like the lasso. For each of these, we will state their
+rate of convergence in terms of the rate at which the squared parameter error
+wT − w∗ 2 decreases as we progress along an inﬁnite stream of i.i.d. data.
+ˆ
+2
+As discussed above, the simplest online algorithm is the classical stochastic
+gradient descent algorithm, which achieves error O(d/T ) under statistical
+assumptions. A later family of algorithms, comprising the exponentiated
+gradient algorithm [32] and the family of p-norm algorithms [25], achieves
+error O( k log(d)/T ); while d has been replaced by k log(d), the algorithm
+no longer achieves the optimal rate in T .
+There is thus a tradeoﬀ in existing work between better dependence on
+the dimension and worse asymptotic convergence. In contrast, our approach
+simultaneously achieves good performance in terms of both d and T . Given
+statistical assumptions, our algorithm satisﬁes tighter excess loss bounds
+than existing sparse SGD-like algorithms [e.g., 17, 33, 35, 51, 52, 60]. Agarwal et al. [2] obtain similar theoretical bounds to us using a very diﬀerent
+1
+
+More speciﬁcally, in this paper, we use the notation x(T ) = OP (y(T )) if x(T ) ≤
+cy(T ) log(1/δ) with probability 1 − δ, for some constant c that is independent of T or δ.
+2
+The extra log log T term can be understood in terms of the law of the iterated logarithm. Our results requires us to bound the behavior of the algorithm for all t = 1, ..., T ;
+thus, we need to analyze multiple t-scales simultaneously, and an extra log log T term appears. This is exactly the same phenomenon that arises when we study the scaling of the
+limsup of a random walk: although the pointwise distribution of the random walk scales
+√
+√
+as T , the limsup scales as T log log T .
+
+8
+
+STEINHARDT, WAGER, AND LIANG
+
+algorithm, namely an epoch-based Lp -norm regularized mirror descent algorithm. In our experiments, it appears that our more lasso-like streaming
+algorithm achieves better performance, both statistically and computationally.
+In other work, Gerchinovitz [26] derived strong adversarial “sparsity regret
+bounds” for an exponentially weighted Bayes-like algorithm with a heavytailed prior. However, as its implementation requires the use of Monte-Carlo
+methods, this algorithm may not be computationally competitive with eﬃcient L1 -based methods. There has also been much work beyond that already
+discussed on solving the lasso in the online or streaming setting, such as Garrigues and El Ghaoui [24] and Yang et al. [62], but none of these achieve the
+optimal rate.
+Finally, we emphasize that there are paradigms other than streaming for
+doing regression on large datasets. In lasso-type problems, the use of prescreening rules to remove variables from consideration can dramatically decrease practical memory and runtime requirements. Some examples include
+strong rules [56] and SAFE rules [19]. Meanwhile, Fithian and Hastie [20]
+showed that, in locally imbalanced logistic regression problems, it is often
+possible to substantially down-sample the training set without losing much
+statistical information; see also [3, 44] for related ideas. Comparing the merits of streaming algorithms to those of screening or subsampling methods
+presents an interesting topic for further investigation.
+1.3. Outline. We start in Section 2 by precisely deﬁning our theoretical setting and providing our main theorems with some intuitions. We then
+demonstrate the empirical performance of our algorithm on simulated data
+(Section 3.1) and a genomics dataset (Section 3.2). In Section 4, we use the
+adaptive mirror descent framework from online convex optimization to lay
+the foundation of our analysis. We then leverage statistical assumptions to
+provide tight control over the terms laid out by the framework (Sections 5
+and 6), resulting in bounds on the prediction error of Algorithm 1. In Section 7, we adapt our algorithm via weighted averaging to obtain rate-optimal
+parameter estimates (Algorithm 2). Finally, in Section 8, we weaken our earlier assumptions to an irrepresentability condition similar to the one given
+in Zhao and Yu [63]. Longer proofs are deferred to the appendix.
+2. Statistical Properties of Streaming Sparse Regression.
+2.1. Theoretical Setup. We assume that we are given a sequence of loss
+functions f1 , f2 , . . . , fT drawn from some joint distribution. Our algorithm
+
+STREAMING SPARSE REGRESSION
+
+9
+
+produces a sequence w1 , w2 , . . . , wT , where each wt depends only on f1 , f2 ,
+. . . , ft−1 .
+Our main results depend on the following four assumptions.
+1. Statistical Sparsity: There is a ﬁxed expected loss function L such
+that
+E [ft | f1 , . . . , ft−1 ] = L for t = 1, 2, . . .
+Moreover, the minimizer w∗ of the loss L satisﬁes w∗ 1 ≤ R and
+supp(w∗ ) = S, where |S| ≤ k. Deﬁne the set of candidate weight
+vectors:
+def
+H = {w : w 1 ≤ R, supp(w) ⊆ S}.
+We note that H is not directly available to the statistician, because
+she does not know S.
+2. Strong Convexity in Expectation: There is a constant α > 0 such
+that L(w) − α w[S] 2 is convex. Recall that, for an arbitrary vector
+2
+2
+w, w[S] denotes the coordinates indexed by S and w[¬S] denotes the
+remaining coordinates.
+3. Bounded Gradients: The gradients ft satisfy
+ft (w) ∞ ≤ B for
+all w ∈ H.
+4. Orthogonal Noise Features: For our simplest results, we assume
+that the noise gradients are mean-zero for all w ∈ H: more precisely,
+for all i ∈ S and all w ∈ H, we have L(w)i = 0. In Section 2.3 below,
+we discuss how we can relax this condition into an irrepresentability
+condition.
+To gain a better understanding of the meaning of these assumptions,
+we give some simple conditions under which they hold for linear regression. Recall that in linear regression, we are given a sequence of examples
+(xt , yt ) ∈ Rd × R, and have a loss function ft (w) = 1 (yt − w xt )2 . Here, the
+2
+assumption (1) holds if the (xt , yt ) are i.i.d. and the minimizer of
+L(w) = E
+
+1
+(y − w x)2
+2
+
+is k-sparse. Meanwhile, we can check that L is a quadratic function with
+leading term 1 w E xx w, and so (2) holds as long as Cov [x[S]]
+αI.
+2
+Next, ft (w) = (y − w x)x, so
+ft (w) ∞ ≤ |yt | xt ∞ + w 1 xt 2 .
+∞
+Hence, if we assume that xt ∞ ≤ Bx and |yt | ≤ By , assumption (3) holds
+2
+with B = Bx By + RBx .
+The most stringent condition is assumption (4), which requires that E[(y−
+w x)xi ] = 0 for all i ∈ S and w ∈ H. A suﬃcient condition is that
+
+10
+
+STEINHARDT, WAGER, AND LIANG
+
+E[yx[¬S]] = 0 and E[x[S]x[¬S] ] = 0, i.e., the noise coordinates are meanzero and uncorrelated with both x[S] and y. Assumption 4 can, however,
+in general be relaxed. For example, in the case of linear regression, we can
+replace it with an irrepresentability condition (Section 2.3).
+2.2. Main Results. We presents two results that control the two quantities of interest: (i) the regret (1) with respect to the population loss minimizer w∗ , which evaluates prediction; and (ii) the parameter error wT −
+ˆ
+w∗ 2 .
+2
+The ﬁrst result controls Regret(w∗ ) for Algorithm 1; the bulk of the proof
+involves showing that our L1 sparsiﬁcation step succeeds at keeping the noise
+coordinates at zero without incurring too much extra loss.
+Theorem 2.1 (online prediction error with uncorrelated noise). Suppose
+that the sequence f1 , . . . , fT satisﬁes assumptions (1-4) from Section 2.1 and
+that we use Algorithm 1 with
+λ=
+η = α/2, and
+(10)
+
+3B
+2
+
+log
+
+6d log2 (2T )
+,
+δ
+
+= 0. Then, for any δ > 0, with probability 1 − δ, we have
+Regret(w∗ ) = O
+
+kB 2
+log
+α
+
+d log(T )
+δ
+
+log(T ) .
+
+The second result controls wT − w∗ 2 , where wT is the weighted average
+ˆ
+ˆ
+2
+given in Algorithm 2. To transform Theorem 2.1 into a parameter error
+bound, we use a standard technique: online-to-batch conversion [13]. As we
+will discuss in Section 7, a naive application of online-to-batch conversion
+to Algorithm 1 yields a result that is loose by a factor of log(T ). Thus, in
+order to bound batch error we need to modify the algorithm, resulting in
+Algorithm 2 and the following bound:
+Theorem 2.2 (parameter error with uncorrelated noise). Suppose that
+we make the same assumptions and parameter choices as in Theorem 2.1,
+except that we now set
+λ=
+
+3B
+2
+
+log
+
+6d log2 (2T 3 )
+.
+δ
+
+STREAMING SPARSE REGRESSION
+
+11
+
+Let wT be the output of Algorithm 2. Then, with probability 1 − δ, we have
+ˆ
+supp (wT ) ⊆ S and
+ˆ
+(11)
+
+wT − w ∗
+ˆ
+
+2
+2
+
+=O
+
+kB 2
+log
+α2 T
+
+d log(T )
+δ
+
+for any δ > 0.
+2.3. Irrepresentability and Support Recovery. In practice, Assumption 4
+from Section 2.1 is unreasonably strong: in the context of high-dimensional
+regression, we cannot in general hope for the noise features to be exactly
+orthogonal to the signal ones. Here, we discuss how this condition can be
+relaxed in the context of online linear regression.
+In the batch setting, there is a large literature on establishing conditions
+on the design matrix X ∈ Rn×d under which the lasso performs well [e.g.,
+38, 45, 58, 59, 63]. The two main types of assumptions typically made on
+the design X are as follows:
+• The restricted eigenvalue condition [8, 45] is suﬃcient for obtaining low L2 prediction error under sparsity assumptions on w∗ . A
+similar condition is also necessary in the minimax setting [46].
+• The stronger irrepresentability condition [37, 63] is suﬃcient and
+essentially necessary for recovering the support of w∗ .
+We will show that our Algorithm 2 still converges at the rate (11) under
+a slight strengthening of the standard irrepresentability condition, given
+below:
+Assumption 5 (irrepresentable noise features). The noise features are
+irrepresentable using the signal features in the sense that, for any τ ∈ Rd
+with supp(τ ) ⊆ S and any j ∈ S,
+/
+(12)
+
+Cov xj , τ · xt
+t
+
+α
+≤ ρ√ τ
+k
+
+2
+
+√
+for some constant 0 ≤ ρ < 1/ 24. Recall that α is the strong convexity
+parameter of the expected loss, and |S| = k.
+The fact that our algorithm requires an irrepresentability condition instead of the weaker restricted eigenvalue condition stems from the fact that
+our algorithm eﬀectively achieves low prediction error via support recovery;
+see, e.g., Lemma 8.1. Thus, we need conditions on the design X that are
+
+12
+
+STEINHARDT, WAGER, AND LIANG
+
+strong enough to guarantee support recovery. For an overview of how different assumptions on the design relate to each other, see Van De Geer and
+B¨hlmann [59].
+u
+Given Assumption 5, we have the following bound on the performance of
+Algorithm 2. We show how Theorem 2.2 can be adapted to yield this result
+in Section 8.
+Theorem 2.3 (parameter error with irrepresentability). Under the conditions of Theorem 2.2, suppose that we replace Assumption 4 from Section
+2.1 with the irrepresentability Assumption 5 above. Then, for any δ > 0, for
+an appropriate setting of λ we have
+(13)
+
+wT − w ∗
+ˆ
+
+2
+2
+
+=O
+
+1
+kB 2
+log
+1 − 24ρ2 α2 T
+
+d log(T )
+δ
+
+with probability 1 − δ.
+A form of the standard irrepresentability condition for the batch lasso
+that only depends on the design X is given by [59]:
+(14)
+
+max
+
+τ ∈{−1, +1}k
+
+Σ¬S, S Σ−1S τ
+S,
+
+∞
+
+< 1,
+
+where Σ = Var [X], ΣS, S is the variance of the signal coordinates of X,
+and Σ¬S, S is the covariance between the non-signal and signal coordinates.
+The conditions (12) and (14) are within a constant factor of each other if
+none of the entries of Σ¬S, S are much bigger than the others; for example,
+in the equicorrelated case, they both require the cross-term correlations to
+√
+be on the order of 1/ k. On the other hand, (14) allows Σ¬S, S to have a
+small number of larger entries in each row, whereas (12) does not. It seems
+plausible to us that an analogue to Theorem 2.3 should still hold under a
+weaker condition that more closely resembles (14).
+2.4. Proof Outline and Intuition. Our analysis starts with results from
+online convex optimization that study a broad class of adaptive mirror descent updates, which have the following general form:
+t−1
+
+(15)
+
+fs (ws )
+
+wt = arg min ψt (w) + w θt , where θt =
+w
+
+s=1
+
+and ψt is a convex regularizer. Note that our method from Algorithm 1 is
+an instance of adaptive mirror descent with the regularizer
+(16)
+
+ψt (w) =
+
+2
+
+w
+
+2
+2
+
+η
++
+2
+
+t−1
+
+w − ws
+s=1
+
+2
+2
+
+√
++λ t+1 w
+
+1.
+
+STREAMING SPARSE REGRESSION
+
+13
+
+The following result by Orabona et al. [41] applies to all procedures of the
+form (15):
+Proposition 2.4 (adaptive mirror descent [41]). Let ft (·) be a sequence
+of loss functions, let ψt (·) be a sequence of convex regularizers, and let wt be
+deﬁned as in (15). Then, for any u ∈ Rd ,
+T
+
+(wt − u)
+
+(17)
+
+ft (wt )
+
+t=1
+T
+
+≤ ψT (u) +
+
+T
+
+D
+
+∗
+ψt
+
+(θt+1 ||θt ) +
+
+t=1
+
+[ψt−1 (wt ) − ψt (wt )].
+t=1
+
+∗
+Here, we let ψ0 (·) ≡ 0 by convention and use Dψt to denote the Bregman
+divergence:
+
+(18)
+
+∗
+∗
+∗
+Dψt (θt+1 ||θt ) = ψt (θt+1 ) − ψt (θt ) −
+
+∗
+ψt (θt ) , θt+1 − θt .
+
+The bound (17) is commonly used when the losses ft are convex, in which
+case we have:
+(19)
+
+ft (wt ) − ft (u) ≤ (wt − u)
+
+ft (wt ),
+
+which immediately results in an upper bound on Regret(u). We emphasize,
+however, that (17) still holds even when ft is not convex; we will use this
+fact to our advantage in Section 6.
+Proposition 2.4 turns out to be very powerful. As shown by Orabona et al.
+[41], many classical online learning bounds that were originally proved using
+ad-hoc methods follow directly as corollaries of (17). This framework has
+also led to improvements to existing algorithms [54]. Applied in our context,
+and setting u = w∗ , we obtain the following bound (see the appendix for
+details):
+Corollary 2.5 (decomposition).
+
+If we run Algorithm 1 on loss func-
+
+14
+
+STEINHARDT, WAGER, AND LIANG
+
+tions f1 , . . . , fT , then for any u ∈ H (in particular, u = w∗ ):
+T
+
+(wt − u)
+
+(20)
+
+ft (wt ) ≤ Ω0 + Λ + Q,
+
+t=1
+
+(21)
+
+def
+
+Ω0 =
+
+2
+
+u
+
+2
+2
+
+1
++
+2
+
+T
+t=1
+
+ft (wt )
++ ηt
+
+2
+2
+
+,
+
+T
+
+(22)
+
+def
+
+(λt−1 − λt ) ( wt
+
+Λ =
+
+1
+
+− u 1) ,
+
+t=1
+
+(23)
+
+η
+Q =
+2
+
+T
+
+def
+
+wt − u 2 .
+2
+t=1
+
+In words, Corollary 2.5 says that the linearized regret is upper bounded
+by the sum of three terms: (i) the main term Ω0 that roughly corresponds to
+performing stochastic gradient descent under sparsity from the L1 penalty,
+(ii) the cost of ensuring that sparsity Λ, and (iii) a ﬁnal quadratic term, that
+will be canceled out by strong convexity of the loss.
+To achieve our goal from Theorem 2.1 of showing that
+(24)
+
+Regret(w∗ ) = OP (k log(d log(T )) log(T )) ,
+
+it remains to control each of the three terms in (20). The rest of this section
+provides a high-level overview of our argument, indicating where the details
+of the proof appear in the remainder of the paper.
+Enforcing Sparsity. The ﬁrst problem with (20) is that the norms
+ft (wt )
+in (21) in general scale with d, which is inconsistent with the desired bound
+(24), which only scales with log d. In Section 4, we establish a strengthened
+version of Proposition 2.4 that lets us take advantage of eﬀective sparsity of
+the weight vectors wt by restricting the Bregman divergences from (18) to
+a set of active features. Thanks to√ noise assumptions (4) or (5) paired
+our
+with an L1 penalty that scales as t, we can show that our active set will
+have size at most k with high probability. This implies that we can replace
+the term Ω0 in Corollary 2.5 with a new term Ω that scales as OP (k log T ).
+Bounding the Cost of Sparsity. Second, we need to bound the cost of
+sparsity Λ. A standard analysis following the lines of, e.g., Duchi et al. [17]
+would use the inequality ( wt 1 − w∗ 1 ) ≥ −R, thus resulting in a bound
+√
+on the cost of L1 penalization Λ that scales as R T , which again is too
+large for our purposes.
+
+2
+2
+
+STREAMING SPARSE REGRESSION
+
+15
+
+In a statistical setup, however, we can do better. We know that |λt−1 −
+√
+λt | ≈ λ/(2 t). Meanwhile, given adequate assumptions, we might also hope
+√
+for | wt 1 − w∗ 1 | to decay at a rate of k/ t as well. Combining these two
+bounds would bound the cost of sparsity on the order of λk log T .
+The diﬃculty, of course, is that obtaining bounds of | wt 1 − w∗ 1 | requires controlling the cost of sparsity, resulting in a seemingly problematic
+recursion. In Section 5, we develop machinery that lets us simultaneously
+bound | wt 1 − w∗ 1 | and the cost of sparsity Λ, thus letting us break out
+of the circular argument. The ﬁnal bound on Λ involves a multiplicative
+constant of λ2 , where λ must be at least log(d log(T )), which is where the
+log(d log(T )) term in our bound comes from.
+Finally, we emphasize that our bound on the cost of sparsity crucially
+depends√ λt growing with t in a way that keeps λt − λt−1 on a scale of at
+on
+most 1/ t. Existing methods [17, 51, 60] often just use a ﬁxed L1 penalty
+√
+λt = λ for all t. To ensure sparsity, this requires λ to be on the order of T ,
+√
+which would in turn impose a cost of sparsity of T , rather than the log(T )
+cost that we seek.
+Working with Strong Convexity in Expectation. Finally, we need to account for the quadratic term Q given in (23). If we knew that ft were αstrongly convex for all t, then by deﬁnition,
+T
+
+(ft (wt ) − ft (w∗ )) +
+
+(25)
+t=1
+
+α
+2
+
+T
+
+T
+
+wt − w ∗
+t=1
+
+2
+2
+
+(wt − w∗ )
+
+≤
+
+ft (wt ).
+
+t=1
+
+Thus, provided that η ≤ α, we could remove the term (23) when using (20)
+to establish an excess risk bound.
+In our application, only the expected loss L(w) as deﬁned in Assumption
+(1) is α-strongly convex; the loss functions ft themselves are in general not
+strongly convex. In Section 6, however, we show that we can still obtain a
+high-probability analogue to (25) when ft is strongly convex in expectation,
+provided that η ≤ α/2.
+Putting all these inequalities together, we can successfully bound all terms
+in (20) by OP (k log(d log(T )) log(T )). The last part of our paper then extends these results to provide bounds for the parameter error of Algorithm
+2 (Section 7), and adapts them to the case of irrepresentable instead of
+orthogonal features (Section 8).
+3. Experiments. To test our method, we ran it on several simulated
+datasets and a genome-wide association study, while comparing it to several
+existing methods. The streaming algorithms we considered were:
+
+16
+
+STEINHARDT, WAGER, AND LIANG
+
+1. Our method, streaming sparse regression (SSR), given in Algorithm 1,
+2. p-norm regularized dual averaging (p-norm + L1 ) [51], which exploits
+sparsity but not strong convexity, and
+3. The epoch-based algorithm of Agarwal, Negahban, and Wainwright [2]
+(ANW), which has theoretically optimal asymptotic rates.
+We also tried running un-penalized stochastic gradient descent, which exploits strong convexity but not sparsity; however, this performed badly
+enough that we did not add it to our plots.
+We also compare all the streaming methods to the batch lasso, which we
+treat as an oracle. The goal of the this comparison is to show that, in largescale problems, streaming algorithms can be competitive with the lasso.
+The way we implemented the lasso oracle is by running glmnet for matlab
+[23, 43] with the largest number of training examples the software could
+handle before crashing. In both the simulation and real data experiments,
+glmnet could not handle all the available data, so we downsampled the
+training data to make the problem size manageable; we had to downsample
+to 2, 500 out of 10, 000 data points in the simulations and 500 out of 3, 500
+in the genetics example.
+3.1. Simulated Data. We created three diﬀerent synthetic datasets; for
+the ﬁrst two, we ran linear regression with a Huberized loss3
+(26)
+
+ft (w) = h(yt − w xt ), h(y) =
+
+y2 2
+: |y| < C
+.
+C · (|y| − C/2) : |y| ≥ C
+
+For the third dataset, we used the logistic loss for all methods. Our datasets
+were as follows:
+• linear regression, i.i.d. features: we sampled xt ∼ N (0, I) and
+yt = (w∗ ) xt + vt , where vt ∼ N (0, σ 2 ), and w∗ was a k-sparse vector
+drawn from a Gaussian distribution.
+• linear regression, correlated features: the output relation is the
+same as before, but now the coordinates of xt have correlations that
+decay geometrically with distance (speciﬁcally, Σi,j = 0.8|i−j| ). In addition, the non-zero entries of w∗ were ﬁxed to appear consecutively.
+• logistic regression: xt is a random sign vector and yt ∈ {0, 1}, with
+1
+p(yt = 1 | xt ) = 1+exp(−(w∗ ) xt ) .
+In each case, we generated data with d = 100, 000. The ﬁrst k = 100 entries of w∗ were drawn from independent Gaussian random variables with
+3
+
+Since glmnet does not have an option to use the Huberized loss, we used the squared
+loss instead.
+
+STREAMING SPARSE REGRESSION
+
+17
+
+Table 1
+Average runtime (seconds)
+SSR
+p-norm
+ANW
+
+i.i.d
+11.3
+131.5
+340.9
+
+correlated
+12.1
+114.3
+344.4
+
+logit
+12.2
+77.7
+351.9
+
+gene
+29.2
+122.0
+551.9
+
+standard deviation 0.2; the remaining 99,900 entries were 0.
+Figure 2 compares the performance of each algorithm, in terms of both
+prediction error and parameter error. The prediction error at time t is ft (wt ),
+where wt depends only on (x1:t−1 , y1:t−1 ), so that prediction error measures
+actual generalization ability and hence penalizes overﬁtting. Results are aggregated over 10 realizations of the dataset for a ﬁxed w∗ . The prediction
+error is averaged over a sliding window consisting of the latest 1,000 examples. In addition, timing information for all algorithms is given in Table 1.
+We ﬁrst compare the online algorithms. Both SSR and ANW converge
+1
+in squared error at a T rate, while the p-norm algorithm converges at only
+1
+a √T rate. This can be seen in most of the plots, where SSR and ANW
+both outperform the p-norm algorithm; the exception is in the correlated
+inputs case, where the p-norm algorithm outperforms ANW in prediction
+error by a large margin and is not too much worse than SSR. The reason is
+that the p-norm algorithm is highly robust to correlations in the data, while
+ANW and SSR rely on restricted strong convexity and irrepresentability
+conditions, respectively, which tend to degrade as the inputs become more
+correlated.
+We also note that, in comparison to other methods, ANW performs better
+in terms of parameter error than prediction error. The diﬀerence is particularly striking for the logistic regression task, where ANW has very poor
+prediction error but very good parameter error (substantially better than
+all other methods). The fact that ANW incurs large losses while achieving low parameter error in the classiﬁcation example is not contradictory
+because, with logistic regression, it is possible to obtain high prediction accuracy without recovering the optimal parameters.
+Comparison with the lasso ﬁt by glmnet, which we treat as an oracle,
+yields some interesting results. Recall that the lasso was only trained using
+2,500 training examples, as this was the most data glmnet could handle
+before crashing. When the streaming methods have access to only 2,500
+examples as well, the lasso is beating all of them, just as we would expect.
+However, as we bring in more data, our SSR method starts to overtake it:
+in all examples, our method achieves lower prediction error around 4,000
+training examples. This phenomenon emphasizes the fact that, with large
+
+18
+
+STEINHARDT, WAGER, AND LIANG
+Prediction Error
+
+Parameter Error
+6
+
+SSR
+p−norm + L1
+ANW
+null
+lasso
+
+22
+20
+18
+16
+14
+
+5
+4.5
+4
+3.5
+3
+
+2
+
+12
+
+SSR
+p−norm + L1
+ANW
+null
+lasso
+
+5.5
+
+L parameter error
+
+average squared error
+
+Linear Regression, i.i.d. Features
+
+24
+
+10
+
+2.5
+
+8
+
+2
+
+6
+
+1.5
+
+4
+
+1000
+
+2000
+
+3000
+
+4000
+
+5000
+
+6000
+
+7000
+
+8000
+
+1
+
+9000
+
+1000
+
+2000
+
+3000
+
+amount of data
+
+30
+
+5000
+
+6000
+
+7000
+
+8000
+
+9000
+
+6
+
+SSR
+p−norm + L1
+ANW
+null
+lasso
+
+20
+
+5
+
+4.5
+
+4
+
+2
+
+15
+
+SSR
+p−norm + L1
+ANW
+null
+lasso
+
+5.5
+
+L parameter error
+
+25
+
+average squared error
+
+Linear Reg., Correlated Features
+
+4000
+
+amount of data
+
+3.5
+10
+3
+
+5
+
+1000
+
+2000
+
+3000
+
+4000
+
+5000
+
+6000
+
+7000
+
+8000
+
+2.5
+
+9000
+
+1000
+
+2000
+
+3000
+
+amount of data
+
+4000
+
+5000
+
+6000
+
+7000
+
+8000
+
+9000
+
+amount of data
+
+6
+
+SSR
+p−norm + L1
+ANW
+null
+lasso
+
+1.2
+
+1
+
+5
+
+4.5
+
+4
+
+3.5
+
+2
+
+0.8
+
+SSR
+p−norm + L1
+ANW
+null
+lasso
+
+5.5
+
+L parameter error
+
+1.4
+
+average log−loss
+
+Logistic Regression
+
+1.6
+
+3
+0.6
+2.5
+0.4
+1000
+
+2000
+
+3000
+
+4000
+
+5000
+
+6000
+
+amount of data
+
+7000
+
+8000
+
+9000
+
+2
+
+1000
+
+2000
+
+3000
+
+4000
+
+5000
+
+6000
+
+7000
+
+8000
+
+9000
+
+amount of data
+
+Fig 2: Simulation results. The prediction error is in terms of Huberized
+quadratic loss or logistic loss. We ran each algorithm with T = 10, 000
+training examples in total. The spike in error for ANW in the ﬁrst row
+is because ANW is an epoch-based algorithm, and error tends to increase
+temporarily at the start of a new epoch.
+
+STREAMING SPARSE REGRESSION
+
+19
+
+datasets, having computationally eﬃcient algorithms that let us work with
+more data is desirable.
+Finally we note that, in terms of runtime, SSR is by far the fastest method,
+running 4 to 10 times faster than either of the two other algorithms. We emphasize that none of these methods were optimized, so the runtime of each
+method should be taken as a rough indicator rather than an exact measurement of eﬃciency. The bulk of the runtime diﬀerence among the online
+algorithms is due to the fact that both ANW and the p-norm algorithm require expensive ﬂoating point operations like taking p-th powers, while SSR
+requires only basic ﬂoating point operations like multiplication and addition.
+Tuning. We selected the tuning parameters using a single development
+set of size 1, 000. The tuning parameters for p-norm and ANW are a step
+size and L1 penalty, and the tuning parameters for SSR are the constants ,
+α, and λ in Algorithm 1, the ﬁrst two of which control the step size and the
+last of which controls the L1 penalty.
+3.2. Genomics Data. The dataset, collected by the Wellcome Trust Case
+Control Consortium [10], is a genome-wide association study, comparing
+d = 500, 568 single nucleotide polymorphisms (SNPs). The dataset contains
+2,000 cases of type 1 diabetes (T1D), and 1,500 controls,4 for a total of
+T = 3, 500 data points. We coded each SNP as 0 if it matches the wild type
+allele, and as 1 else.
+We compared the same methods as before, using a random subset of
+500 data points for tuning hyperparameters (since the dataset is already
+small, we did not create a separate development set). We only compute
+prediction error since the true parameters are unknown. In Figure 3, we plot
+the prediction error averaged over 40 random permutations of the data and
+over a sliding window of length 500. The results look largely similar to our
+simulations. As before, SSR outperforms the other streaming methods, and
+eventually also beats the lasso oracle once it is able to see enough training
+data.
+4. Adaptive Mirror Descent with Sparsity Guarantees. We now
+begin to ﬂesh out the intuition described in Section 2.4. Our ﬁrst goal is
+to provide an analogue to the mirror descent bound in Proposition 2.4 that
+takes advantage of sparsity. Intuitively, online algorithms with sparse weights
+wt 0 ≤ k should behave as though they were evolving in a k-dimensional
+space instead of a d-dimensional space. However, the baseline bound (20)
+4
+
+The dataset [10] has 3,000 controls, split into 2 sub-populations. We used one of the
+two control populations (NBS).
+
+20
+
+STEINHARDT, WAGER, AND LIANG
+
+0.7
+
+SSR
+p−norm + L1
+ANW
+null
+lasso
+
+0.65
+
+average log−loss
+
+0.6
+
+0.55
+
+0.5
+
+0.45
+
+0.4
+
+0.35
+
+500
+
+1000
+
+1500
+
+2000
+
+2500
+
+3000
+
+amount of data
+
+Fig 3: Genomics example; logistic loss vs. amount of data.
+
+does not take advantage of this at all: it depends on
+ft (wt ) 2 , which could
+2
+be as large as B 2 d.
+In this section, we strengthen the adaptive mirror descent bound of Orabona
+et al. [41] in a way that reﬂects the eﬀective sparsity of the wt . We state
+our results in the standard adversarial setup. Statistical assumptions will
+become important in order to bound the cost of L1 -penalization (Section 5).
+Our main result that strengthens the adaptive mirror descent bound is
+∗
+Lemma 4.1, which replaces the Bregman divergence term Dψt (θt+1 ||θt ) in
+∗
+(17) with the smaller term Dψt (θt+1 [St ]||θt [St ]), which measures only the
+divergence over a subset St of the coordinates. As before, θt+1 [St ] denotes
+the coordinates of θt+1 that belong to St , with the rest of the coordinates
+zeroed out. We also let supp(wt ) denote the set of non-zero coordinates of
+wt . Throughout, we defer most proofs to the appendix.
+Lemma 4.1 (adaptive mirror descent with sparsity). Suppose that adaptive mirror descent (15) is run with convex regularizers ψt , and let St be a
+set satisfying:
+1. supp(wt ) ⊆ St
+2. supp(wt+1 ) ⊆ St
+3. For all w[St ], ψt (w[St ], w[¬St ]) is minimized at w[¬St ] = 0.
+˜
+˜
+
+STREAMING SPARSE REGRESSION
+
+21
+
+Then,
+T
+
+(wt − u)
+
+(27)
+
+ft (wt )
+
+t=1
+T
+
+T
+
+≤ ψT (u) +
+
+∗
+Dψt (θt+1 [St ]||θt [St ]) +
+
+t=1
+
+[ψt−1 (wt ) − ψt (wt )].
+t=1
+
+We emphasize that this result does not require any statistical assumptions
+about the data-generating process, and relies only on convex optimization
+machinery. Later, we will use statistical assumptions to control the size of
+the active set St and thus bound the right-hand-side of (27).
+If we apply Lemma 4.1 to the choice of ψt given in (52), we get Lemma 4.2
+below. The resulting bound is identical to the one in (2.5), except we have
+replaced
+ft (wt ) 2 with a term that depends only on an eﬀective dimension
+2
+kt .
+Lemma 4.2 (decomposition with sparsity). Let ft (·) be a sequence of
+convex loss functions, and let wt be selected by adaptive mirror descent with
+regularizers (52). Then
+T
+
+(wt − u)
+
+(28)
+
+ft (wt ) ≤ Ω + Λ + Q, where
+
+t=1
+
+(29)
+
+Ω=
+
+2
+
+u
+
+2
+2
+
+B2
++
+2
+
+T
+t=1
+
+kt
+,
++ηt
+
+Ω replaces Ω0 in Corollary 2.5, and Λ and Q are deﬁned in (22) and
+(23). Here, kt = |St | is the number of active features, and we take St =
+∪t+1 supp(ws ).
+s=1
+Example: forcing sparsity. The statement of Lemma 4.2 is fairly abstract,
+and so it can be helpful to elucidate its implications with some examples.
+First, suppose that we determine the λt sequence in such a way to force the
+wt to be k-sparse:
+(30)
+
+λt+1 = max λt , |θt |(k+1, d) + B ,
+
+where |θt |(k+1, d) denotes the (k + 1)-st largest (in absolute magnitude) coordinate of θt . Also suppose that we set η = 0 for simplicity. Then, we can
+simplify our result to the following:
+
+22
+
+STEINHARDT, WAGER, AND LIANG
+
+Corollary 4.3 (simpliﬁcation with sparsity). Under the conditions of
+Lemma 4.2, suppose that λt is set using (30), η = 0, and that the ft (·) are
+convex. Then, we obtain the regret bound
+R2
+1
++ kB 2 T + λT R.
+2
+2
+√
+√
+If we optimize the bound with = B kT , then (31) is equal to R B kT + λT .
+R
+(31)
+
+Regret(u) ≤
+
+Proof. By convexity of ft , we have ft (wt ) − ft (u) ≤ (wt − u) ft (wt ).
+Also, since η = 0, we can actually take St = supp(wt ) ∩ supp(wt+1 ) and
+still satisfy the conditions of Lemma 4.1. To get the RHS of (31) from
+(28), we use the inequalities kt = |St | ≤ k, u 2 ≤ u 1 ≤ R and (λt−1 −
+λt ) wt 1 ≤ 0; this latter inequality implies that T (λt−1 − λt )( wt 1 −
+t=1
+u 1 ) ≤ λT u 1 .
+We have shown that stochastic gradient descent can achieve regret that
+depends on the sparsity level k rather than the ambient dimension d, as
+long as the L1 penalty is large enough. Previous analyses [e.g., 60] had an
+√
+analogous regret bound of R(B dT + λT ), which could be substantially
+worse when d is large.
+4.1. Interlude: Sparse Learning with Strongly Convex Loss Functions. In
+the above section we showed that, when working with generic convex loss
+√
+functions ft , we could use our framework to improve a dT factor into
+√
+kT ; in other words, we could bound the regret in terms of the eﬀective
+dimension k rather than the ambient dimension d. We can thus achieve
+low regret in high dimensions while using an L2 -regularizer, as opposed to
+previous work [51] that used an Lp -regularizer with p = 2 2 log(d) . This fact
+log(d)−1
+becomes signiﬁcant when we consider strong convexity properties of our loss
+functions, where it is advantageous to use a regularizer with the same strong
+convexity structure as the loss, and where L2 -strong convexity of the loss
+function is much more common than strong convexity in other Lp -norms.
+In the standard online convex optimization setup, it is well known [17, 28]
+that if the loss functions ft are strongly convex, we can use faster learning
+√
+rates to get excess risk on the order of log T rather than T . This is because
+2
+the strong convexity of ft allows us to remove the T
+t=1 wt − u 2 term from
+bounds like (28).
+In practice, the loss function ft is only strongly convex in expectation, and
+we will analyze this setting in Section 6. But as a warm-up, let us analyze the
+case where each ft is actually strongly convex. In this case, we can remove
+the Q term from our regret bound (28) entirely:
+
+23
+
+STREAMING SPARSE REGRESSION
+
+Theorem 4.4 (decomposition with sparsity and strong convexity). Suppose that we are given a sequence of α-strongly convex losses f1 , . . . , fT , and
+that we run adaptive mirror descent with the regularizers ψt from (52) with
+η = α. Then, using Ω and Λ from (28), we have
+T
+
+(32)
+
+(ft (wt ) − ft (u)) ≤ Ω + Λ.
+
+Regret(u) =
+t=1
+
+The key is that with ft α-strongly convex, we have ft (wt ) − ft (u) ≤
+ft (wt ) (wt − u) − α wt − u 2 , from which the result follows by invoking
+2
+2
+(28). As a result, we can remove the Q term while still allowing η > 0, which
+can help reduce Ω.
+Example: forcing sparsity. We can again use the sparsity-forcing schedule
+λt from (30) to gain some intuition.
+Corollary 4.5 (simpliﬁcation with sparsity and strong convexity). Under the conditions of Theorem 4.4, suppose that we set λt using (30) and set
+= 0. Then
+(33)
+
+Regret(u) ≤
+
+kB 2
+(1 + log T ) + λT u
+2α
+
+1.
+
+At ﬁrst glance, it may seem that this result gives us an even better bound
+than the one stated in Theorem 2.1. The main term in the bound (33) scales
+as log T and has no explicit dependence on d. However, we should not forget
+the λT u 1 term required to keep the weights sparse: in general, even if
+all but a small number of coordinates of ft (wt ) are zero-mean random
+√
+noise, λT will need to grow as T (in fact, T log(d)) in order to preserve
+sparsity. This is because an unbiased random walk will still have deviation
+√
+T from zero after T steps. Thus, although we managed to make the main
+term of the regret bound small, the λT u 1 term still looms. In the absence
+√
+of strong convexity, having λT = O( T ) would be acceptable since the ﬁrst
+√
+two terms of (31) would grow as T anyway in this case, but since we are
+after a log T dependence, we need to work harder.
+In the next section, we will show that, if we make statistical assumptions
+and restrict our attention to the minimizer w∗ of L, the cost of penalization
+becomes manageable. Speciﬁcally, we will show that the T (λt−1 − λt ) wt
+t=1
+term in (32) mostly cancels out the problematic λT u 1 term when u = w∗ ,
+and that the remainder scales only logarithmically in T .
+
+1
+
+24
+
+STEINHARDT, WAGER, AND LIANG
+
+5. The Cost of Sparsity. In the previous section, we showed how
+to control the main term of an adaptive mirror descent regret bound by
+exploiting sparsity. In order to achieve sparsity, however, we had to impose
+an L1 penalty which introduces a cost of sparsity term (22), which is:
+T
+def
+
+(λt−1 − λt ) ( wt
+
+Λ =
+
+(34)
+
+1
+
+− w∗ 1 ) .
+
+t=1
+
+Before, our regret bounds (32) held against any comparator u ∈ H, but all
+the results in this section rely on statistical assumptions and thus will only
+hold when u = w∗ , the expected risk minimizer.
+√
+In general, we will need λT to scale as T log d to ensure sparsity. If we use
+the naive upper bound Λ = λT w∗ 1 + T (λt−1 − λt ) wt 1 ≤ λT w∗ 1 ,
+t=1
+which holds so long as λt ≥ λt−1 , we again get regret bounds that grow as
+√
+T , even under statistical assumptions. However, we can do better than this
+naive bound: we will show that it is possible to substantially cut the cost of
+sparsity by√
+using an L1 penalty that grows steadily in t; in our analysis, we
+use λt = λ t + 1. Using Assumptions (1-3) from Section 2, we can obtain
+bounds for Λ that grow only logarithmically in T :
+Lemma 5.1 (cost of sparsity). Suppose that Assumptions (1-3) of Section
+√
+2 hold, and that λt = λ t + 1. Then, for any δ > 0, with probability 1 − δ,
+(35)
+
+Λ≤
+
+λ
+2
+×
+
+k (1 + log T )
+4
+α
+
+T
+
+(ft (wt [S]) − ft (w∗ )) +
+t=1
+
+9kB 2 log (log2 (2T )/δ)
+.
+4α2
+
+Note that Lemma 5.1 bounds Λ in terms of what is essentially the square
+root of Regret(w∗ ). Indeed, if supp(ws ) ⊆ S, so that wt [S] = wt , then the sum
+appearing inside the square-root is exactly Regret(w∗ ). Using this bound,
+we can provide a recipe for transforming regret bounds for L1 -penalized
+adaptive mirror descent algorithms into much stronger excess risk bounds.
+Theorem 5.2 (cost of sparsity for online prediction error). Under the
+conditions of Lemma 5.1, suppose that we have any excess risk bound of the
+form
+(36)
+
+Regret(w∗ ) ≤ RT (w∗ ) + Λ
+
+STREAMING SPARSE REGRESSION
+
+25
+
+for some main term RT (w∗ ) ≥ 0 and√ as deﬁned in (34). Then, for regularΛ
+ization schedules of the form λt = λ t + 1, the following excess risk bound
+also holds with probability 1 − δ for any δ > 0:
+(37)
+
+Regret(w∗ ) ≤ 2RT (w∗ )
++
+
+4kλ2 (1 + log T ) kB 2 log (log2 (2T )/δ)
++
++ max (0, −∆) ,
+3α
+2α
+T
+
+(ft (wt ) − ft (wt [S])) .
+
+where ∆ =
+t=1
+
+Notice that this result does not depend on any form of orthogonal noise or
+irrepresentability assumption. Instead, our bound depends implicitly on the
+assumption that sparsiﬁcation improves the performance of our predictor.
+Speciﬁcally, ∆ is the excess risk we get from using non-zero weights outside
+the sparsity set S. If the non-signal features are pure noise (i.e., independent
+from the response), then clearly
+E [ft (wt [S])] ≤ E [ft (wt )] ,
+and so E [∆] ≥ 0 and thus (37) is a strong bound in the sense that the cost of
+sparsity grows only as log T . Conversely, if there are many good non-sparse
+models, then −∆ could potentially be large enough to render the bound
+useless.
+To use Theorem 5.2 in practice, we will make assumptions (such as irrepresentability) that guarantee that supp(wt ) ⊆ S with high probability for all
+t, so that wt [S] = wt and thus ∆ = 0. The following result gives us exactly
+this guarantee in the case where the noise features ¬S are orthogonal to the
+signal S (formalized as Assumption 4), by letting λt grow at an appropriate
+rate. In Section 8, we relax the orthogonality assumption to one where the
+noise features need only be irrepresentable.
+Lemma 5.3 (support recovery with uncorrelated noise). Suppose that
+i
+Assumptions 1, 3, and 4 hold. Then, for any convex functions {ζt }d , as
+i=1
+i is minimized at 0 for all i ∈ S, the weights w generated by
+long as ζt
+t
+adaptive mirror descent with regularizer
+d
+i
+ζt wi + λt w
+
+ψt (w) =
+
+1
+
+i=1
+
+and
+(38)
+
+√
+3B
+λt = cδ t with cδ =
+2
+
+log
+
+2d log2 (2T )
+δ
+
+26
+
+STEINHARDT, WAGER, AND LIANG
+
+will satisfy supp(wt ) ⊆ S for all t = 1, . . . , T with probability at least 1 − δ.
+We have thus cleared the main theoretical hurdle identiﬁed at the end of
+√
+Section 4.1, by showing that having an L1 penalty that grows as t does
+√
+not necessarily make the regret bound scale with t also. Thus, we can now
+use Theorem 5.2 in combination with Lemma 5.3 to get logarithmic bounds
+on the cost of sparsity Λ for strongly convex losses, as shown below.
+Corollary 5.4 (synthesis). Suppose that Assumptions 1, 3, and 4 hold,
+√
+that we run Algorithm 1 with ε = 0 and λt = cδ t with cδ as deﬁned in
+(38). Moreover, suppose that the loss functions ft are all α-strongly convex
+for some α > 0 and that we set η = α. Then,
+T
+
+(ft (wt ) − ft (w∗ )) = OP
+t=1
+
+kB 2
+log (d log (T )) log (T ) .
+α
+
+Proof. This result follows directly by combining Theorem 4.4 with Theorem 5.2, while using Lemma 5.3 to control sparsity.
+6. Online Learning with Strong Convexity in Expectation. Thus
+far, we have obtained our desired regret bound of OP (k log(d log(T )) log(T )),
+but assuming that each loss function ft was α-strong convexity (Corollary
+5.4). This strong convexity assumption, however, is unrealistic for many
+commonly-used loss functions. For example, in the case of linear regression
+1
+with ft (w) = 2 (yt − w xt )2 , the individual loss functions ft are not strongly
+convex. However, we do know that the ft are strongly convex in expectation as long as the covariance of x is non-singular. In this section, we show
+that this weaker assumption of strong convexity in expectation is all that is
+needed to obtain the same rates as before.
+The adaptive mirror descent bounds presented in Sections 2 and 4 all
+depend on the following inequalities: if the loss function ft (·) is convex, then
+(39)
+
+ft (wt ) − ft (u) ≤ (wt − u)
+
+ft (wt ) ,
+
+and if ft (·) is α-strongly convex, then
+(40)
+
+ft (wt ) − ft (u) ≤ (wt − u)
+
+ft (wt ) −
+
+α
+wt − u 2 .
+2
+2
+
+It turns out that we can use similar arguments even when the losses ft (·)
+are not convex, provided that ft (·) is convex in expectation. The following
+lemma is the key technical device allowing us to do so. Comparing (41) with
+(40), notice that we only lose a factor of 2 in terms of α and pick up an
+additive constant for the high probability guarantee.
+
+27
+
+STREAMING SPARSE REGRESSION
+
+Lemma 6.1 (online prediction error with expected strong convexity). Let
+f1 , . . . , fT be a sequence of (not necessarily convex) loss functions deﬁned
+over a convex region H and let u, w1 , . . . , wT ∈ H. Finally let F0 , F1 , . . . be
+a ﬁltration such that:
+1. wt is Ft−1 -measurable, and u is F0 -measurable,
+2. ft is Ft -measurable and E [ft | Ft−1 ] is α-strongly convex with respect
+to some norm · , and
+3. ft is almost surely L-Lipschitz with respect to · over all of H.
+Then, with probability at least 1 − δ, we have, for all T ≥ 0,
+T
+
+(41) Regret(u) ≤
+
+(wt − u)
+t=1
+
+ft (wt ) −
+
+α
+wt − u
+4
+
+2
+
++
+
+8L2 log(1/δ)
+.
+α
+
+We can directly use this lemma to get an extension of the adaptive mirror
+descent bound of Orabona et al. [41] for loss functions that are only convex
+in expectation, thus yielding an analogue of Theorem 4.4, that only requires
+expected strong convexity instead of strong convexity. Note that the above
+result holds for any ﬁxed u, although we will always invoke it for u = w∗ .
+Theorem 6.2 (simpliﬁcation with expected strong convexity). Suppose
+that the ft (·) are a sequence of loss functions satisfying Assumptions (1-4),
+and that we run adaptive mirror descent with the regularizers ψt from (52)
+and ε = 0. Then, assuming that supp(wt ) ⊆ S for all t, we have that for
+any δ > 0, with probability at least 1 − δ,
+(42)
+
+Regret(w∗ ) ≤
+
+kB 2
+α
+
+1 + log T + 8 log
+
+1
+δ
+
++ Λ,
+
+where Λ is the cost of sparsity as deﬁned in (22).
+We have now assembled all the necessary ingredients to establish our ﬁrst
+main result, namely the excess empirical risk bound for Algorithm 1 given
+in Theorem 2.1, which states that
+Regret(w∗ ) = OP
+
+kB 2
+log (d log(T )) log(T ) .
+α
+
+The proof, provided at the end of Section A.4, follows directly from combining Theorem 5.2, Lemma 5.3, and Theorem 6.2.
+We pause here to discuss what we have done so far. At the beginning
+of Section 4, we set out to provide an excess loss bound for the sparsiﬁed
+
+28
+
+STEINHARDT, WAGER, AND LIANG
+
+stochastic gradient method described in Algorithm 1. The main diﬃculty
+was that although L1 -induced sparsity enabled us to control the size of the
+main term Ω from (29), it induced another cost-of-sparsity term Λ (22) that
+√
+seemingly grew as T . However, through the more careful implicit analysis
+presented in Section 5, we were able to show that, if Ω satisﬁes logarithmic
+bounds in d and T , then Λ must also satisfy similar bounds. In parallel, we
+showed in Section 6 how to work with expected strong convexity instead of
+actual strong convexity.
+The ideas discussed so far, especially in Section 5, comprise the main
+technical contributions of this paper. In the remaining pages, we extend the
+scope of our analysis, by providing an analogue to Theorem 2.1 that lets
+us control parameter error at a quasi-optimal rate, and by extending our
+analysis to designs with correlated noise features.
+7. Parameter Estimation using Online-to-Batch Conversion. In
+the previous sections, we focused on bounding the cumulative excess loss
+made by our algorithm while streaming over the data, namely T (ft (wt )−
+t=1
+ft (w∗ )). In many cases, however, a statistician may be more interested in
+estimating the underlying weight vector w∗ than in just obtaining good
+predictions. In this section, we show how to adapt the machinery from the
+previous section for parameter estimation.
+The key idea is as follows. Assume that the ft are i.i.d. and recall the
+expected risk is deﬁned as L (w) = E [ft (w)]. If we know that L (·) is αstrongly convex, we immediately see that, for any w,
+(43)
+
+1
+w − w∗
+2
+
+2
+2
+
+≤
+
+1
+(L (w) − L (w∗ )) .
+α
+
+Thus, given a guess wt , we can transform any generalization error bound on
+ˆ
+L (wt ) − L (w∗ ) into a parameter error bound for wt .
+ˆ
+ˆ
+The standard way to turn cumulative online loss bounds into generalization bounds is using “online-to-batch” conversion [13, 31]. In general,
+online-to-batch type results tell us that if we start with a bound of the
+form5
+T
+
+Regret(w∗ ) =
+
+(ft (wt ) − ft (w∗ )) = OP (Q(T ))
+t=1
+
+for some function Q(T ), then
+L (wT ) − L (w∗ ) = OP
+ˆ
+5
+
+Q(T )
+T
+
+, with wT =
+ˆ
+
+1
+T
+
+T
+
+wt .
+t=1
+
+In Proposition 7.1, we provide one bound of this form that is useful for our purposes.
+
+29
+
+STREAMING SPARSE REGRESSION
+
+The problem with this approach is that, if we applied online-to-batch conversion directly to Algorithm 1 and Theorem 2.1, we would get a bound of
+the form
+L (wT ) − L (w∗ ) = OP
+ˆ
+
+k log(d log(T ))
+log(T ) ,
+T
+
+which is loose by a factor log T with respect to the minimax rate [46]. At
+a high level, the reason we incur this extra log T factor is that the required
+1
+averaging step wT = T T wt gives too much weight to the small-t weights
+ˆ
+t=1
+wt , which may be quite far from w∗ .
+In this section, however, we will show that if we modify Algorithm 1
+slightly, yielding Algorithm 2, we can discard the extra log T factor and
+obtain our desired generalization error rate bound of OP (k log(d log(T ))/T ).
+Besides being of direct interest for parameter estimation, this technical result
+will prove to be important in dealing with correlated noise features under
+irrepresentability conditions.
+To achieve the desired batch bounds, we modify our algorithm as follows:
+˜
+• We replace the loss functions ft (w) with ft (w) = tft (w).
+• We replace the regularizer ψt (w) with
+(44)
+
+ψt (w) =
+
+t
+
+1
+2η
+
+s w − ws
+
+2
+2
+
++ λt w
+
+1.
+
+s=1
+
+• We use a correspondingly larger L1 regularizer λt = λ · t3/2 .
+Procedurally, this new method yields Algorithm 2. Intuitively, the new algorithm pays more attention to later loss functions and weight vectors compared to earlier ones.
+This construction will allow us to give bounds for
+(45)
+
+1
+T
+
+T
+
+T
+∗
+
+(ft (wt ) − ft (w∗ )) .
+
+t (ft (wt ) − ft (w )) instead of
+t=1
+
+t=1
+
+It turns out that while the latter is only bounded by OP (log(T )), the former
+is bounded by OP (1). This is useful for proving generalization bounds, as
+shown by the following online-to-batch conversion result, the proof of which
+relies on martingale tail bounds similar to those developed by Freedman [22]
+and Kakade and Tewari [31]. Note that the weight averaging scheme used
+in Algorithm 2 gives us exactly
+2
+wt =
+ˆ
+t(t + 1)
+
+t
+
+s ws ;
+s=1
+
+30
+
+STEINHARDT, WAGER, AND LIANG
+
+this equality can be veriﬁed by induction.
+Proposition 7.1 (online-to-batch conversion).
+δ > 0, with probability 1 − δ,
+
+Suppose that, for any
+
+t
+
+s (fs (ws ) − fs (w∗ )) ≤ Rδ t
+s=1
+
+for all t ≤ T , and that each ft is L-Lipschitz and α-strongly convex over H.
+Then, with probability at least 1 − 2δ,
+(46)
+
+L (wt ) − L (w∗ ) ≤
+ˆ
+
+9 log log2 (2T 3 )/δ L2
+4Rδ
++
+t
+αt
+
+for all t ≤ T .
+Given these ideas, we can mimic our analysis from Sections 4, 5 and 6 to
+provide bounds of the form (45) for Algorithm 2. Combined with Proposition
+7.1, this will result in the desired generalization bound. For conciseness, we
+defer this argument to the Appendix, and only present the ﬁnal bound below.
+Theorem 7.2 (expected prediction error with uncorrelated noise).
+pose that we run Algorithm 2 with η = α/2 and
+λ=
+
+3B
+2
+
+log
+
+Sup-
+
+2d log2 (2T 3 )
+,
+δ
+
+and that Assumptions 1-4 hold. Then, with probability 1 − 3δ, for all t ≤ T
+we have
+(47)
+
+L (wt ) − L(w∗ ) ≤
+ˆ
+
+269B 2 k log 2d log2 (2T 3 )/δ
+,
+αt
+
+and hence
+(48)
+
+1
+wt − w ∗
+ˆ
+2
+
+2
+2
+
+≤
+
+269B 2 k log 2d log2 (2T 3 )/δ
+.
+α2 t
+
+With this result in hand, we can obtain Theorem 2.2 as a direct corollary
+of Theorem 7.2. Thus, as desired, we have obtained a parameter error bound
+that decays as OP (k log (d log(T )) /T ). As discussed earlier, this is minimax
+optimal [46] as long as the problem is not extremely low-dimensional (the
+bound becomes loose only if T
+exp(d)).
+
+31
+
+STREAMING SPARSE REGRESSION
+
+8. Streaming Sparse Regression with Irrepresentable Features.
+Finally, we end our analysis by re-visiting probably the most problematic
+of our original 4 assumptions from Section 2.1, namely that the gradients
+corresponding to noise features are all mean zero for any weight vector w
+with support in S. Here, we show that this assumption is in fact not needed
+in its full strength. In particular, in the case of streaming linear regression, a
+weaker irrepresentability condition (Assumption 5) is suﬃcient to guarantee
+good performance of our algorithm.
+In our original analysis, mean-zero gradients (Assumption 4) allowed us
+to guarantee that our L1 penalization scheme would in fact result in sparse
+weights, as in Lemma 5.3. Below, we provide an analogous result in the case
+of irrepresentable noise features.
+Lemma 8.1 (support recovery with irrepresentability). Suppose that Assumptions 1-3 and 5 hold, and that we run Algorithm 2 with η = α/2 and
+(49)
+
+228B 2 log 2d log2 (2T 3 ) δ
+.
+1 − 24ρ2
+
+λ≥
+
+Then, with probability at least 1 − 4δ, supp(wt ) ⊆ S for all t = 1, . . . , T .
+Thanks to this sparsity guarantee, we can use similar machinery as in
+Section 7 to bound the generalization error of the output of Algorithm 2.
+Again, just like in Section 7, Theorem 2.3 is a direct consequence of the
+result below thanks to the α-strong convexity of L and (43).
+Theorem 8.2 (expected prediction error with irrepresentability). Let
+wt be the weights generated by Algorithm 2. Then, under the conditions of
+Lemma 8.1, with wT = T (T2+1) T t wt , we have, with probability 1 − 5δ,
+ˆ
+t=1
+supp(wT ) ⊆ S and
+ˆ
+(50)
+(51)
+
+L (wT ) − L (w∗ ) = OP
+ˆ
+wT − w ∗
+ˆ
+
+2
+2
+
+= OP
+
+1
+kB 2 log (d log(T ))
+1 − 24ρ2
+αT
+2 log (d log(T ))
+kB
+1
+2
+1 − 24ρ
+α2 T
+
+,
+.
+
+9. Discussion. In this work, we have developed an eﬃcient algorithm
+for solving sparse regression problems in the streaming setting, and have
+shown that it can achieve optimal rates of convergence in both prediction and
+parameter error. To recap our theoretical contributions: we have shown that
+online algorithms with sparse iterates enjoy better convergence (obtaining a
+
+32
+
+STEINHARDT, WAGER, AND LIANG
+
+dependence on k rather than d); that regularization schedules increasing at
+√
+a t rate can enjoy very low excess risk under statistical assumptions; and
+that functions that are √
+only strongly convex in expectation can still yield
+log T error rather than T . Together, these show that a natural streaming
+analogue of the lasso achieves convergence at the same rate as the lasso
+itself, similarly to how stochastic gradient descent achieves the same rate as
+batch linear regression.
+This work generates several questions. First, can we weaken the irrepresentability assumption, or more ambitiously, replace it with a restricted
+isometry condition? This latter goal would require analyzing the algorithm
+in regimes where the support is not recovered, since the restricted isometry
+property is not enough to guarantee support recovery even in a minimax
+batch setting. Another interesting question is whether we can reduce memory usage even further — currently, we use O(d) memory, but one could
+imagine using only O(k log(d)) memory; after all w∗ takes only O(k log(d))
+memory to store.
+Finally, we see this work as one part of the broader goal of designing
+computationally-oriented statistical procedures, which undoubtedly will become increasingly important in an era when high volumes of streaming data
+is the norm. By leveraging online convex optimization techniques, we can
+analyze speciﬁc procedures, whose computational properties are favorable
+by construction. By using statistical thinking, we can obtain much stronger
+results compared to purely optimization-based analyses. We believe that the
+combination of the two holds general promise, which can be used to examine
+other statistical problems in a new computational light.
+References.
+[1] Jennifer K Adelman-McCarthy, Marcel A Ag¨eros, Sahar S Allam, Carlos Allende
+u
+Prieto, Kurt SJ Anderson, Scott F Anderson, James Annis, Neta A Bahcall, CAL
+Bailer-Jones, Ivan K Baldry, et al. The sixth data release of the sloan digital sky
+survey. The Astrophysical Journal Supplement Series, 175(2):297, 2008.
+[2] Alekh Agarwal, Sahand Negahban, and Martin J Wainwright. Stochastic optimization
+and sparse statistical recovery: Optimal algorithms for high dimensions. In Advances
+in Neural Information Processing Systems, pages 1538–1546, 2012.
+[3] Ahmed El Alaoui and Michael W Mahoney. Fast randomized kernel methods with
+statistical guarantees. arXiv preprint arXiv:1411.0306, 2014.
+[4] Noga Alon, Yossi Matias, and Mario Szegedy. The space complexity of approximating
+the frequency moments. In Proceedings of the twenty-eighth annual ACM symposium
+on Theory of computing, pages 20–29. ACM, 1996.
+[5] Kevin Bache and Moshe Lichman. UCI machine learning repository, 2013. URL
+http://archive.ics.uci.edu/ml.
+[6] Karl Battams. Stream processing for solar physics: Applications and implications for
+big solar data. arXiv preprint arXiv:1409.8166, 2014.
+
+STREAMING SPARSE REGRESSION
+
+33
+
+[7] Amir Beck and Marc Teboulle. A fast iterative shrinkage-thresholding algorithm for
+linear inverse problems. SIAM Journal on Imaging Sciences, 2(1):183–202, 2009.
+[8] Peter J Bickel, Ya’acov Ritov, and Alexandre B Tsybakov. Simultaneous analysis of
+lasso and dantzig selector. The Annals of Statistics, pages 1705–1732, 2009.
+[9] L´on Bottou. Online algorithms and stochastic approximations. In David Saad, edie
+tor, Online Learning and Neural Networks. Cambridge University Press, Cambridge,
+UK, 1998. URL http://leon.bottou.org/papers/bottou-98x. revised, oct 2012.
+[10] Paul R Burton, David G Clayton, Lon R Cardon, Nick Craddock, Panos Deloukas,
+Audrey Duncanson, Dominic P Kwiatkowski, Mark I McCarthy, Willem H Ouwehand, Nilesh J Samani, et al. Genome-wide association study of 14,000 cases of seven
+common diseases and 3,000 shared controls. Nature, 447(7145):661–678, 2007.
+[11] Emmanuel Cand`s and Terence Tao. The Dantzig selector: Statistical estimation
+e
+when p is much larger than n. The Annals of Statistics, pages 2313–2351, 2007.
+[12] Emmanuel J Cand`s and Yaniv Plan. Near-ideal model selection by l1 minimization.
+e
+The Annals of Statistics, 37(5A):2145–2177, 2009.
+[13] Nicolo Cesa-Bianchi, Alex Conconi, and Claudio Gentile. On the generalization ability of on-line learning algorithms. Information Theory, IEEE Transactions on, 50(9):
+2050–2057, 2004.
+[14] Scott Shaobing Chen, David L Donoho, and Michael A Saunders. Atomic decomposition by basis pursuit. SIAM Journal on Scientiﬁc Computing, 20(1):33–61, 1998.
+[15] Thomas M Cover. Hypothesis testing with ﬁnite statistics. The Annals of Mathematical Statistics, pages 828–835, 1969.
+[16] Koby Crammer, Ofer Dekel, Joseph Keshet, Shai Shalev-Shwartz, and Yoram Singer.
+Online passive-aggressive algorithms. The Journal of Machine Learning Research, 7:
+551–585, 2006.
+[17] John Duchi, Shai Shalev-Shwartz, Yoram Singer, and Ambuj Tewari. Composite
+objective mirror descent. In Conference on Learning Theory, 2010.
+[18] Bradley Efron, Trevor Hastie, Iain Johnstone, Robert Tibshirani, et al. Least angle
+regression. The Annals of statistics, 32(2):407–499, 2004.
+[19] Laurent El Ghaoui, Vivian Viallon, and Tarek Rabbani. Safe feature elimination in
+sparse supervised learning. CoRR, 2010.
+[20] William Fithian and Trevor Hastie. Local case-control sampling: Eﬃcient subsampling in imbalanced data sets. The Annals of Statistics, 42(5):1693–1724, 2014. .
+[21] Philippe Flajolet and G Nigel Martin. Probabilistic counting algorithms for data
+base applications. Journal of computer and system sciences, 31(2):182–209, 1985.
+[22] David A Freedman. On tail probabilities for martingales. the Annals of Probability,
+pages 100–118, 1975.
+[23] Jerome Friedman, Trevor Hastie, and Rob Tibshirani. Regularization paths for generalized linear models via coordinate descent. Journal of statistical software, 33(1):
+1, 2010.
+[24] Pierre Garrigues and Laurent El Ghaoui. An homotopy algorithm for the lasso with
+online observations. In Advances in neural information processing systems, pages
+489–496, 2009.
+[25] Claudio Gentile. The robustness of the p-norm algorithms. Machine Learning, 53(3):
+265–299, 2003.
+[26] S´bastien Gerchinovitz. Sparsity regret bounds for individual sequences in online
+e
+linear regression. The Journal of Machine Learning Research, 14(1):729–769, 2013.
+[27] Trevor Hastie, Robert Tibshirani, and Jerome Friedman. The Elements of Statistical
+Learning. New York: Springer, 2009.
+[28] Elad Hazan, Amit Agarwal, and Satyen Kale. Logarithmic regret algorithms for
+
+34
+
+STEINHARDT, WAGER, AND LIANG
+
+online convex optimization. Machine Learning, 69(2-3):169–192, 2007.
+[29] Elad Hazan, Alexander Rakhlin, and Peter L Bartlett. Adaptive online gradient
+descent. In Advances in Neural Information Processing Systems, pages 65–72, 2007.
+[30] Martin E Hellman and Thomas M Cover. Learning with ﬁnite memory. The Annals
+of Mathematical Statistics, pages 765–782, 1970.
+[31] Sham M Kakade and Ambuj Tewari. On the generalization ability of online strongly
+convex programming algorithms. In Advances in Neural Information Processing Systems, pages 801–808, 2009.
+[32] Jyrki Kivinen and Manfred K Warmuth. Exponentiated gradient versus gradient
+descent for linear predictors. Information and Computation, 132(1):1–63, 1997.
+[33] John Langford, Lihong Li, and Tong Zhang. Sparse online learning via truncated
+gradient. Journal of Machine Learning Research, 10(777-801):65, 2009.
+[34] Nick Littlesttone and Manfred K Warmuth. The weighted majority algorithm. In
+Foundations of Computer Science, 30th Annual Symposium on, pages 256–261. IEEE,
+1989.
+[35] H Brendan McMahan. Follow-the-regularized-leader and mirror descent: Equivalence
+theorems and l1 regularization. In International Conference on Artiﬁcial Intelligence
+and Statistics, pages 525–533, 2011.
+[36] H Brendan McMahan, Gary Holt, D Sculley, Michael Young, Dietmar Ebner, Julian
+Grady, Lan Nie, Todd Phillips, Eugene Davydov, Daniel Golovin, et al. Ad click
+prediction: a view from the trenches. In Proceedings of the International Conference
+on Knowledge Discovery and Data Mining, 2013.
+[37] Nicolai Meinshausen and Peter B¨hlmann. High-dimensional graphs and variable
+u
+selection with the lasso. The Annals of Statistics, pages 1436–1462, 2006.
+[38] Nicolai Meinshausen and Bin Yu. Lasso-type recovery of sparse representations for
+high-dimensional data. The Annals of Statistics, 37(1):246–270, 2009.
+[39] J Ian Munro and Mike S Paterson. Selection and sorting with limited storage. Theoretical computer science, 12(3):315–323, 1980.
+[40] Arkadi˘ S Nemirovsky and David B Yudin. Problem complexity and method eﬃciency
+ı
+in optimization. Wiley, New York, 1983.
+[41] Francesco Orabona, Koby Crammer, and Nicolo Cesa-Bianchi. A generalized online mirror descent with applications to classiﬁcation and regression. arXiv preprint
+arXiv:1304.2994, 2013.
+[42] Michael A Osborne, Stephen J Roberts, Alex Rogers, and Nicholas R Jennings. Realtime information processing of environmental sensor network data using bayesian
+gaussian processes. ACM Transactions on Sensor Networks (TOSN), 9(1):1, 2012.
+[43] J Qian, T Hastie, J Friedman, R Tibshirani, and N Simon. Glmnet for matlab, 2013.
+URL http://www.stanford.edu/~hastie/glmnet_matlab/.
+[44] Garvesh Raskutti and Michael Mahoney. A statistical perspective on randomized
+sketching for ordinary least-squares. arXiv preprint arXiv:1406.5986, 2014.
+[45] Garvesh Raskutti, Martin J Wainwright, and Bin Yu. Restricted eigenvalue properties
+for correlated gaussian designs. The Journal of Machine Learning Research, 11:2241–
+2259, 2010.
+[46] Garvesh Raskutti, Martin J Wainwright, and Bin Yu. Minimax rates of estimation for high-dimensional linear regression over lq -balls. Information Theory, IEEE
+Transactions on, 57(10):6976–6994, 2011.
+[47] Herbert Robbins and Sutton Monro. A stochastic approximation method. The annals
+of mathematical statistics, 22(3):400–407, 1951.
+[48] Herbert Robbins and David Siegmund. A convergence theorem for non negative
+almost supermartingales and some applications. In Jagdish S. Rustagi, editor, Opti-
+
+STREAMING SPARSE REGRESSION
+
+35
+
+mizing Methods in Statistics. Academic Press, 1971.
+[49] Shai Shalev-Shwartz. Online learning and online convex optimization. Foundations
+and Trends in Machine Learning, 4(2):107–194, 2011.
+[50] Shai Shalev-Shwartz and Yoram Singer. A primal-dual perspective of online learning
+algorithms. Machine Learning, 69(2-3):115–142, 2007.
+[51] Shai Shalev-Shwartz and Ambuj Tewari. Stochastic methods for L1-regularized loss
+minimization. The Journal of Machine Learning Research, 12:1865–1892, 2011.
+[52] Shai Shalev-Shwartz, Nathan Srebro, and Tong Zhang. Trading accuracy for sparsity
+in optimization problems with sparsity constraints. SIAM Journal on Optimization,
+20(6):2807–2832, 2010.
+[53] Ohad Shamir and Tong Zhang. Stochastic gradient descent for non-smooth optimization: Convergence results and optimal averaging schemes. In Proceedings of The 30th
+International Conference on Machine Learning, pages 71–79, 2013.
+[54] Jacob Steinhardt and Percy Liang. Adaptivity and optimism: An improved exponentiated gradient algorithm. In Proceedings of the International Conference on Machine
+Learning, 2014.
+[55] Robert Tibshirani. Regression shrinkage and selection via the lasso. Journal of the
+Royal Statistical Society. Series B (Methodological), pages 267–288, 1996.
+[56] Robert Tibshirani, Jacob Bien, Jerome Friedman, Trevor Hastie, Noah Simon,
+Jonathan Taylor, and Ryan J Tibshirani. Strong rules for discarding predictors in
+lasso-type problems. Journal of the Royal Statistical Society: Series B (Statistical
+Methodology), 74(2):245–266, 2012.
+[57] Panos Toulis, Jason Rennie, and Edoardo Airoldi. Statistical analysis of stochastic
+gradient methods for generalized linear models. In ICML, 2014.
+[58] Sara A Van de Geer. High-dimensional generalized linear models and the lasso. The
+Annals of Statistics, pages 614–645, 2008.
+[59] Sara A Van De Geer and Peter B¨hlmann. On the conditions used to prove oracle
+u
+results for the lasso. Electronic Journal of Statistics, 3:1360–1392, 2009.
+[60] Lin Xiao. Dual averaging methods for regularized stochastic learning and online
+optimization. Journal of Machine Learning Research, 11(2543-2596):4, 2010.
+[61] Wei Xu, Ling Huang, Armando Fox, David Patterson, and Michael I Jordan. Detecting large-scale system problems by mining console logs. In Proceedings of the ACM
+SIGOPS 22nd symposium on Operating systems principles, pages 117–132. ACM,
+2009.
+[62] Haiqin Yang, Zenglin Xu, Irwin King, and Michael R Lyu. Online learning for group
+lasso. In Proceedings of the 27th International Conference on Machine Learning
+(ICML-10), pages 1191–1198, 2010.
+[63] Peng Zhao and Bin Yu. On model selection consistency of lasso. The Journal of
+Machine Learning Research, 7:2541–2563, 2006.
+
+36
+
+STEINHARDT, WAGER, AND LIANG
+
+APPENDIX A: PROOFS
+A.1. Proofs for Section 2.
+Proof of Corollary 2.5. We can check that the weights obtained by
+using the regularizer from (16) can equivalently be obtained using6
+(52)
+
+ψt (w) =
+
+2
+
+w
+
+2
+2
+
++
+
+η
+2
+
+t
+
+w − ws
+
+2
+2
+
++ λt w 1 .
+
+s=1
+
+1
+∗
+We also note that Dψt (θt+1 ||θt ) ≤ 2( +ηt) θt+1 − θt 2 , which holds because
+2
+ψt is ( + ηt)-strongly convex (see Lemma 2.19 of Shalev-Shwartz [49]). The
+inequality (20) then follows directly by applying Proposition 2.4 to (52).
+
+A.2. Proofs for Section 4.
+Proof of Lemma 4.1. We begin by noting that, given our regularizers
+ψt , wt, i = 0 if and only if |θt, i | ≤ λt . Now, deﬁne
+(53)
+
++
+ψt (w) =
+
+ψt (w) : wi = 0 for all i ∈ St
+∞
+: else.
+
+By construction, running adaptive mirror descent with the regularization
++
+sequence ψt yields an identical set of iterates θt as running with the sequence
+ψt . Moreover, because we also know that all non-zero coordinates of wt are
+contained in St−1 , we can verify that
++
++
+ψt−1 (wt ) − ψt (wt ) = ψt−1 (wt ) − ψt (wt ) ,
++
+and so using the ψt leaves the regret bound (17) from Proposition 2.4 unT
+changed except for the Bregman divergence terms
++
+t=1 D(ψt )∗ (θt+1 ||θt ).
+We can thus bound the regret in terms of D(ψ+ )∗ (θt+1 ||θt ) rather than
+t
+∗
+Dψt (θt+1 ||θt ). On the other hand, we see that
++
+(ψt )∗ (θ) = sup
+w
+
++
+w, θ − ψt (w)
+
+= sup { w[St ], θ[St ] − ψt (w[St ])}
+w[St ]
+∗
+= ψt (θ[St ]),
+6
+
+It may seem surprising to let the regularizer ψt depend on wt as in (52). However, we
+emphasize that Proposition 2.4 is a generic fact about convex functions, and holds for any
+(random or deterministic) sequence of inputs.
+
+STREAMING SPARSE REGRESSION
+
+37
+
+where w[S] and θ[S] denote vectors that are zero on all coordinates not in S.7
+The upshot is that
+D(ψ+ )∗ (θt+1 ||θt )
+t
+
+∗
+∗
+∗
+= ψt (θt+1 [St ]) − ∂ψt (θt [St ]), θt+1 [St ] − θt [St ] − ψt (θt [St ])
+∗
+= Dψt (θt+1 [St ]||θt [St ]),
+
+as was to be shown.
+Proof of Lemma 4.2. We directly invoke Lemma 4.1. First, we check
+that its conditions are satisﬁed for St = ∪t+1 supp(ws ). Clearly the ﬁrst
+s=1
+two conditions are satisﬁed by construction, and for the third condition,
+we note that each term in ψt (w) is either of the form w 1 , which pushes
+all coordinates closer to zero, or ws − w 2 with s ≤ t, which pushes all
+2
+coordinates outside of supp(ws ) closer to zero. Therefore, the third condition
+is also satisﬁed.
+Now, we apply the result of Lemma 4.1. The ψT (u) term in (27) yields
+(54)
+while the
+
+2
+
+u
+
+T
+t=1 [ψt−1 (wt )
+
+2
+2
+
++
+
+T
+
+η
+2
+
+wt − u
+
+2
+2
+
++ λT u 1 ,
+
+t=1
+
+− ψt (wt )] term yields
+T
+
+(λt−1 − λt ) wt 1 .
+
+(55)
+t=1
+
+∗
+The most interesting term is the summation T Dψt (θt+1 [St ] θt [St ]). By
+t=1
+standard results on Bregman divergences, we know that if ψt is γ-strongly
+1
+∗
+convex, then ψt is γ -strongly smooth in the sense that
+
+(56)
+
+∗
+Dψt (x y) ≤
+
+1
+x − y 2.
+2
+2γ
+
+In our case, ψt is ( + ηt)-strongly convex, so
+1
+∗
+Dψt (θt+1 [St ] θt [St ]) ≤
+θt+1 [St ] − θt [St ] 2
+2
+2γ
+|St |
+≤
+θt+1 − θt 2
+∞
+2( + ηt)
+kt
+≤
+B2,
+2( + ηt)
+from which the lemma follows.
+7
+
+The last inequality makes use of the condition that ψt (w[St ], w[¬St ]) is minimized at
+˜
+w[¬St ] = 0.
+˜
+
+38
+
+STEINHARDT, WAGER, AND LIANG
+
+Proof of Theorem 4.4. By invoking Lemma 4.2, we have
+T
+
+∂ft (wt ) (wt − u) ≤ Ω + Λ +
+
+(57)
+t=1
+
+α
+2
+
+T
+
+u − wt
+
+2
+2.
+
+t=1
+
+But now, because ft (·) is α-strongly convex, we also know that
+α
+ft (u) ≥ ft (wt ) + ∂ft (wt ) (u − wt ) +
+u − wt 2 ,
+2
+2
+implying that
+T
+
+T
+
+(ft (wt ) − ft (u)) ≤
+t=1
+
+∂ft (wt ) (u − wt ) −
+t=1
+
+α
+u − wt
+2
+
+2
+2
+
+.
+
+Chaining this inequality with (57) gives us (32).
+A.3. Proofs for Section 5. Throughout our argument, we will bound
+certain quantities in terms of themselves. The following auxiliary lemma will
+be very useful in turning these implicit bounds into explicit bounds.
+√
+Lemma A.1. Suppose that a, b, c ≥ 0 and S ≤ a + bS + c2 . Then
+S ≤ 2a + b + c.
+Proof. We have (S − a)2 ≤ bS + c2 , so that S 2 − (2a + b)S + a2 − c2 ≤ 0.
+This implies that
+(2a + b)2 − 4(a2 − c2 )
+2
+1 + 1 − 4(a2 − c2 )/(2a + b)2
+= (2a + b)
+2
+2 /(2a + b)2
+1 + 1 + 4c
+≤ (2a + b)
+2
+√
+2 /(2a + b)
+2 + 4c
+≤ (2a + b)
+2
+= 2a + b + c,
+√
+√
+√
+as claimed. The ﬁnal inequality uses the fact that x + y ≤ x + y.
+S≤
+
+(2a + b) +
+
+It will also be useful to have the following adaptive variant of Azuma’s
+inequality. Throughout, we use log2 (x) to denote the base-2 logarithm of x.
+In interpreting the lemma below, it will be helpful to think of Z as a sum of T
+independent zero-mean random variables X1:T , so that E Z Ft − E [Z] =
+X1 + · · · + Xt , and to think of Mt as a bound on |Xt | that is allowed to
+depend on X1:t−1 .
+
+39
+
+STREAMING SPARSE REGRESSION
+
+Lemma A.2.
+
+Let Z be a FT -measurable random variable, and let
+{∅} = F0 ⊆ F1 ⊆ ... ⊆ FT
+
+be a ﬁltration such that
+E Z Ft − E Z Ft−1 ∈ [At , Bt ] almost surely for t = 1, ..., T,
+where (At , Bt ) is Ft−1 -measurable, and let Mt = 1 (Bt − At ). Moreover,
+2
+suppose that supT Mt ≤ σ1 σ2 with probability 1 and σ1 ≥ 1. Then, for all
+t=1
+δ > 0, with probability 1 − δ, we have
+E Z Ft − E [Z] ≥ −
+
+2
+log2 (2σ1 T )
+δ
+
+log
+
+2
+max 2σ2 ,
+
+9
+4
+
+t
+2
+Ms ,
+s=1
+
+for all t ≤ T .
+Proof. Let ∆t = E Z Ft − E Z Ft−1 . Note that we have
+E exp −c∆t −
+
+c2 Mt2
+2
+
+Ft−1 = E exp (−c∆t ) Ft−1 exp −
+≤ exp
+
+c2 Mt2
+2
+
+exp −
+
+c2 Mt2
+2
+
+c2 Mt2
+2
+
+=1
+for all c > 0. Therefore,
+t
+def
+
+Ytc = exp −c
+
+∆s −
+s=1
+
+c2
+2
+
+t
+2
+Ms
+s=1
+
+is a supermartingale, and so P supT Ytc ≥ exp
+t=1
+t
+s=1 ∆s
+
+ing that
+
+γc2
+2
+
+2
+
+≤ exp − γc
+2
+
+. Not-
+
+= E Z Ft − E [Z], we then have that the probability
+2
+
+c
+2
+that E Z Ft −E [Z] < − 2 γ + t Ms for any t is at most exp − γc .
+s=1
+2
+To ﬁnish the proof, we will optimize over γ and c. The problem is that
+the optimal values of γ and c depend on the Mt , so we need some way to
+identify a small number of (γ, c) pairs over which to union bound.
+2
+To start, we want exp − γc to be at most δ, so for a ﬁxed γ > 0 we
+2
+
+will set c =
+(58)
+
+2 log(1/δ)/γ, leading to the bound
+
+P E Z Ft − E [Z]
+√
+≤ − 2 log(1/δ)
+
+γ+
+
+1/γ
+2
+
+T
+2
+t=1 Mt
+
+for any t ≤ δ.
+
+40
+
+STEINHARDT, WAGER, AND LIANG
+T
+2
+t=1 Mt , 2
+
+For γ ∈
+
+t
+2
+s=1 Ms ,
+
+1/2)
+
+T
+2
+t=1 Mt
+
+, we have
+
+√
+
+γ+
+
+t
+2
+s=1 Ms
+
+√
+≤ ( 2+
+
+which yields
+
+
+P E Z Ft − E [Z] ≤ −
+
+(59)
+
+1/γ
+
+3
+2
+
+
+
+T
+
+Mt2 for any t ≤ δ.
+
+log(1/δ)
+t=1
+
+2 2
+Now, we know that T Mt2 ≤ σ1 σ2 T , so we will union bound over γ ∈
+t=1
+2
+2 , 2σ 2 , . . . , σ 2 2 log2 (σ1 T /2) }, which is max 1, log (σ 2 T )
+2
+{σ2
+≤ log2 (2σ1 T )
+2 1
+2
+2
+values of γ in total. From this, we have the desired bound as long as
+t
+t
+2
+2
+2
+2
+2
+s=1 Ms ≥ σ2 . To ﬁnish, note that, if
+s=1 Ms < σ2 , then for γ = σ2
+we have, by (58),
+2
+P E Z Ft − E [Z] ≤ − 2 log(1/δ)σ2
+
+(60)
+
+≤ P E Z Ft − E [Z] ≤ − 2 log(1/δ)
+
+σ2 +(1/σ2 )·
+2
+
+T
+t=1
+
+2
+Mt
+
+≤ δ.
+2
+Combining (59) and (60) and decreasing δ by a factor of log2 (2σ1 T ) for the
+union bound completes the proof.
+
+Lemma A.3. For t = 1, . . . , T , let zt ∈ ∂ft (wt [S]) and zt ∈ ∂ft (w∗ ).
+Then, using notation from Lemma 5.1, with probability 1 − δ we have
+t
+
+t
+
+(fs (ws [S]) − fs (w∗ )) ≤
+
+(61)
+s=1
+
+L (ws [S]) − L (w∗ )
+s=1
+
+−
+
+kB 2 log
+
+log2 (2T )
+δ
+
+max
+
+2kB 2 9
+,
+α2 4
+
+t
+
+ws [S] − w∗
+s=1
+
+for all t ≤ T .
+Proof. Suppose zt ∈ ∂ft (wt [S]). Then,
+ft (wt [S]) − ft (w∗ ) ≤ zt (wt [S] − w∗ )
+≤ zt [S] 2 wt [S] − w∗ 2
+√
+≤ kB wt [S] − w∗ 2 .
+Similarly, by considering zt ∈ ∂ft (w∗ ), we ﬁnd that
+√
+ft (wt [S]) − ft (w∗ ) ≥ − kB wt [S] − w∗
+
+2.
+
+2
+2
+
+41
+
+STREAMING SPARSE REGRESSION
+
+√
+Note also that wt [S] −w∗ 2 ≤ kB/α. Now, let Z = T ft (wt [S])−ft (w∗ )
+t=1
+and invoke Lemma A.2. We then have
+√
+√
+∆t ∈ − (L (wt [S]) − L (w∗ )) + − kB wt [S] − w∗ 2 , kB wt [S] − w∗ 2 ,
+√
+hence Mt = kB wt [S] − w∗ 2 , and we can set σ2 = kB 2 /α, σ1 = 1, from
+which the result follows.
+Proof of Lemma 5.1. We begin by noting that
+T
+
+(λt − λt−1 ) ( w∗
+
+1
+
+− wt 1 )
+
+(λt − λt−1 ) ( w∗
+
+Λ=
+
+1
+
+− wt [S] 1 ) .
+
+t=1
+T
+
+≤
+t=1
+
+√
+With our regularization schedule λt = λ t + 1, we can check that λt −λt−1 ≤
+√
+λ/(2 t). Thus, by Cauchy-Schwarz,
+T
+
+T
+
+(λt − λt−1 )2
+
+Λ≤
+
+( w∗
+
+t=1
+
+≤
+
+λ
+2
+
+λ
+≤
+2
+
+1
+
+− wt [S] )2
+
+t=1
+T
+
+wt [S] − w∗
+
+(1 + log T )
+
+2
+1
+
+t=1
+T
+
+wt [S] − w∗ 2 .
+2
+
+k (1 + log T )
+t=1
+
+Now, using the strong convexity of L (·) on S as well as Lemma A.3, we
+can verify that, with probability 1 − δ,
+T
+
+wt [S] − w∗
+
+2
+2
+
+t=1
+
+≤
+
+≤
+
+2
+α
+2
+α
++
+
+T
+
+(L (wt [S]) − L (w∗ ))
+t=1
+T
+
+(ft (wt [S]) − ft (w∗ ))
+t=1
+
+kB 2 log
+
+log2 (2T )
+δ
+
+max
+
+2kB 2 9
+,
+α2 4
+
+T
+
+wt [S] − w∗
+t=1
+
+2
+2
+
+.
+
+42
+
+STEINHARDT, WAGER, AND LIANG
+
+By Lemma A.1 we thus have
+T
+
+wt [S] − w∗
+
+(62)
+
+2
+2
+
+t=1
+
+≤
+
+4
+α
+
+T
+
+(ft (wt [S]) − ft (w∗ ))
+t=1
+
+2 log(log2 (2T )/δ)kB 2 9kB 2 log(log2 (2T )/δ)
+,
+α2
+4α2
+
++ max
+4
+=
+α
+
+T
+
+(ft (wt [S]) − ft (w∗ )) +
+t=1
+
+9kB 2 log(log2 (2T )/δ)
+.
+4α2
+
+Plugging this inequality into our previous bound for Λ yields the desired
+result.
+Proof of Theorem 5.2. We start by applying our bound on Λ from
+Lemma 5.1 to (36). We have that, with probability 1 − δ,
+T
+
+(ft (wt ) − ft (w∗ )) ≤ RT (w∗ ) +
+t=1
+
+λ
+2
+
+k (1 + log T )
+
+4
+α
+
+T
+
+(ft (wt [S]) − ft (w∗ )) +
+t=1
+
+9kB 2 log (log2 (2T )/δ)
+.
+4α2
+
+The excess loss we incur from using non-zero weights outside the set S is
+T
+
+(ft (wt ) − ft (wt [S])) .
+
+∆=
+t=1
+
+We split our analysis into two cases depending on the sign of ∆. Also let
+r = T (ft (wt ) − ft (w∗ )) denote the quantity we want to bound.
+t=1
+When ∆ ≥ 0, we can use the fact that the sum inside the square root is
+equal to r − ∆, and loosen the inequality to
+r ≤ RT (w∗ ) +
+
+λ
+2
+
+k (1 + log T )
+
+4
+9kB 2 log (log2 (2T )/δ)
+r+
+.
+α
+4α2
+
+Since r appears on both sides of the inequality, we can use Lemma A.1 to
+show that
+r ≤ 2RT (w∗ ) +
+
+kλ2 (1 + log T ) 3Bkλ
++
+α
+4α
+
+(1 + log T ) log (log2 (2T )/δ),
+
+43
+
+STREAMING SPARSE REGRESSION
+
+which yields the desired expression via the AM-GM inequality
+3Bλ
+4
+
+1
+1
+(1 + log T ) log(log2 (2T )/δ) ≤ λ2 (1 + log T ) + B 2 log(log2 (2T )/δ).
+3
+2
+
+Meanwhile, if ∆ < 0, we write
+T
+
+(ft (wt [S]) − ft (w∗ )) ≤ −∆ + RT (w∗ ) +
+t=1
+
+λ
+2
+
+k (1 + log T )
+
+4
+α
+
+T
+
+(ft (wt [S]) − ft (w∗ )) +
+t=1
+
+9kB 2 log (log2 (2T )/δ)
+.
+4α2
+
+Again, applying Lemma A.1, we get
+T
+
+(ft (wt [S]) − ft (w∗ )) ≤ −2∆ + 2RT (w∗ )
+t=1
+
++
+
+kλ2 (1 + log T ) 3Bkλ
++
+α
+4α
+
+(1 + log T ) log (log2 (2T )/δ).
+
+If we put one of the two ∆ factors back on the left-hand side of the inequality,
+we get the desired expression via the same AM-GM inequality as before.
+Proof of Lemma 5.3. We again apply Lemma A.2. In this case, for any
+j
+j
+j ∈ S, we let zt denote the jth coordinate of zt . Then, set Z = T zt and
+t=1
+let Ft be the sigma-algebra generated by f1:t . Clearly we can take At = −B,
+Bt = B, and Mt = B, and set σ2 = B, σ1 = 1. Then, by applying Lemma A.2
+in both directions, we get
+t
+j
+zs ≥
+
+P
+s=1
+
+log
+
+2d log2 (2T )
+δ
+
+9
+max 2B 2 , B 2 t
+4
+
+for any t ≤ δ/d.
+
+9
+9
+Simplifying max 2B 2 , 4 B 2 t to 4 B 2 t and applying the union bound over
+all coordinates j ∈ S then yields the desired result.
+
+A.4. Proofs for Section 6.
+Proof of Lemma 6.1. Deﬁne Dt = ft (wt )−ft (u)−∂ft (wt ) (wt − u)+
+wt − u 2 , and let Xt = t Ds . The main idea is to show that Xt is
+s=1
+a random walk with negative drift, from which we can then use standard
+martingale cumulant techniques to bound supT Xt , which is what we need
+t=1
+to do in order to establish (41).
+α
+4
+
+44
+
+STEINHARDT, WAGER, AND LIANG
+
+First note that, by the Lipschitz assumption on ft , we have
+|ft (wt ) − ft (u)| ≤ L wt − u
+hence Dt ∈ α wt − u
+4
+thermore, we have
+
+2
+
+and
+
+∂ft (wt ) (wt − u) ≤ L wt − u ,
+
+− 2L wt − u ,
+
+α
+4
+
+wt − u
+
+2
+
++ 2L wt − u . Fur-
+
+E [Dt | Ft−1 ]
+= E ft (wt ) − ft (u) − ∂ft (wt ) (wt − u) +
+
+α
+wt − u
+4
+
+2
+
+| Ft−1
+
+α
+α
+wt − u 2 +
+wt − u 2 Ft−1
+(by strong convexity)
+≤E −
+2
+4
+α
+=−
+wt − u 2 .
+4
+We next put these together and start going through the standard Chernoﬀ
+α
+argument: for any 0 ≤ λ ≤ 8L2 ,
+E [exp (λXt ) | Ft−1 ]
+= E [exp (λXt−1 ) exp (λDt ) | Ft−1 ]
+≤ exp (λXt−1 ) exp λE [Dt ] + 2λ2 L2 wt − u 2
+α
+≤ exp (λXt−1 ) exp −λ
+wt − u 2 + 2λ2 L2 wt − u
+4
+≤ exp (λXt−1 ) ,
+
+2
+
+where the second inequality follows from the sub-Gaussianity of bounded
+α
+random variables. Hence, for λ = 8L2 , exp(λXt ) is a non-negative supermartingale with exp(λX0 ) = 1. By the optional stopping theorem and
+Markov’s inequality, we then have
+T
+
+P sup Xt ≥ M ≤ exp (−λM )
+t=1
+
+and so, with probability 1 − δ, Xt never goes above
+log(1/δ)
+8L2 log(1/δ)
+=
+,
+λ
+α
+as was to be shown.
+Proof of Theorem 6.2. Recall that we are running adaptive mirror
+descent using the regularizers from (52), which corresponds to setting
+(63)
+
+ψt (w) =
+
+2
+
+w
+
+2
+2
+
++
+
+α
+4
+
+t
+
+w − ws
+s=1
+
+2
+2
+
++ λt w 1 .
+
+45
+
+STREAMING SPARSE REGRESSION
+
+Note that ψt is ( + (α/2)t)-strongly convex with respect to√ L2 norm.
+the
+Also note that, since ∂ft ∞ ≤ B and supp(wt ) ⊆ S, ft is (B k)-Lipschitz,
+at least over the space H of wt with supp(wt ) ⊆ S, wt 1 ≤ R.
+Plugging into the regret bound from Lemma 4.2 and applying Lemma 6.1,
+we get
+T
+
+ft (wt ) − ft (u) +
+
+(64)
+t=1
+
+≤
+
+2
+
+u
+
+2
+2
+
++
+
+α
+4
+
+α
+wt − u
+4
+
+2
+2
+
+2
+2
+
++
+
+T
+
+wt − u
+t=1
+
+B2k
+2
+
+T
+t=1
+
+1
++ (α/2)t
+
+8B 2 k log(1/δ)
++ Λ.
++
+α
+Subtracting T α wt − u 2 from both sides and using the fact that = 0,
+t=1 4
+2
+T
+1
+≤ 1 + log(T ) yields the desired bound.
+t=1 t
+Proof of Theorem 2.1. We will prove the following slightly more precise result. Under the stated conditions, with probability 1 − δ, we have
+supp(wt ) ⊆ S for all t, and
+T
+
+(ft (wt ) − ft (w∗ )) ≤
+
+(65)
+t=1
+
+22kB 2 (1 + log T )
+log
+α
+
+6d log2 (2T )
+δ
+
+.
+
+To establish this result, we will union bound over three events, each of
+which holds with probability 1 − δ/3. First, by Lemma 5.3, we know that
+supp(wt ) ⊆ S for all t with probability 1 − δ/3. Therefore, by Theorem 6.2
+we have, with overall probability 1 − 2δ/3,
+T
+
+(ft (wt ) − ft (w∗ )) ≤
+t=1
+
+kB 2
+(1 + log T + 8 log (3/δ)) + Λ.
+α
+
+46
+
+STEINHARDT, WAGER, AND LIANG
+
+Finally, invoking Theorem 5.2, we have, with overall probability 1 − δ,
+T
+
+(ft (wt ) − ft (w∗ ))
+t=1
+
+2kB 2
+α
+
+≤
+
++
+≤
+
+1 + log T + 8 log
+
+kB 2
+3 log
+α
+
+3
+δ
+
+6d log2 (2T )
+δ
+
+22kB 2
+(1 + log T ) log
+α
+
+(1 + log T ) +
+
+6d log2 (2T )
+δ
+
+1
+log
+2
+
+3 log2 (2T )
+δ
+
+,
+
+which proves the theorem.
+A.5. Proofs for Section 7. We begin this section by stating a series
+of technical results that will lead us to Theorem 7.2. We defer proofs of
+these results to Section A.5.1. To warm up, we give the following analogue
+to Theorem 4.4 without proof.
+Theorem A.4. Suppose that we are given a sequence of α-strongly con˜
+vex losses, and that we run adaptive mirror descent on the losses ft with
+the regularizers ψt from (44). Then, using notation from Lemma 4.2, the
+weights wt learned by this algorithm satisfy
+T
+
+(66)
+t=1
+
+2B 2
+t (ft (wt ) − ft (u)) ≤
+α
+
+T
+
+T
+
+(λt−1 − λt ) ( wt
+
+kt +
+t=1
+
+1
+
+− u 1 ).
+
+t=1
+
+We now proceed to extend the previous theorems from controlling ft to
+˜
+controlling ft = tft . Most of the results hold with only Assumptions (1-3);
+we only need Assumption 4 to ensure that supp(wt ) ⊆ S for all t. We state
+each result under the assumption that supp(wt ) ⊆ S, and show at the end
+that this assumption holds with high probability under Assumption 4.
+First, we need an excess risk bound that holds for functions that are
+strongly convex in expectation:
+Theorem A.5. Suppose that the loss functions ft satisfy assumptions
+(1-3), and that we run adaptive mirror descent as in the statement of Theorem A.4. Suppose also that supp(wt ) ⊆ S for all t. Then, for any ﬁxed u
+
+47
+
+STREAMING SPARSE REGRESSION
+
+and δ > 0, with probability at least 1 − δ, the learned weights wt satisfy
+t
+
+s (fs (ws ) − fs (u)) ≤
+
+(67)
+s=1
+
+2B 2 kt
+α
+
+16B 2 kt log (log2 (2T )/δ)
++
++
+α
+
+t
+
+(λs−1 − λs ) ( ws
+
+1
+
+− u 1)
+
+s=1
+
+for all t ≤ T .
+We also need an analogue to Theorem 5.2, which bounds the cost of the
+L1 terms.
+Theorem A.6.
+
+Suppose that assumptions (1-3) hold and that
+
+T
+
+T
+∗
+
+∗
+
+t (ft (wt ) − ft (w )) ≤ RT (w ) + λT w
+
+(68)
+
+∗
+
+(λt−1 − λt ) wt
+
+1+
+
+t=1
+
+1
+
+t=1
+
+for some main term RT (w∗ ) ≥ 0. Suppose moreover that supp(wt ) ⊆ S for
+all t. Then, for regularization schedules of the form λt = λ·t3/2 , the following
+excess risk bound also holds:
+t
+
+s (fs (ws ) − fs (w∗ ))
+
+(69)
+s=1
+
+9kλ2 t 3Bkλt
++
+9 log (log2 (2T 3 )/δ)
+α
+2α
+kt
+log2 (2T 3 )
+≤ 2R (w∗ ) +
+10λ2 + 6B 2 log
+.
+α
+δ
+≤ 2R (w∗ ) +
+
+Finally, we need a technical result analogous to Lemma A.3 from before:
+Lemma A.7. Suppose that the ft are L-Lipschitz over H and α-strongly
+convex (both with respect to the L2 -norm). Then, with probability 1 − δ, for
+all t we have
+t
+
+t
+
+s (fs (ws ) − fs (w∗ )) ≥
+
+(70)
+s=1
+
+s (L (ws ) − L (w∗ ))
+s=1
+
+−
+
+L2 t log
+
+log2 (2T 3 )
+δ
+
+max
+
+2L2 9
+,
+α2 4
+
+t
+
+s ws − w ∗
+s=1
+
+2
+2
+
+.
+
+48
+
+STEINHARDT, WAGER, AND LIANG
+
+Each of the above results is proved later in this section, in A.5.1. These
+results give us the necessary scaﬀolding to prove Proposition 7.1 and Theorem 7.2, which we do now.
+Proof of Proposition 7.1. The desired result follows by combining
+Lemma A.7 with the given excess loss bound. In particular, we ﬁrst have,
+by Lemma A.7,
+t
+
+s (L (ws ) − L (w∗ ))
+s=1
+t
+
+s (fs (ws ) − fs (w∗ ))
+
+≤
+s=1
+
++
+
+≤ Rδ t +
+
+log2 (2T 3 )
+δ
+
+L2 t log
+
+L2 t log
+
+max
+
+log2 (2T 3 )
+δ
+
+max
+
+2L2 9
+,
+α2 4
+
+t
+
+s ws − w ∗
+
+2
+2
+
+s=1
+
+2L2 9
+,
+α2 2α
+
+t
+
+s (L (ws ) − L (w∗ )) .
+s=1
+
+Using Lemma A.1, we get
+t
+
+s (L (ws ) − L (w∗ ))
+s=1
+
+2t log(log2 (2T 3 )/δ)L2 9t log(log2 (2T )/δ)L2 T
+,
+α
+2α
+
+≤ 2Rδ t + max
+≤ 2Rδ T +
+
+9 log(log2 (2T )/δ)L2 t
+.
+2α
+
+Finally, invoking the convexity of L, we have
+2
+t(t + 1)
+
+L
+
+≤
+
+t
+
+sws
+
+− L(w∗ )
+
+s=1
+t
+
+2
+t(t + 1)
+
+s (L(ws ) − L(w∗ ))
+s=1
+
+4
+9 log(log2 (2T )/δ)L2
+≤ Rδ +
+,
+t
+αt
+as was to be shown.
+
+49
+
+STREAMING SPARSE REGRESSION
+
+Proof of Theorem 7.2. Using Lemma A.2, we can show that by using
+λ = cδ =
+
+3B
+2
+
+log
+
+2d log2 (2T 3 )
+,
+δ
+
+we have supp (wt ) ∈ S for all t.
+By Theorem A.5 combined with Theorem A.6, we know that, for any
+δ > 0, with probability 1 − δ,
+(71)
+t
+
+s (fs (ws ) − fs (w∗ ))
+s=1
+
+kt
+4B 2 + 32B 2 log (log2 (2T )/δ) + 10c2 + 6B 2 log log2 (2T 3 )/δ
+δ
+α
+B 2 kt
+2d log2 (2T 3 )
+≤
+log
+(4 + 32 + 22.5 + 6)
+α
+δ
+65B 2 kt log 2d log2 (2T 3 )/δ
+≤
+.
+α
+
+≤
+
+Thus, by Proposition 7.1, with probability 1 − 2δ,
+L
+
+2
+t(t + 1)
+
+t
+
+s ws
+
+− L (w∗ )
+
+s=1
+2 k log
+260B
+
+2d log2 (2T 3 )/δ
+9B 2 k log log2 (2T 3 )/δ
++
+αt
+αT
+2 k log 2d log (2T 3 )/δ
+269B
+2
+,
+≤
+αt
+≤
+
+which yields the desired result.
+A.5.1. Technical Derivations.
+Proof of Theorem A.5. For the ﬁrst part of the proof, we will show
+that, with probability 1 − δ,
+t
+
+t ft (wt ) − ft (u) +
+
+(72)
+s=1
+
+α
+wt − u
+4
+
+t
+
+≤
+
+t ∂ft (wt ) (wt − u) +
+s=1
+
+2
+2
+
+16B 2 kt
+log
+α
+
+log2 (2T )
+δ
+
+50
+
+STEINHARDT, WAGER, AND LIANG
+
+√
+for all t ≤ T . To begin, we note that tft (wt ) is tB k-Lipschitz and αt
+convex. Consequently, if we deﬁne Dt to be
+α
+wt − u 2 ,
+2
+4
+√
+√
+wt − u 2 + −2tB k wt − u 2 , 2tB k wt − u 2 , and
+2
+
+def
+
+Dt = t ft (wt ) − ft (u) − ∂ft (wt ) (wt − u) +
+we have Dt ∈ − tα
+4
+
+E[Dt ] ≤ − tα wt − u 2 .
+2
+4
+Now, arguing as before, if we let Xt =
+
+t
+s=1 Ds ,
+
+then
+
+E [exp(λXt ) | f1:t−1 ] = exp(λXt−1 )E [exp(λDt ) | f1:t−1 ]
+≤ exp(λXt−1 ) exp −λ
+
+tα
+wt − u
+4
+
+2
+2
+
++ 2λ2 B 2 k wt − u
+
+2
+2
+
+≤ exp(λXt−1 )
+provided that 0 ≤ λ ≤
+before, we have that
+
+α
+.
+8B 2 kt
+
+t
+
+P sup Xs ≥
+
+(73)
+
+s=1
+
+Hence, by the same martingale argument as
+
+8B 2 kt log(log2 (2T )/δ)
+δ
+≤
+.
+α
+log2 (2T )
+
+To complete this part of the proof, we union bound over t ∈ {2, 4, 8, . . . , 2 log2 (T ) }.
+Then, for any particular Xs , there is some t ≤ 2s for which (73) holds, and
+2
+hence Xs ≤ 16B kt log(log2 (2T )/δ) .
+α
+We now apply Proposition 2.4 to the regularizers deﬁned by (44), which
+yields
+t
+
+s (ws − u) ∂fs (ws )
+s=1
+
+≤
+
+α
+4
+
+t
+
+s ws − u
+
+2
+2
+
+s=1
+
++
+
+B2
+2
+
+t
+s=1
+
+s2 k
+s(s + 1)α/4
+
+t
+
++ λt u
+
+1
+
+(λs−1 − λs ) ws
+
++
+
+1
+
+s=1
+
+α
+≤
+4
+
+t
+
+s ws − u
+s=1
+
+2
+2
+
+2B 2 kt
++
++ λt u
+α
+
+t
+1
+
+(λs−1 − λs ) ws
+
++
+s=1
+
+Combining this inequality with (72) yields the desired result.
+
+1.
+
+51
+
+STREAMING SPARSE REGRESSION
+
+Proof of Theorem A.6. With the given L1 regularization schedule,
+we have
+t
+
+λt w
+
+∗
+
+(λs−1 − λs ) ws
+
++
+
+1
+
+1
+
+s=1
+t
+
+s3/2 − (s − 1)3/2 ( w∗
+
+=λ
+s=1
+t
+
+3
+≤ λ
+2
+
+√
+
+s w ∗ − ws
+
+1
+
+− ws 1 )
+
+1
+
+s=1
+
+3 √
+≤ λ k
+2
+3
+≤ λ
+2
+
+t
+
+√
+
+s w ∗ − ws
+
+2
+
+s=1
+t
+
+s ws − w ∗ 2 .
+2
+
+kt
+s=1
+
+Meanwhile, by invoking Lemma A.7, we have that, with probability at least
+1 − δ,
+t
+
+s ws −
+
+w∗ 2
+2
+
+s=1
+
++
+
+2
+≤
+α
+
+t
+
+s (fs (ws ) − fs (w∗ ))
+s=1
+
+log2 (2T 3 )
+δ
+
+kB 2 t log
+
+max
+
+2kB 2 9
+,
+α2 4
+
+
+
+t
+2
+2
+
+s ws − w ∗
+s=1
+
+Applying Lemma A.1, we ﬁnd that
+t
+
+s ws − w ∗
+
+(74)
+
+2
+2
+
+s=1
+
+≤
+
+4
+α
+
+t
+
+s (fs (ws ) − fs (w∗ ))
+s=1
+
++
+
+=
+
+4
+α
+
+kB 2
+max
+α2
+
+8t log
+
+log2 (2T 3 )
+, 9t log
+δ
+
+t
+
+s (fs (ws ) − fs (w∗ )) +
+s=1
+
+9kB 2 t
+log
+α2
+
+log2 (2T 3 )
+δ
+
+log2 (2T 3 )
+δ
+
+.
+
+.
+
+52
+
+STEINHARDT, WAGER, AND LIANG
+
+Thus, with probability 1 − δ,
+T
+
+λT w ∗
+
+(λt−1 − λt ) wt
+
+1+
+
+1
+
+t=1
+
+3λ
+≤
+2
+
+4kT
+α
+
+T
+
+t (ft (wt ) − ft (w∗ )) +
+t=1
+
+9k 2 B 2 T 2
+log
+α2
+
+log2 (2T 3 )
+.
+δ
+
+Combining this inequality with (68) and Lemma A.1 we obtain the ﬁrst
+inequality in (69). To get the second, we simply use the fact that
+3Bλ
+2
+
+9 log(log2 (2T 3 )/δ) ≤ λ2 + 6B 2 log(log2 (2T 3 )/δ)
+
+by the AM-GM inequality.
+Proof of Lemma A.7. As in the proof of Lemma A.3, we will invoke
+the version of the Azuma-Hoeﬀding inequality given in Lemma A.2. In particular, let
+T
+
+t (ft (wt ) − ft (w∗ ))
+
+Z=
+t=1
+
+and take the ﬁltration deﬁned by f1:T . Then, using the notation of Lemma A.2,
+we have
+∆t = t (ft (wt ) − L (wt )) − t (ft (w∗ ) − L (w∗ ))
+by assumption (1). Meanwhile, by the Lipschitz assumption, we have that
+|ft (wt ) − ft (w∗ )| ≤ L wt − w∗ 2 , hence Mt = tL wt − w∗ 2 and also wt − w∗
+L
+L2
+α . If we take σ2 = α , σ1 = T , then the result follows directly from
+Lemma A.2 and the bound
+t
+
+t
+2
+Ms
+
+s=1
+
+t
+2 2
+
+=
+
+s L
+
+wt −
+
+s=1
+
+w∗ 2
+2
+
+s wt − w ∗
+
+2
+
+≤ tL
+
+2
+2.
+
+s=1
+
+A.6. Proofs for Section 8.
+Proof of Lemma 8.1. At a high level, our proof is based on the following inductive argument: if |θs,j | ≤ λ · s3/2 for all s ≤ t, then supp(ws ) ⊆ S
+for all s ≤ t, and we thus have small excess risk, which will allow us to then
+show that |θt+1,j | ≤ λ · (t + 1)3/2 .
+
+2
+
+≤
+
+53
+
+STREAMING SPARSE REGRESSION
+
+We start by showing that, for all t ≤ T and j ∈ S, if supp(ws ) ⊆ S for all
+s ≤ t then we have:
+(75)
+t
+
+s ∂fs (w∗ )j ≤
+s=1
+
+3Bt3/2
+2
+
+2d log2 (2T 3 )
+δ
+
+log
+
+(76)
+t
+
+s (∂fs (ws ) − ∂L(ws ) − ∂fs (w∗ ))j ≤ 3Bt3/2
+
+log
+
+s=1
+
+2d log2 (2T 3 )
+δ
+
+(77)
+t
+
+s ∂L(ws )j ≤
+s=1
+
+ρα(t + 1)
+√
+2k
+
+t
+
+s ws − w ∗
+
+2
+2
+
+s=1
+
+Inequalities (75) and (76) each hold with probability 1 − δ while (77) holds
+deterministically. Note that these inequalities immediately provide a bound
+on |θt,j |, since
+t
+
+θt =
+
+s ∂fs (ws )
+s=1
+t
+
+s (∂fs (w∗ ) + (∂fs (ws ) − ∂L(ws ) − ∂fs (w∗ )) + ∂L(ws )) .
+
+=
+s=1
+
+To prove the claimed inequalities, note that each term on the left-hand-side
+of both (75) and (76) is zero-mean, so these inequalities both follow directly
+from applying Lemma A.2 with Mt = B and Mt = 2B, respectively (here we
+use the fact that |∂fs (w)j | ≤ B). The interesting inequality is (77), which
+holds by the following:
+t
+
+t
+
+s ∂L(ws )j ≤
+s=1
+
+s |∂L(ws )j |
+s=1
+t
+
+s E (y − ws x)xj
+
+=
+s=1
+t
+
+s E ((w∗ − ws ) x)xj
+
+=
+s=1
+t
+
+s Cov xj , x (w∗ − ws ) .
+
+=
+s=1
+
+54
+
+STEINHARDT, WAGER, AND LIANG
+
+Continuing, we ﬁnd that
+t
+
+ρα
+s ∂L(ws )j ≤ √
+k
+s=1
+
+t
+
+s w ∗ − ws
+
+2
+
+(by Assumption 5)
+
+s=1
+
+ρα
+≤√
+k
+
+t
+
+t
+
+s w ∗ − ws
+
+s
+s=1
+
+ρα(t + 1)
+≤ √
+2k
+
+2
+2
+
+s=1
+t
+
+s w ∗ − ws 2 .
+2
+s=1
+
+Now, from the comments at the top of the proof of Theorem 8.2, we also
+have the following bound for each t ≤ T , provided that supp(ws ) ⊆ S for all
+s ≤ t:
+t
+
+s ws − w ∗
+
+(78)
+
+2
+2
+
+≤
+
+s=1
+
+kt
+α2
+
+177B 2 log
+
+log2 (2T 3 )
+δ
+
++ 40λ2 .
+
+This bound holds with probability 1 − 2δ and so all of the bounds together
+hold with probability 1 − 4δ. Arguing by induction, we need to show that if
+supp(ws ) ⊆ S for all s ≤ t, then supp(wt+1 ) ⊆ S as well. By the inductive
+hypothesis, we know by inequalities (75-78) that
+sup |θt+1,j | ≤
+j∈S
+
+9Bt3/2
+2
+
+log
+
+2d log2 (2T 3 )
+δ
+
++ ρ(t + 1)t1/2
+
+177B 2
+log
+2
+
+log2 (2T 3 )
+δ
+
++ 20λ2 .
+
+Remember that we need λ(t + 1)3/2 ≥ supj∈S |θt+1,j |. Therefore, using the
+inequality (a + b)2 ≤ 6a2 + 1.2b2 , it suﬃces to take
+λ2 ≥ 228B 2 log
+
+2d log2 (2T 3 )
+δ
+
++ 24ρ2 λ2 .
+
+We therefore see that we can take any λ with λ2 ≥
+was to be shown.
+
+228B 2 log(2d log2 (2T 3 )/δ)
+,
+1−24ρ2
+
+as
+
+Proof of Theorem 8.2. Suppose that ws ⊆ S for all s ≤ t. Then, by
+Theorems A.5 and A.6 and (74), we have with probability 1 − 2δ that the
+
+55
+
+STREAMING SPARSE REGRESSION
+
+following two inequalities hold for all t:
+t
+
+s (fs (ws ) − fs (w∗ ))
+
+(79)
+s=1
+
+kt
+α
+
+≤
+
+42B 2 log
+
+log2 (2T 3 )
+δ
+
++ 10λ2 , and
+
+t
+
+s ws − w ∗
+
+(80)
+
+2
+2
+
+s=1
+
+≤
+
+4
+α
+
+t
+
+s (fs (ws ) − fs (w∗ )) +
+s=1
+
+9kB 2 t log(log2 (2T 3 )/δ)
+α2
+
+kt2
+≤ 2 177B 2 log (log2 (2T )/δ) + 40λ2 .
+α
+Thanks to Lemma 8.1, we can verify that these relations in fact hold for all
+t ≤ T with total probability 1 − 4δ, provided that λ satisﬁes (49).
+To complete the proof, we use the online-to-batch conversion bound from
+Proposition 7.1. With probability 1 − 5δ, we then have
+2
+T (T + 1)
+
+L
+
+T
+
+twt
+
+− L (w∗ )
+
+t=1
+
+log2 (2T 3 )
+δ
+
+4k
+≤
+αt
+
+42B 2 log
+
+= OP
+
+k
+B 2 log log(T ) + λ2
+αt
+
+Since we can take λ2 to be OP
+OP
+
+kB 2
+
+log(d log(T ))
+αT (1−24ρ2 )
+
++ 10λ2
+
++
+
+9kB 2
+log
+αt
+
+log2 (2T 3 )
+δ
+
+.
+
+B 2 log(d log(T ))
+1−24ρ2
+
+, we can attain a bound of
+
+, which completes the theorem.
+
+Department of Computer Science
+Stanford University
+Stanford, CA-94305
+E-mail: jsteinhardt@cs.stanford.edu
+E-mail: pliang@cs.stanford.edu
+
+Department of Statistics
+Stanford University
+Stanford, CA-94305
+E-mail: swager@stanford.edu
+
+
