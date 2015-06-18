@@ -57,14 +57,12 @@ print("Done!")
 # STEP 2 - Tries
 
 parameters = {'kernel':('linear', 'rbf'), 'gamma':[1e-1, 1, 1e1], 'cache_size':[2048]}
-print("Done2!")
 svc=svm.SVC()
-print("Done3!")
 clf=grid_search.GridSearchCV(svc,parameters)
-print("Done4!")
+\
 
 scores = cross_validation.cross_val_score(clf,new_x, raw_bunch['target'], scoring=None,
-                                                  cv=2, n_jobs=1, verbose=0,
+                                                  cv=10, n_jobs=1, verbose=0,
                                                   fit_params=None, pre_dispatch='2*n_jobs')
 print(scores)
 
