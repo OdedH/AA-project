@@ -1,4 +1,4 @@
-import pickle
+import dill as pickle
 import os
 from sklearn import datasets
 from sklearn import feature_extraction
@@ -11,24 +11,48 @@ from sklearn.feature_selection import VarianceThreshold
 from removeRedundantFiles import *
 from sklearn import feature_selection
 import numpy as np
-from sklearn.cross_validation import train_test_split
+import sys
+# import marshal
+# import type
 
-
-# Serialization Initiating
+# Serialization Initiating - structure
 if os.stat("serialization.p").st_size != 0:
     classifiers = pickle.load(open('serialization.p', 'rb'))
 else:
     classifiers = []
-print(classifiers)
+
+# # Serialization Initiating - functions
+# if os.stat("serialization.m").st_size != 0:
+#     functions_for_classifiers = marshal.load(open('serialization.m', 'rb'))
+# else:
+#     functions_for_classifiers = []
+
+
+def buildLengthsForFile(path, new_obj, max_sent_len, max_word_len):
+    sentLengths = [0.0] * max_sent_len
+    wordLengths = [0.0] * max_word_len
+    fileStream = open(path, 'r')
+    content = str(fileStream.readlines())
+    splitted = content.split(".")
+    for sen in splitted:
+        words = sen.split()
+        for word in words:
+            if len(word) <= max_word_len:
+                wordLengths[len(word) - 1] += 1.0
+        if len(words) <= max_sent_len:
+            sentLengths[len(words) - 1] += 1.0
+    return new_obj + max_sent_len + max_word_len
 
 
 def fit_object(path, classifier_num):
     with open(path, "r") as new_obj:
         new_obj = new_obj.read().replace('\n', '')
     new_obj = classifiers[classifier_num][1][0](new_obj)
-    # TODO add here changes from sentences
-    new_obj = classifiers[classifier_num][1][1](new_obj)
+    new_obj = buildLengthsForFile(path, new_obj, classifiers[classifier_num][1][1][0],
+                                  classifiers[classifier_num][1][1][1])
     new_obj = classifiers[classifier_num][1][2](new_obj)
+    new_obj = classifiers[classifier_num][1][3](new_obj)
+    new_obj = classifiers[classifier_num][1][4](new_obj)
     return new_obj
 
 
@@ -36,7 +60,7 @@ def classify_object(path, classifier_num):
     return classifiers[2][classifiers[classifier_num][0].predict(fit_object(path, classifier_num))]
 
 
-def build_classifier(path="./data", speed=0, feature_var=0, feature_percent=1):
+def build_classifier(path="./data", speed=0, feature_percent=1, feature_var=.8):
     fit_functions = []
     RemoveFiles()
     print("Importing data from folder...")
@@ -59,10 +83,12 @@ def build_classifier(path="./data", speed=0, feature_var=0, feature_percent=1):
                                                          dtype='f')
 
     raw_documents = raw_bunch['data']
-    lenMatrix = buildCSRLengths()
     document_feature_matrix = vectorizer.fit_transform(raw_documents)
-
     fit_functions.append(vectorizer.transform)
+
+    temp = buildCSRLengths(path)
+    lenMatrix = temp[0]
+    fit_functions.append(temp[1])
 
     document_feature_matrix = csr_append(lenMatrix, document_feature_matrix)
     print("     Done!")
@@ -70,21 +96,18 @@ def build_classifier(path="./data", speed=0, feature_var=0, feature_percent=1):
     scaler = preprocessing.StandardScaler(copy=True, with_mean=False, with_std=True).fit(document_feature_matrix)
     # We are using sparse matrix so we have to define with_mean=False
     # Scaler can be used later for new objects
-    document_term_matrix_scaled = scaler.transform(document_feature_matrix)
+    document_feature_matrix = scaler.transform(document_feature_matrix)
+    fit_functions.append(scaler.transform)
     print("     Done!")
     print("     selecting features ...")
     sel = VarianceThreshold(threshold=(feature_var * (1 - feature_var)))
-
     document_feature_matrix = sel.fit_transform(document_feature_matrix)
-
     fit_functions.append(sel.transform)
-
     fs = feature_selection.SelectPercentile(feature_selection.chi2, percentile=feature_percent)
     document_feature_matrix = fs.fit_transform(document_feature_matrix, raw_bunch['target'])
     # TODO check other parameters for feature selection
     # TODO  According to sci-kit, raw_bunch['target'] is optional.
     # TODO I don"t know how it is possible but maybe we should check that.
-
     fit_functions.append(fs.transform)
     print("     Done!")
     print("Done!")
@@ -107,8 +130,22 @@ def build_classifier(path="./data", speed=0, feature_var=0, feature_percent=1):
     clf = grid_search.GridSearchCV(svm.SVC(C=1), parameters, cv=cv)
     clf.fit(document_feature_matrix, raw_bunch['target'])
     estimator = clf.best_estimator_
+    estimator.fit(document_feature_matrix, raw_bunch['target'])
     print("Done!")
-
+    print("Training...")
+    estimator = clf.best_estimator_
+    estimator.fit(document_feature_matrix, raw_bunch['target'])
+    print("Done!")
     classifiers.append([estimator, fit_functions, raw_bunch['target_names']])
+    # functions_for_classifiers.append(fit_functions)
 
     pickle.dump(classifiers, open('serialization.p', 'wb'))
+    # marshal.dump(functions_for_classifiers, open('serialization.m', 'wb'))
+    return len(classifiers) - 1
+
+
+if len(sys.argv) != 0:
+    if str(sys.argv[1]) == "classify_object":
+        print classify_object(sys.argv[2], int(sys.argv[3]))
+    if sys.argv[1] == "build_classifier":
+        print build_classifier(sys.argv[2], int(sys.argv[3]), float(sys.argv[4]), float(sys.argv[5]))
