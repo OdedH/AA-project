@@ -1,4 +1,3 @@
-import dill as pickle
 import os
 from sklearn import datasets
 from sklearn import feature_extraction
@@ -12,14 +11,15 @@ from removeRedundantFiles import *
 from sklearn import feature_selection
 import numpy as np
 import sys
+import dill as pickle
 # import marshal
 # import type
 
 # Serialization Initiating - structure
-if os.stat("serialization.p").st_size != 0:
-    classifiers = pickle.load(open('serialization.p', 'rb'))
-else:
-    classifiers = []
+# if os.stat("serialization.p").st_size != 0:
+#     classifiers = pickle.load(open('serialization.p', 'rb'))
+# else:
+#     classifiers = []
 
 # # Serialization Initiating - functions
 # if os.stat("serialization.m").st_size != 0:
@@ -27,6 +27,8 @@ else:
 # else:
 #     functions_for_classifiers = []
 
+def csr_append(a, b):
+    return sp.hstack((a, b), format='csr');
 
 def buildLengthsForFile(path, new_obj, max_sent_len, max_word_len):
     sentLengths = [0.0] * max_sent_len
@@ -41,26 +43,35 @@ def buildLengthsForFile(path, new_obj, max_sent_len, max_word_len):
                 wordLengths[len(word) - 1] += 1.0
         if len(words) <= max_sent_len:
             sentLengths[len(words) - 1] += 1.0
-    return new_obj + max_sent_len + max_word_len
+    return csr_append(new_obj, csr_matrix(sentLengths+wordLengths));
 
 
-def fit_object(path, classifier_num):
+def fit_object(path, classifier):
     with open(path, "r") as new_obj:
         new_obj = new_obj.read().replace('\n', '')
-    new_obj = classifiers[classifier_num][1][0](new_obj)
-    new_obj = buildLengthsForFile(path, new_obj, classifiers[classifier_num][1][1][0],
-                                  classifiers[classifier_num][1][1][1])
-    new_obj = classifiers[classifier_num][1][2](new_obj)
-    new_obj = classifiers[classifier_num][1][3](new_obj)
-    new_obj = classifiers[classifier_num][1][4](new_obj)
+    new_obj = unicode(new_obj, "utf-8")
+    new_obj = (classifier[1][0])([new_obj])
+    new_obj = buildLengthsForFile(path, new_obj, classifier[1][1][0],
+                                  classifier[1][1][1])
+    new_obj = classifier[1][2](new_obj)
+    new_obj = classifier[1][3](new_obj)
+    new_obj = classifier[1][4](new_obj)
     return new_obj
 
 
 def classify_object(path, classifier_num):
-    return classifiers[2][classifiers[classifier_num][0].predict(fit_object(path, classifier_num))]
+    print("Unpickling...")
+    classifier = pickle.load(open(str(classifier_num) + ".p", 'rb'))
+    print("Done...")
+    return classifier[2][classifier[0].predict(fit_object(path, classifier))]
 
 
-def build_classifier(path="./data", speed=0, feature_percent=1, feature_var=.8):
+def build_classifier(path="./data", speed=0, feature_percent=100, feature_var=.8):
+    classifier_num = 0
+    while os.path.isfile(str(classifier_num) + ".p"):
+        classifier_num += 1
+    open((str(classifier_num) + ".p"), 'a')
+
     fit_functions = []
     RemoveFiles()
     print("Importing data from folder...")
@@ -136,12 +147,18 @@ def build_classifier(path="./data", speed=0, feature_percent=1, feature_var=.8):
     estimator = clf.best_estimator_
     estimator.fit(document_feature_matrix, raw_bunch['target'])
     print("Done!")
-    classifiers.append([estimator, fit_functions, raw_bunch['target_names']])
+    new_classifier = ([estimator, fit_functions, raw_bunch['target_names']])
     # functions_for_classifiers.append(fit_functions)
-
-    pickle.dump(classifiers, open('serialization.p', 'wb'))
+    # open('serialization.p', 'w').close()
+    print("Pickling...")
+    pickle.dump(new_classifier, open((str(classifier_num) + ".p"), 'wb'))
+    print("Done!")
     # marshal.dump(functions_for_classifiers, open('serialization.m', 'wb'))
-    return len(classifiers) - 1
+    return classifier_num
+
+
+def delete_classifier(classifier_num):
+    os.remove((str(classifier_num) + ".p"))
 
 
 if len(sys.argv) != 0:
@@ -149,3 +166,5 @@ if len(sys.argv) != 0:
         print classify_object(sys.argv[2], int(sys.argv[3]))
     if sys.argv[1] == "build_classifier":
         print build_classifier(sys.argv[2], int(sys.argv[3]), float(sys.argv[4]), float(sys.argv[5]))
+    if sys.argv[1] == "delete_classifier":
+        delete_classifier(int(sys.argv[2]))
