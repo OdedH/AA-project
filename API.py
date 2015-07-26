@@ -12,6 +12,9 @@ from sklearn import feature_selection
 import numpy as np
 import sys
 import dill as pickle
+import matplotlib.pyplot as plt
+from matplotlib import figure
+from pylab import savefig
 # import marshal
 # import type
 
@@ -160,6 +163,18 @@ def build_classifier(path="./data", speed=0, feature_percent=100, feature_var=.8
 def delete_classifier(classifier_num):
     os.remove((str(classifier_num) + ".p"))
 
+def build_histogram(path="./data", name="hist"):
+
+    # here we create a Bunch object ['target_names', 'data', 'target', 'DESCR', 'filenames']
+    raw_bunch = datasets.load_files(path, description=None, categories=None, load_content=True,
+                                    shuffle=True, encoding='utf-8', decode_error='replace')
+    quantities = {author: 0 for author in list(raw_bunch['target_names'])}
+    for i in list(raw_bunch['target']):
+        quantities[list(raw_bunch['target_names'])[i]]+=1
+    plt.figure(figsize=(17, 7), dpi=80, facecolor='w', edgecolor='k')
+    plt.bar(range(len(quantities)), quantities.values(), align='center')
+    plt.xticks(range(len(quantities)), quantities.keys())
+    savefig(name + '.png')
 
 if len(sys.argv) != 0:
     if str(sys.argv[1]) == "classify_object":
@@ -168,3 +183,5 @@ if len(sys.argv) != 0:
         print build_classifier(sys.argv[2], int(sys.argv[3]), float(sys.argv[4]), float(sys.argv[5]))
     if sys.argv[1] == "delete_classifier":
         delete_classifier(int(sys.argv[2]))
+    if sys.argv[1] == "build_histogram":
+        build_histogram(sys.argv[2])

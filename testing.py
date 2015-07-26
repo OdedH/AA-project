@@ -32,8 +32,10 @@ vectorizer = feature_extraction.text.CountVectorizer(input=u'content', encoding=
                                                      vocabulary=None, binary=False,
                                                      dtype='f')
 raw_documents = raw_bunch['data']
-lenMatrix = buildCSRLengths()
+
 document_feature_matrix = vectorizer.fit_transform(raw_documents)
+feature_names = vectorizer.get_feature_names()
+lenMatrix = (buildCSRLengths("./data", feature_names))[0]
 
 document_feature_matrix = csr_append(lenMatrix, document_feature_matrix)
 
@@ -56,19 +58,18 @@ print("Done!")
 X_train, X_test, y_train, y_test = train_test_split(document_feature_matrix,
                                                     raw_bunch['target'], test_size=0.5, random_state=42)
 
-parameters = parameters = [{'kernel': ['rbf'], 'gamma': [1e-1, 1, 1e1, 1e-3, 1e-4],
-                            'C': [1, 10, 100, 1000]},
-                           {'kernel': ['linear'], 'C': [1, 10, 100, 1000]},
-                           {'kernel': ['poly'], 'degree': [1, 2, 3, 4, 5, 10]}
-                           ]
+parameters = [{'kernel': ['rbf'], 'gamma': [1e-1, 1, 1e1, 1e-3, 1e-4],
+               'C': [1, 10, 100, 1000]},
+              {'kernel': ['linear'], 'C': [1, 10, 100, 1000]},
+              {'kernel': ['poly'], 'degree': [1, 2, 3, 4, 5, 10]}]
 print("Building a classifier...")
 print("    parameters tuning...")
 clf = grid_search.GridSearchCV(svm.SVC(C=1), parameters, cv=10)
-clf.fit(X_train, y_train)
+clf.fit(document_feature_matrix, raw_bunch['target'])
 print("Done!")
 
 print("score test cv:")
-scores = cross_validation.cross_val_score(clf, X_test, y_test, scoring=None,
+scores = cross_validation.cross_val_score(clf, document_feature_matrix, raw_bunch['target'], scoring=None,
                                           cv=10, n_jobs=1, verbose=0,
                                           fit_params=None, pre_dispatch='2*n_jobs')
 print(scores)
@@ -81,7 +82,7 @@ print("Grid scores on development set:")
 print()
 for params, mean_score, scores in clf.grid_scores_:
     print("%0.3f (+/-%0.03f) for %r"
-          % (mean_score, scores.std() * 2, params))
+          % (mean_score, scores.std() * 2, feature_names[params]))
 print()
 
 print("Detailed classification report:")
@@ -89,6 +90,6 @@ print()
 print("The model is trained on the full development set.")
 print("The scores are computed on the full evaluation set.")
 print()
-y_true, y_pred = y_test, clf.predict(X_test)
+y_true, y_pred = raw_bunch['target'], clf.predict(document_feature_matrix)
 print(metrics.classification_report(y_true, y_pred))
 print()

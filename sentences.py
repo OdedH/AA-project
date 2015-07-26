@@ -5,10 +5,10 @@ from scipy.sparse import csr_matrix
 
 
 def csr_append(a, b):
-    return sp.hstack((a, b), format='csr');
+    return sp.hstack((a, b), format='csr')
 
 
-def buildCSRLengths(path):
+def buildCSRLengths(path, feature_names=[]):
     corpSentLen = []
     corpWordLen = []
     max_sent_len = 0
@@ -49,5 +49,13 @@ def buildCSRLengths(path):
     lensCsr = csr_matrix(corpSentLen)
 
     wordsCsr = csr_matrix(corpWordLen)
+    
+    AppendFeatureNames(feature_names, max_sent_len, max_word_len)
 
-    return [csr_append(lensCsr, wordsCsr), [max_sent_len, max_word_len]];
+    return [csr_append(lensCsr, wordsCsr), [max_sent_len, max_word_len]]
+
+def AppendFeatureNames(feature_names,max_sent_len,max_word_len):
+    for i in range(max_sent_len):
+        feature_names.append(str(i)+"_sent_len")
+    for i in range(max_word_len):
+        feature_names.append(str(i)+"_word_len")
