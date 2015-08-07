@@ -1,0 +1,717 @@
+Appeared in ECML’07
+
+Context Sensitive Paraphrasing with a Single
+Unsupervised Classiﬁer
+Michael Connor and Dan Roth
+Department of Computer Science
+University of Illinois at Urbana-Champaign
+connor2@uiuc.edu and danr@cs.uiuc.edu
+
+Abstract. Lexical paraphrasing is an inherently context sensitive problem because a word’s meaning depends on context. Most paraphrasing
+work ﬁnds patterns and templates that can replace other patterns or
+templates in some context, but we are attempting to make decisions
+for a speciﬁc context. In this paper we develop a global classiﬁer that
+takes a word v and its context, along with a candidate word u, and determines whether u can replace v in the given context while maintaining
+the original meaning.
+We develop an unsupervised, bootstrapped, learning approach to this
+problem. Key to our approach is the use of a very large amount of unlabeled data to derive a reliable supervision signal that is then used to train
+a supervised learning algorithm. We demonstrate that our approach performs signiﬁcantly better than state-of-the-art paraphrasing approaches,
+and generalizes well to unseen pairs of words.
+
+1
+
+Introduction
+
+The problem of determining whether a text snippet can be written somewhat
+diﬀerently while maintaining its meaning has attracted a lot of attention from
+NLP researchers in recent years. It has clear applications in generation and summarization [1], automatic evaluation of machine translation and other machine
+generated text [2], and has been brought to focus recently by the body of work
+on Textual Entailment [3, 4]. Consider, for example sentence 1(a) in Tab. 1. Does
+it have the meaning of sentence 1(b)?
+1(a) The general commanded his troops (b) The general spoke to his troops Y
+2(a) The soloist commanded attention (b) The soloist spoke to attention N
+Table 1. Context Sensitive Paraphrasing
+
+There has been some work on generating rules or templates such as: ‘X
+commanded Y’ can be rewritten as ‘X spoke to Y.’ These rules do not specify
+when they should be applied or in what direction; they lack context sensitivity.
+
+Consider sentence 2(a) in Tab.1. Is it still true that ‘commanded’ can be
+replaced with ‘spoke to’ ? Alternatively one can ask: When can ‘speak to’ replace
+‘command’ in the original sentence and not change the meaning of the sentence?
+This can be viewed as both a form of textual entailment and a weaker version
+of the common word sense disambiguation task [5]. If we knew the meaning of
+‘command’ in the sentence and could compare it to the meaning of ‘speak to,’
+we could decide if they are paraphrases here.
+In this paper we develop a machine learning approach that learns Context
+Sensitive Paraphrasing: when one word can replace another in a given sentence
+without modifying its meaning. We address this task directly, without relying on
+any intermediate and possibly more diﬃcult word sense assignment, and without
+attempting to compile a list of rules per word that say if and when another word
+or phrase can replace it. We will focus on verb paraphrasing; determining when
+one verb can replace another in a speciﬁc context. This limits our notion of
+context, but still provides a useful challenge because of the highly polysemous
+nature of verbs and their importance in encoding relations.
+Our machine learning approach gives us a global classiﬁer that is able to
+tackle this important and diﬃcult task of context sensitive paraphrasing. The
+key diﬃculty from the machine learning perspective is how to derive a reliable
+supervision signal. By using domain knowledge and a large amount of data we
+are able to collect statistics over individual words to induce a reliable surrogate
+supervisory signal.
+1.1
+
+Related Work
+
+One related line of inquiry is on paraphrase generation, namely given a sentence
+or phrase, generate paraphrases of that phrase that have the same or entailed
+meaning in some context. Often this would be represented as a ﬁxed set of
+rules. Building these systems could require parallel or comparable corpora [6, 7]
+which ties the systems to very speciﬁc topics. Other systems extract rules from
+dependency trees built over a large single corpora or the web [8–10]. These create
+more general rules, but they only say that a context exists where one phrase can
+replace another. They do not indicate when a rule can be applied, as we do.
+A second line of work has approached the single word paraphrasing task as a
+sense disambiguation task. Kauchak and Barzilay [2] determine when one word
+can ﬁt in a given context as part of a machine translation evaluation system
+by generating a separate simple classiﬁer for every word. Dagan et al. [11] puts
+forward an implicit sense disambiguation task where two words are considered
+paraphrases if they share the speciﬁc sense for a given context. These approaches
+rely on a more standard word-sense word-expert approach with one classiﬁer per
+word in the ﬁrst case, or even one classiﬁer per pair of words in the second. These
+approaches cannot classify unseen words; if they do encounter a new word they
+need to generate new training data and classiﬁers on the ﬂy leading to scaling
+issues as the vocabulary increases.
+Previous work employs either a single supervised rule (either through hand
+tuning or supervised signal present in parallel corpora) or a set of simple per-
+
+word classiﬁers. Our approach combines aspects of both so that we can train a
+supervised global classiﬁer using a supervision signal induced from unsupervised
+per-word classiﬁers. We do not have to hand tune global classiﬁer parameters,
+but are also able to apply our function to words outside of its original training
+set.
+In Sec. 2 we present our learning problem and overall plan for context dependence. In Sec. 3 we deﬁne how we use context overlap to form rules for
+paraphrase decisions. A single global classiﬁer encodes these rules for all words
+in Sec. 4, which is trained with bootstrapped examples from unsupervised local
+classiﬁers (sec. 4.2). Experimental results for both untrained context dependent
+rules and the single global classiﬁer are presented in Sec. 5.
+
+2
+
+Formal Model
+
+Formally, we are learning in an unsupervised way a binary function f (S, v, u). f
+is given a sentence S, a word or phrase v in S, and a second word or phrase u.
+f returns 1 iﬀ replacing v in S with u keeps the same or entailed meaning.
+Looking at Tab. 1, if we set S to 1(a), v to ‘command’ and u to ‘speak to’,
+then f (S, v, u) should return 1 indicating that the sentence in 1(b) is a correct
+paraphrase. However if u and v are kept the same but S changed to 2(a) then
+f (S, v, u) should return a 0. 2(b) is not a correct paraphrase; ‘command’ does
+not replace ‘speak to’ in this context S.
+2.1
+
+Deﬁnition of Context
+
+Much of our technique relies heavily on our notion of context. Context around
+a word can be deﬁned as bag of words or collocations, or can be derived from
+parsing information. We view each of these as diﬀerent aspects of the same context, with each aspect providing diﬀerent amounts of information and diﬀerent
+drawbacks (sparsity, distribution, etc) for the ﬁnal decision. For most of this
+work we use dependency links from Minipar [12] dependency parser to deﬁne
+the local context of a word in a sentence, similar to what is used by DIRT and
+TEASE [10, 9]. Throughout this paper each algorithm will make use of a speciﬁc
+aspect of context we’ll call c which can be either subject and object of the verb,
+named entities that appear as subject or object, all dependency links connected
+to the target, all noun phrases in sentences containing the target, or all of the
+above. One of the goals of our system is to intelligently combine these sources
+of information about context in a single classiﬁer framework.
+2.2
+
+Modeling Context Sensitive Paraphrasing
+
+We consider the question of whether u can replace v in S as composed of two
+simpler questions: (1) can u replace v in some context and (2) can u ﬁt in the
+context of S. In the ﬁrst case, u must share some meaning with v. If the second
+condition also holds then we can theorize that u will get this meaning of v in S.
+
+We give the question ‘can u replace v’ context dependence by determining if u
+can belong in v’s context in S.
+We approach the ﬁrst question using the same distributional similarity assumptions that others use, namely that we can determine whether u can replace
+v in some context by seeing what contexts they both appear in in a large corpus.
+To use this idea to answer the second question we restrict the context comparison to those similar to the given context S. If two words are seen in the same
+contexts then they may be paraphrases, but if they are seen in many of the same
+contexts that are also similar to the given context then they may be paraphrases
+in the local context.
+
+3
+
+Statistical Paraphrase Decisions
+
+Most word paraphrasing systems work on similar principles: they ﬁnd contexts
+that both words, u and v, appear in. Given enough such contexts then u and v
+are accepted as replacements. In the next two sections we deﬁne how we encode
+such rules and then add context sensitivity.
+3.1
+
+Context Insensitive Decisions
+
+Given u and v the ﬁrst goal is to ﬁnd the sets of contexts that u and v have
+c
+been seen with in a large corpora. Sv is the set of type c contextual features of
+c
+contexts that v appears in and likewise for Su . By looking at the overlap of these
+two sets we can see what sort of contexts both u and v appear in. Looking at
+the example in Tab. 2, and more speciﬁcally the Sv ∩ Su row, we can see some
+features of contexts that ‘suggest’ and ‘propose’ appear in compared to those
+that ‘suggest’ and ‘indicate’ both appear in. With u = ‘propose’, the shared
+contexts are often related to political activity, with some politician suggesting
+or proposing an action or plan. On the other hand, in the contexts with u =
+‘indicate’, the sense of both words is that the subject is a signal for the object.
+To make a decision based on the amount of contextual overlap we set a
+threshold for the overlap coeﬃcient score:
+c
+c
+c
+c
+Scorec (u, v) = |Sv ∩ Su |/min(|Sv |, |Su |)
+
+This score represents what proportion of contexts the more speciﬁc (seen in fewer
+contexts) word shares with the other. The speciﬁc threshold that we select diﬀers
+between notions of context, but is constant across words. Given this threshold
+value we now have a simple classiﬁer that can determine if any u can replace any
+v in some context. To be able to apply this classiﬁer to a u, v pair we only need
+c
+c
+to ﬁnd their Su and Sv sets by looking in a large body of text for occurrences
+of u and v.
+3.2
+
+Adding Context Sensitive Decisions
+
+The goal of this step of the algorithm is to restrict the set of contexts used to
+ﬁnd overlap of u and v so that the overlap has some relation to the local context
+
+Sentence
+
+Marshall Formby of Plainview suggested a plan to ﬁll by
+appointment future vacancies in the Legislature and
+Congress, eliminating the need for special elections.
+Query
+v = suggest; u = propose
+v = suggest; u = indicate
+Sv ∩ Su
+obj:alternative, subj:Clinton, subj:presence, subj:history,
+CIP
+obj:compromise, obj:solution obj:possibility, obj:need
+Local Context obj:plan, subj:NE:PER
+VS
+foil, lay out, debate, consider, endorse, propose, discuss,
+change, disrupt, unveil, detail, disclose
+SS
+obj:bid, obj:legislation, obj:approach, obj:initiative,
+CSP
+subj:pronoun+obj:program, subj:George W. Bush, obj:project
+SS,v ∩ SS,u
+subj:George W. Bush, obj:way, subj:George W. Bush
+obj:policy, obj:legislation,
+(only one)
+obj:program, obj:idea
+Table 2. Similar Context Overlap Example. Given the above sentence the goal is
+to determine whether ‘propose’ and/or ‘indicate’ can replace ‘suggest’ and retain the
+original meaning. The aspect of context used is the subject and object of target verb
+and c notation has been left out. Note that each set only shows a subset of its members,
+unless otherwise noted.
+
+S. This process is described in more detail in Fig. 1(b). The system identiﬁes
+contexts similar to S and sees if u and v overlap in these. By restricting the set
+of contexts that we use to ﬁnd overlap of u and v as in Sec. 3.1 we are attempting
+to see if the usage of u and v overlap in a speciﬁc sense which relates to S.
+We consider a context similar to the current one if they both appear with
+similar verbs. If two contexts can appear with the same set of verbs then the
+contexts convey the same set of possible meanings. We start by ﬁnding a set of
+verbs typical to the given context. Currently we use a very simple deﬁnition of the
+local context of v in S: the subject and object of v, if those exist. In many cases
+the subject and object restrict what verbs can be used and indicate a speciﬁc
+meaning for those verbs. For our example sentence in Tab. 2, the subject is a
+named entity which we indicate as NE:PER and the object is ‘plan’. The VS of
+this context are verbs that indicate actions someone does with a plan, including
+synonyms for creating, breaking or presenting. Verb x ∈ VS if x has been seen
+before with the subject and object of v, not necessarily all in the same sentence.
+We now look for context features that these verbs appear in and are speciﬁc
+c
+to the meaning of this set of verbs and context. SS are those context features of
+type c that some percentage of the typical verbs are seen with (in experiments
+this percentage is empirically set to 25%). In Tab. 2 SS shows a set of contextual
+features (subjects and objects) that are similar to the given: objects that are
+treated like plans and subjects that are people that do stuﬀ with plans, which
+appears to be mostly politicians in our dataset.
+c
+So given a set of contextual features, SS , from contexts similar to S, and
+c
+c
+contexts Su for which u appear and Sv for which v appear, we want to restrict
+our attention to the set of contexts that both u and v appear in and that are
+
+c
+c
+c
+c
+c
+c
+c
+c
+c
+similar to S: SS ∩Sv ∩Su . If we focus on the sets SS,v = SS ∩Sv and SS,u = SS ∩Su
+then the intersection of these two sets is the same as the intersection of all three,
+and we can use the overlap score as we used above:
+c
+c
+c
+c
+Scorec (S, v, u) = |SS,v ∩ SS,u |/min(|SS,v |, |SS,u |)
+
+This time we know the contexts of v and u are related to the given context,
+giving this overlap measure context sensitivity.
+If we return to our example in Tab. 2 and look at the SS,v ∩SS,u row we can see
+that ‘propose’ and ‘indicate’ have separated themselves for this speciﬁc context.
+The similar contexts of ‘indicate’ and ‘suggest’ have a very low intersection with
+the contexts similar to the given local context since they are used with a diﬀerent
+sense of ‘suggest’. On the other hand ‘propose’ can be used in the same sense as
+‘suggest’ in this sentence, so it has a higher overlap with similar contexts. This
+higher overlap indicates that for this context, ‘propose’ can replace ‘suggest’,
+but ‘indicate’ cannot.
+
+Algorithm UV-CIP
+Input: (S, v, u)
+Output: f (S, v, u) ∈ {0, 1}
+c
+c
+Generate Su and Sv :
+Depends on notion of context
+Compute Scorec (u, v)
+c
+c
+Based on Su ∩ Sv
+Return Scorec (u, v)>Thresholdc
+
+(a) Context Insensitive Paraphrase
+Rule
+
+Algorithm SVU-CSP
+Input: (S, v, u)
+Output: f (S, v, u) ∈ {0, 1}
+c
+c
+Generate Su and Sv
+c
+Find contexts similar to S: SS
+Find local context of v in S
+Determine VS
+c
+Determine SS
+c
+c
+c
+Find SS,u = SS ∩ Su
+c
+c
+c
+Find SS,v = SS ∩ Sv
+Determine Scorec (S, v, u)
+c
+c
+Based on SS,u ∩ SS,v
+Return Scorec (S, v, u)>Thresholdc
+
+(b) Context Sensitive Paraphrase Rule
+Fig. 1. Statistics Based Context Sensitive Paraphrasing. Contextual overlap depends
+on a speciﬁc aspect of context c, be it the subject and object, bag of words, named
+entities, or all available.
+
+4
+
+Global Context Sensitive Paraphrase Classiﬁer
+
+Each paraphrasing rule above (context sensitive and insensitive for each contextual aspect) forms a simple classiﬁer that can be applied to any pair of words and
+only has one parameter to tune, the threshold. We form our single global classiﬁer as a linear combination of these diﬀerent paraphrasing rules. We can use
+the overlap scores for each contextual aspect that the separate rules produce as
+features for the global classiﬁer, and thus leverage the powers of multiple notions
+of context and both context sensitive and insensitive information at the same
+
+time. To create training data for this single global classiﬁer we use large amounts
+of untagged text to train local per-word classiﬁers that are able to identify new
+contexts where a speciﬁc word can act as a paraphrase. These local classiﬁers
+are used to tag new data to be used to train the single global classiﬁer.
+4.1
+
+Shared Context Features
+
+The ﬂexibility of a classiﬁer architecture allows us to incorporate additional
+features other than just the raw Scorec(u, v) and Scorec (S, v, u). For each context
+c
+c
+c
+c
+type c we still compile the sets of similar contexts Su , Sv , SS,u , and SS,v but
+now we use the size of the overlaps as features. Fig. 2(a) describes this process
+further. We create three features for context insensitive overlap (UV features:
+only depend on u and v), and three for context sensitive (SUV features: depend
+on S, u and v). By including context insensitive features the classiﬁer can still
+rely on a context independent decision when encountering a rare or malformed
+local context. For both UV and SUV feature types we create three features
+which show the direction of overlap: score, uIntersect, and vIntersect. The score
+feature is the same as the Scorec (u, v) for UV and Scorec (S, u, v) for SUV used
+in the statistics based rules above. The uIntersect and vIntersect actually give
+directionality to the feature representation. If uIntersect is close to 1 then we
+know that u primarily appears in contexts that v appears in, and thus u may be a
+specialization of v, and if this is an SUV feature then we know the directionality
+holds in contexts similar to S. The classiﬁer can now learn that its possibly more
+important for v to specialize u, and can say yes for replacing A by B in a given
+context, but not B by A.
+For any new word w, all we need to know about w to generate features are
+c
+Sw for every c; contextual features of contexts that w is seen with. If we can ﬁnd
+c
+contexts that w appears in in our large corpora then we can create the Sw sets
+and use these to compute overlap with other words, the only features that our
+classiﬁer relies on. A separate classiﬁer does not need to be trained on contexts
+that w appears in, we can rely on our global classiﬁer even if it never saw an
+example of w during training.
+4.2
+
+Unsupervised Training: Bootstrapping Local Classiﬁers
+
+The single global classiﬁer requires training to be able to determine the importance of each context type in the global paraphrasing decision. To generate tagged S, v, u examples for the single global classiﬁer we employ a set of
+bootstrapping local classiﬁers similar to Kauchak and Barzilay[2] or ContextSensitive Spelling Correction[13]. Each classiﬁer learns what contexts one speciﬁc word can appear in. Once we have these classiﬁers we generate candidate
+examples to train the global classiﬁer and use the local classiﬁers to ﬁlter and
+label conﬁdent examples. These examples are then tagged with global features
+and used to train our global binary classiﬁer. This process is detailed in Fig. 2(b).
+The key fact that allows us to build classiﬁers this way and train a single global
+
+Algorithm Global Feature Tagging
+Input: (S, v, u)
+Output: Feature vector
+For each context type c:
+c
+c
+Find Su , Sv
+c
+c
+c
+Generate Su,v = Su ∩ Sv
+Generate u, v features
+c
+c
+uIntersect.UV.c: |Su,v |/|Su |
+c
+c
+vIntersect.UV.c: |Su,v |/|Sv |
+score.UV.c:
+c
+c
+c
+|Su,v |/min(|Su |, |Sv |)
+c
+Find VS , SS
+c
+c
+c
+Generate SS,u = SS ∩ Su
+c
+c
+c
+Generate SS,v = SS ∩ Sv
+c
+c
+c
+Generate SS,v,u = SS,u ∩ SS,v
+Generate S, v, u features
+c
+c
+uIntersect.SVU.c: |SS,v,u |/|SS,u |
+c
+c
+vIntersect.SVU.c: |SS,v,u |/|SS,v |
+score.SVU.c:
+c
+c
+c
+|SS,v,u |/min(|SS,u |, |SS,v |)
+Place feature values into buckets
+Return feature vector
+contains all features
+of all context types
+
+Algorithm Training Generation
+Input: Set of words U
+Output: Training data (S, v, u, {0, 1})
+For each u ∈ U:
+Generate fu (S, v) classiﬁer:
+Collect S, u → positive examples
+u can replace itself.
+Collect S, v → negative examples
+Random v, unrelated to u
+Train fu using local features
+Label new examples:
+Collect S, v examples
+v similar to u
+Apply fu to every similar example
+If conﬁdence above threshold:
+Add S, v, u and predicted
+label to global training data.
+Return global training data
+from all U words
+
+(b) Unsupervised Training Data Generation
+(a) Global Feature Tagging
+Fig. 2. Procedures for training data generation and tagging. Although our ﬁnal global
+classiﬁer is a supervised learner, we use multiple unsupervised local classiﬁers to generate the set of training examples. The local classiﬁers work on local features while the
+global classiﬁer looks at features related to the contextual overlap of its input.
+
+classiﬁer is that we can extract large amounts of training examples for such local
+classiﬁers from free, untagged text.
+To learn what contexts a speciﬁc word u can belong in, we use trivial positive
+and negative examples that can be collected from ﬂat text. Trivial positive examples are of u replacing itself, and trivial negatives are of u replacing a random
+x that is unrelated to u (not connected in WordNet). The positive examples
+identify contexts that u is known to ﬁt in, and the negative examples represent
+contexts that u likely does not, so we can eliminate irrelevant contextual features. We encode this knowledge of what contexts u does and does not belong
+in in local fu binary classiﬁers.
+For each word u in our training set of words, we create an fu (S, v) classiﬁer:
+the input is the context of v in S and the output is 1 or 0, depending if u can
+replace v in S or not. Notice this is a local form of the global f (S, v, u) function,
+if it were possible to train local classiﬁers for every possible u. The local fu use
+their implicit knowledge about the given u to tag interesting examples such that
+the global classiﬁer can extract patterns that hold for all words.
+Our feature representation for the context of v in S that fu uses includes
+bag of words, collocations, nearest noun and verb to the left and right of target,
+and named dependency links of length 1 and 2 from target from Minipar. These
+
+features are richer than the simple surrounding word and collocation features
+employed in [2], which allow us to get the same accuracy for local fu classiﬁers
+using many fewer examples (their local classiﬁers used on average 200k training
+examples, ours at most 30k).
+Once we have trained local bootstrapping classiﬁers we use them to tag examples of S, v, where v is similar to u (from Lin’s similarity list [14]). If the local
+classiﬁers conﬁdently label an example, that example is added with its label to
+the global training set. The conﬁdence is tuned to less than 5% error on a development set for each fu . We generated 230 local classiﬁers, where the seed U set
+was selected so that about half the words were seen in our test data, and half
+random verbs with at least 1000 occurrences in our text corpora. These local
+classiﬁers conﬁdently tagged over 400k examples for our global classiﬁer.
+
+5
+5.1
+
+Experimental Results
+Methodology
+
+As a large source of text we used the 2000 New York Times section of the
+AQUAINT corpus. Each sentence was tagged with part of speech and named
+entities then parsed with Minipar. To implement both the fu and the single
+global classiﬁer we used the SNoW learning architecture[15] with perceptron
+update rule.
+Our test set goal was to select one example sentence representing each sense
+(and thus a diﬀerent word to replace) for each of a set of verbs so that we
+can highlight the context sensitivity of paraphrasing. We started with an initial
+random selection of polysemous verbs that occur in WordNet 2.1 sense tagged
+data (Semcor)[16]. For each verb we selected a possible synonym for each of a
+coarse sense mapping (Navigli’s mappings of WordNet 2.1 to coincide with ODE
+entries [17]) since the coarse word senses provide clearer distinctions between
+meanings of words than regular WordNet. We then selected one representative
+sentence where each coarse synonym could replace the target verb. For every
+S, v sentence the possible u were exactly the coarse synonyms for v, the intent
+being that exactly one of them would be replaceable for each sense of v, although
+this was not always the case. Two humans (native English speaking graduate
+students) annotated each S, v, u example for whether u could replace v or not
+in S. The interannotator agreement was over 83% of instances, with a kappa of
+0.62, corresponding to substantial agreement[18]. This kappa is comparable to
+our previous tagging eﬀorts and others reported in similar eﬀorts [19]. Overall
+our test set has 721 S, v, u examples with 57 unique v verbs and 162 unique u.
+5.2
+
+Results
+
+The results of the global classiﬁer on the test set is shown in Fig. 3. The varying
+precision/recall points were achieved by setting the SNoW conﬁdence threshold
+for the global classiﬁer and setting the score threshold for the statistical rules. As
+
+0.6
+CSP Global Classifier
+Statistical CSP
+Statistical CIP
+Positive Guess
+DIRT
+
+Positive Precision
+
+0.55
+0.5
+0.45
+0.4
+0.35
+0.3
+0.25
+0
+
+0.1
+
+0.2
+
+0.3
+0.4
+Positive Recall
+
+0.5
+
+0.6
+
+0.7
+
+Fig. 3. Positive precision/recall curve for our global CSP classiﬁer compared to statistical context sensitive and insensitive paraphrasing rules using all contextual features.
+Also shown is the single point of precision/recall given by current top of the line paraphrasing system DIRT on our test set. The positive guess line illustrates the precision
+of always guessing yes for every example: 32% of test cases are positive.
+
+we can see the single global classiﬁer is able to exploit both the u, v and S, v, u
+rules and diﬀerent deﬁnitions of context to improve both recall and precision. As
+an additional comparison we include the results if we used slightly modiﬁed DIRT
+rules to make paraphrase judgments. Each DIRT rule speciﬁes a dependency
+pattern that can be rewritten as another dependency pattern. For our verb
+paraphrase task we restricted the rules to those that could be interpreted as
+single verb rewrite rule where each pattern is a verb with two dependency links
+coming oﬀ of it. In a similar setup, recent experiments have shown that DIRT
+is the top of the line for verb paraphrasing [19].
+Both classiﬁer and statistical based rules performed better on this test set
+than DIRT probably because we do not rely on a ﬁxed set of patterns (that
+are generated on a separate corpus). Instead we use classiﬁers that can be instantiated with any word encountered in the test set. During training our global
+classiﬁer only saw examples generated for a subset of the words that appear in
+testing. The classiﬁer can still apply to any S, v, u example as long as we can
+collect contexts that v and u have been seen in. Any per-word classiﬁer approach
+such as Kauchak and Barzilay could not have handled unseen examples such as
+these, they would need to collect examples of u and generate a new classiﬁer.
+To test the ability of our classiﬁer to learn a global hypothesis that applies
+across words we tested the performance of the classiﬁer when it was trained with
+unsupervised data generated for a varying number of words while keeping the
+ﬁnal number of training examples ﬁxed. If the classiﬁer can learn a hypothesis
+just as well by looking at statistics for 50 words vs. 250 then its hypothesis is
+not dependent on the speciﬁc words used in training, but on global statistics
+that exist for paraphrasing. Fig. 4(a) shows that the number of words used to
+
+Positive F1
+
+Positive F1
+
+0.6
+0.55
+0.5
+0.45
+0.4
+0.35
+0.3
+0.25
+0.2
+0
+
+50
+
+100 150 200
+Training Words
+
+250
+
+(a) Number of Words
+
+0.6
+0.55
+0.5
+0.45
+0.4
+0.35
+0.3
+0.25
+0.2
+101
+
+102
+103
+104
+105
+Training Examples
+
+(b) Number of Examples
+
+Fig. 4. Generalization to unseen words: Plot (a) shows that performance on the
+test data does not depend on the number of words seen in training (recall: training set
+is created w/o supervision). What does aﬀect performance is the number of training
+examples generated (plot (b)). Each point represents the mean positive F1 over 20
+diﬀerent random resamplings of the training set. This plot represents one point selected
+from the precision/recall curve above.
+
+generate training data has little eﬀect on the positive F1 of the classiﬁer, the
+same rules learned on 50 words is learned on 200 and beyond. On the other
+hand, if we look at the number of examples used to train the classiﬁer we do
+see improvement. Fig 4(b) shows the results of varying the number of examples
+used to train the classiﬁer, but keeping the number of words these examples are
+drawn from ﬁxed. If we are only able to create accurate bootstrapping classiﬁers
+for a small set of words, this should still prove adequate to generate data to train
+the global classiﬁer, as long as we can generate a lot of it.
+
+6
+
+Conclusion and Future Work
+
+In this project we presented an approach to adding context sensitivity to a
+word paraphrasing system. By only looking for distributional similarity over
+contexts similar to the given sentence we are able to decide if one verb can
+replace another in the given context. Further we incorporate this approach into
+a classiﬁer architecture that is able to successfully combine multiple deﬁnitions
+of context and context sensitive and insensitive information into a uniﬁed whole.
+Our machine learning approach allowed us to leverage a large amount of data
+regarding the local statistics of word occurrences to generate training data for a
+traditionally supervised global classiﬁer in an unsupervised manner.
+Our experiments indicate that it is important to have as much data per word
+as possible, both in terms of representation and training, so we plan to expand
+our knowledge sources. The eventual goal for the system is to incorporate it into
+a full textual entailment system and see if this context sensitive paraphrasing
+can beneﬁt a larger NLP task.
+
+Acknowledgments
+We would like to thank those who have given us comments throughout this
+project, especially Idan Szpektor, Kevin Small, and anonymous reviewers. This
+research is supported by NSF grants BCS-0620257 and ITR-IIS-0428472.
+
+References
+1. Barzilay, R., Lee, L.: Catching the drift: Probabilistic content models, with applications to generation and summarization. In: Proceedings HLT-NAACL. (2004)
+2. Kauchak, D., Barzilay, R.: Paraphrasing for automatic evaluation. In: Proceedings
+of HLT-NAACL 2006. (2006)
+3. Dagan, I., Glickman, O., Magnini, B.: The pascal recognizing textual entailment
+challenge. In: Proceedings of the PASCAL Challenges Workshop on Recognizing
+Textual Entailment. (2005)
+4. de Salvo Braz, R., Girju, R., Punyakanok, V., Roth, D., Sammons, M.: An inference
+model for semantic entailment in natural language. In: Proceedings of the National
+Conference on Artiﬁcial Intelligence (AAAI). (2005) 1678–1679
+5. Ide, N., Veronis, J.: Word sense disambiguation: The state of the art. Computational Linguistics (1998)
+6. Barzilay, R., Lee, L.: Learning to paraphrase: An unsupervised approach using
+multiple-sequence alignment. In: Proceedings HLT-NAACL. (2003) 16–23
+7. Barzilay, R., McKeown, K.: Extracing paraphrases from a parallel corpus. In:
+Proceedings ACL-01. (2004)
+8. Glickman, O., Dagan, I.: Identifying lexical paraphrases from a single corpus:
+A case study for verbs. In: Recent Advantages in Natural Language Processing
+(RANLP-03). (2003)
+9. Szpektor, I., Tanev, H., Dagan, I., Coppola, B.: Scaling web-based acquisition of
+entailment relations. In: Proceedings of EMNLP 2004. (2004)
+10. Lin, D., Pantel, P.: Discovery of inference rules for question answering. Natural
+Language Engineering 7(4) (2001) 343–360
+11. Dagan, I., Glickman, O., Gliozzo, A., Marmorshtein, E., Strapparava, C.: Direct
+word sense matching for lexical substitution. In: Proceedings ACL-06. (2007) 449–
+456
+12. Lin, D.: Principal-based parsing without overgeneration. In: Proceedings of ACL93. (1993) 112–120
+13. Golding, A.R., Roth, D.: A Winnow based approach to context-sensitive spelling
+correction. Machine Learning 34(1-3) (1999) 107–130
+14. Lin, D.: Automatic retrieval and clustering of similar words. In: COLING-ACL-98.
+(1998)
+15. Carlson, A., Cumby, C., Rosen, J., Roth, D.: The SNoW learning architecture. Technical Report UIUCDCS-R-99-2101, UIUC Computer Science Department (May 1999)
+16. Fellbaum, C.: Wordnet: An Electronic Lexical Database. Bradford Books (1998)
+17. Navigli, R.: Meaningful clustering of senses helps boost word sense disambiguation
+performance. In: Proceedings of COLING-ACL 2006. (2006)
+18. Landis, J., Koch, G.: The measurement of observer agreement for categorical data.
+In: Biometrics. (1977)
+19. Szpektor, I., Shnarch, E., Dagan, I.: Instance-based evaluation of entailment rule
+acquisition. In: Proceedings of ACL 2007. (2007)
+
+

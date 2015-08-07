@@ -1,0 +1,1197 @@
+A Permutation-Augmented Sampler for DP Mixture Models
+
+Percy Liang
+Computer Science Division, University of California, Berkeley, CA, USA
+
+pliang@cs.berkeley.edu
+
+Michael I. Jordan
+jordan@cs.berkeley.edu
+Computer Science Division and Department of Statistics, University of California, Berkeley, CA, USA
+Ben Taskar
+taskar@cis.upenn.edu
+Department of Computer and Information Science, University of Pennsylvania, Philadelphia, PA, USA
+
+Abstract
+We introduce a new inference algorithm for
+Dirichlet process mixture models. While
+Gibbs sampling and variational methods focus on local moves, the new algorithm makes
+more global moves. This is done by introducing a permutation of the data points as an
+auxiliary variable. The algorithm is a blocked
+sampler which alternates between sampling
+the clustering and sampling the permutation.
+The key to the eﬃciency of this approach is
+that it is possible to use dynamic programming to consider all exponentially many clusterings consistent with a given permutation.
+We also show that random projections can be
+used to eﬀectively sample the permutation.
+The result is a stochastic hill-climbing algorithm that yields burn-in times signiﬁcantly
+smaller than those of collapsed Gibbs sampling.
+
+1. Introduction
+Dirichlet process (DP) mixture models (Antoniak,
+1974) have been usefully employed as a clustering
+methodology in a variety of applied areas such as bioinformatics (Xing et al., 2004), vision (Sudderth et al.,
+2006), and topic modeling (Teh et al., 2006). By treating the number of mixture components as random,
+DP mixtures provide an appealing nonparametric approach to mixture modeling in which the complexity
+of the model adapts to the complexity inherent in the
+data.
+Posterior inference for DP mixtures is challenging, and
+a variety of inference algorithms have been specialized
+Appearing in Proceedings of the 24 th International Conference on Machine Learning, Corvallis, OR, 2007. Copyright
+2007 by the author(s)/owner(s).
+
+to the DP mixture setting, including samplers (Ishwaran & James, 2001; Escobar & West, 1995), variational approximations (Blei & Jordan, 2005; Kurihara
+et al., 2007), and other search algorithms (Daume,
+2007). A diﬃculty with all of these algorithms is their
+tendency to get trapped in local optima. Variational
+methods converge to local optima, and while samplers
+are guaranteed to converge to the correct posterior in
+the limit, they sometimes suﬀer from extremely slow
+mixing. For example, the popular collapsed Gibbs
+sampler (Escobar & West, 1995) reassigns only one
+data point at a time. These local moves make it difﬁcult to make large changes to the clustering without having to step through low probability clusterings.
+Various split-merge algorithms have been developed to
+address this issue and provide more global moves (Jain
+& Neal, 2000; Dahl, 2003a).
+In this paper, we develop a novel methodology for posterior inference in DP mixtures. Rather than focusing
+on local moves, we develop a method which allows us to
+sample an entire clustering at once, a move even more
+global than that oﬀered by split-merge. Our approach
+is an instance of the general class of augmentation samplers, a class which includes the Swendsen-Wang sampler (Swendsen & Wang, 1987) and others (Tanner &
+Wong, 1987; Liu & Wu, 1999). Speciﬁcally, we augment the DP mixture to include a permutation (ordering) of the data points. We then alternate between
+sampling permutations and sampling clusterings. The
+key to our approach is the following insight: given a
+ﬁxed permutation, all exponentially many clusterings
+consistent with the permutation can be considered using dynamic programming.
+In related work, Friedman and Koller (2000) have
+exploited permutations in Bayesian network structure sampling to yield tractable subproblems. The
+idea of using dynamic programming for clustering has
+been used for ﬁnding the MAP clustering of univari-
+
+A Permutation-Augmented Sampler for DP Mixture Models
+
+ate data (Dahl, 2003b). Dynamic programming can
+also be applied on a tree rather than a sequence
+(Heller & Ghahramani, 2005). An important distinction between these algorithms and ours is that our
+permutation-augmented sampler converges to the exact posterior over clusterings.
+
+its sequential deﬁnition, the distribution on partitions
+that it induces is exchangeable; i.e., the probability
+across partitions is the same for all orderings of the
+data points.
+
+While the key to our work is the fact that the sampling
+of a clustering conditioned on a permutation can be
+done eﬃciently, it is also necessary to develop eﬃcient
+methods for sampling the permutation given the clustering. We show that this can be done using random
+projections (Johnson & Lindenstrauss, 1984) to construct an eﬀective stochastic hill-climbing algorithm.
+
+The collapsed Gibbs sampler is based on exchangeability of the CRP. Indeed, since the data points are
+exchangeable, we can compute the conditionals needed
+by a Gibbs sampler by pretending that a given data
+point is the ﬁnal data point (Escobar & West, 1995).
+The cluster assignment of point xi is thus sampled according to the following probabilities:
+
+2. DP Mixture Models
+Given a measurable space Ω, a base distribution G0
+and a concentration parameter α0 , the Dirichlet process, DP(α0 , G0 ), is a distribution over distributions
+on Ω uniquely deﬁned by the following property: G ∼
+DP(α0 , G0 ) if and only if
+(G(A1 ), . . . , G(AK )) ∼ Dir(α0 G0 (A1 ), . . . , α0 G0 (AK ))
+for all measurable partitions A1 , . . . , AK of Ω (Ferguson, 1973).
+Draws G from a Dirichlet process turn out to be discrete with probability one, making the Dirichlet process suitable for mixture modeling (Antoniak, 1974).
+In this case, Ω is the space of parameters of mixture
+components. The data points x = (x1 , . . . , xn ) are
+generated as follows: draw a parameter θi ∼ G and
+then generate xi ∼ F (·; θi ), where F is the probability model associated with a mixture component (e.g.,
+Gaussian, multinomial, etc.).
+Data points are clustered by virtue of sharing identical values of the parameter θi . For the purpose of
+this paper, it will be convenient to focus on this clustering rather than the values of the parameters. A
+clustering C contains |C| clusters, each cluster c ∈ C
+being a subset of the indices {1, . . . , n}. Collectively,
+the clusters partition the set of points. For example,
+C = {{2, 3}, {1, 5}, {4}} is a clustering of 5 data points
+into 3 clusters.
+One computationally useful representation of the
+Dirichlet process is the Chinese restaurant process
+(CRP) (Pitman, 2002), which describes the induced
+clustering C when G is marginalized out. The CRP
+constructs the random clustering sequentially. Each
+data point xi is placed in an existing cluster c ∈ C
+with probability proportional to its size |c|, and a new
+cluster is created with probability proportional to α0 .
+An important property of the CRP is that despite
+
+2.1. Existing CRP-based Sampling Algorithms
+
+p(i ∈ c) ∝ |c\{i}|
+
+F (xi ; θ)G0 (dθ | xc\{i} ),
+
+for an existing cluster c and
+p(i ∈ cnew ) ∝ α0
+
+F (xi ; θ)G0 (dθ)
+
+for a new cluster cnew . While the Gibbs sampler is
+very simple to implement, it can be slow to mix. Only
+one point can be reassigned at a time, and thus it is
+diﬃcult to bring about large changes to the clustering.
+For example, splitting a large cluster into two or merging two similar clusters into one might require stepping
+through intermediate clusterings with low probability.
+One way to address the slow mixing issue is to use
+split-merge algorithms (Jain & Neal, 2000; Dahl,
+2003a), which relies on Metropolis-Hastings proposals to merge two distinct clusters into one or split an
+existing cluster into two. In the following section, we
+present a diﬀerent approach to speeding up sampling
+by augmenting the sampler with an auxiliary variable
+representing a permutation.
+2.2. A Combinatorial Perspective
+To develop our permutation-augmented sampler, we
+consider a combinatorial view of the DP mixture
+model. The prior over clusterings C induced by the
+Dirichlet process can be expressed compactly as follows (Antoniak, 1974):
+|C|
+
+p(C) =
+
+α0
+AF(α0 , n)
+
+(|c| − 1)!,
+
+(1)
+
+c∈C
+
+where AF(α0 , n) = α0 (α0 + 1) · · · (α0 + n − 1) is the
+ascending factorial function.
+Conditioned on the clustering C, the marginal proba-
+
+A Permutation-Augmented Sampler for DP Mixture Models
+
+bility of the data x is given as follows:
+p(x | C) =
+
+F (xi ; θ)G0 (dθ).
+c∈C
+
+C
+(2)
+
+C
+
+x
+
+i∈c
+
+π
+
+x
+
+def
+
+= p(xc )
+
+Note that given the clustering, the data points in each
+cluster are generated independently, a property that
+will be exploited in Section 3. By marginalizing out
+the mixture parameters θ, we obtain a function p(xc )
+that depends only on the suﬃcient statistics of the
+points in cluster c.1
+The goal of inference is to compute the posterior over
+clusterings:
+p(C | x) =
+
+p(C)p(x | C)
+.
+C p(C )p(x | C )
+
+This quantity involves a normalization constant which
+cannot be computed in practice because of the exponential number of possible clusterings. In the following
+section we show how our augmentation allows this difﬁculty to be circumvented.
+
+3. Augmenting with a Permutation
+While we cannot hope to eﬃciently sum over all possible clusterings, we can eﬃciently sum over all clusterings in an appropriately constrained subset. If we order our data points and only consider consistent clusterings, i.e., clusterings that partition this ordering
+into contiguous segments, then it turns out to be possible to sum over clusterings eﬃciently using dynamic
+programming.
+We thus augment the DP mixture model with a permutation π = (π1 , . . . , πn ), where xπi is the ith point
+in the permutation (Figure 1). For now, let p(π | C)
+be the uniform distribution over consistent permutations:2
+1[π ∈ Π(C)]
+1[π ∈ Π(C)]
+p(π | C) =
+=
+, (3)
+|Π(C)|
+|C|! c∈C |c|!
+where Π(C) is the set of permutations consistent with
+C. In this augmented model, we can run a blocked
+Gibbs sampler where we alternate between sampling
+π given (C, x) and sampling C given (π, x). Sampling
+π is easy: choose a random permutation of the clusters;
+for each cluster, choose a random permutation of the
+points in the cluster. Sampling C turns out to be also
+tractable via dynamic programming.
+1
+
+This computation can be done easily in closed form if
+G0 and F form a standard conjugate pair.
+2
+In Section 4, we consider generating permutations from
+non-uniform distributions, in particular ones that depend
+on the data x.
+
+(a) DP mixture model
+
+(b) Permutation-augmented
+
+Figure 1. We introduce an auxiliary variable for the permutation π and perform sampling in the augmented model.
+
+3.1. Sampling a Clustering using Dynamic
+Programming
+We now present the dynamic program for sampling
+the clustering C given the permutation π and data
+x. Combining Equations 1, 2, and 3 we obtain the
+following joint distribution:
+|C|
+
+p(C, π, x) =
+
+α0
+AF(α0 , n)|C|!
+
+c∈C
+
+def
+
+p(xc )
+|c|
+
+(4)
+
+def
+
+= A(|C|)
+
+= B(c)
+
+if π ∈ Π(C) and 0 otherwise.
+In order to sample from p(C | π, x), we need to compute the normalization constant:
+p(π, x) =
+
+A(|C|)
+
+B(c).
+c∈C
+
+C:π∈Π(C)
+
+Unlike c∈C B(c), A(|C|) does not decompose into
+a product of per-cluster factors.
+It requires
+global information—namely the number of clusters.
+Nonetheless, we can still apply dynamic programming
+conditioned on the number of clusters:
+n
+
+p(π, x) =
+
+A(K)
+K=1
+
+B(c) .
+C:π∈Π(C),|C|=K c∈C
+def
+
+= g(n,K)
+
+The quantity g(r, K) is a sum over all clusterings of the
+ﬁrst r data points (with respect to the permutation
+π) with exactly K clusters. We compute this value
+recursively by summing over all possible sizes m of the
+last cluster:
+r
+
+g(r − m, K − 1)B({πr−m+1 , . . . , πr }).
+
+g(r, K) =
+m=1
+
+Given the size m, we sum recursively over clusterings
+of the ﬁrst r − m points and account for the points in
+the last cluster using the function B.
+
+A Permutation-Augmented Sampler for DP Mixture Models
+
+After computing all the entries in the dynamic programming table g(r, K), we can sample a clustering by
+following the recurrence. Starting at r = n, we select a
+size m for the last cluster with probability proportional
+to its contribution g(r−m, K −1)B({πr−m+1 , . . . , πr })
+to the summation, then with r = n − m, and so on.
+It is interesting to note that a clustering is sampled
+with probability proportional to p(C, π, x), which includes p(π | C). This fact has an intuitive interpretation. In particular, the p(π | C) factor downweights clusterings with either very few or very many
+clusters—exactly those that are consistent with a large
+number of permutations. These clusterings would be
+oversampled without the p(π | C) weighting.3
+It is also worth noting that the augmentation method
+that we have described can be applied to a broad class
+of models beyond DP mixtures. Our approach applies
+as long as the prior decomposes into factors A and
+B as in Equation 4. In particular, the approach can
+be used for ﬁnite mixture models and mixture models
+based on Pitman-Yor process (Pitman & Yor, 1997).
+The basic permutation-augmentation that we have
+introduced in this section requires O(n2 ) space and
+O(n3 ) time to sample a clustering. While the beneﬁt
+obtained for this computation is a potentially large
+move, the computational burden is overly large to
+make this basic approach feasible in general. We thus
+turn to the discussion of several optimizations that we
+have developed that make the approach practical for
+large data sets.
+3.2. Optimization 1: Metropolis-Hastings
+The time and space complexities for computing p(π, x)
+arise because of the need to sum over all possible clus1
+ter sizes. The culprit is the |C|! factor in A(|C|). If
+we replace |C|! with β |C| , then we would be able to
+|C|
+move this factor, along with α0 , into B(c). Doing so
+results in an approximate joint distribution:
+qβ (C, π, x) =
+
+1
+AF(α0 , n)
+def
+
+=A
+
+c∈C
+
+p(xc )α0
+.
+|c|β
+
+(5)
+
+def
+
+= B (c)
+
+Note that A does not depend on C, and the dependence on C factors according to the clusters. This
+allows us to compute qβ (π, x) using a much simpler
+dynamic program, one which requires only O(n) space
+3
+Note that in the setting of Bayesian network structural
+inference, a similar weighting is needed to guard against a
+bias towards structures with fewer edges. Friedman and
+Koller (2000) omit this weighting, resulting in a bias.
+
+and O(n2 ) time:
+r
+
+g (r − m)B ({πr−m+1 , . . . , πr }).
+
+g (r) =
+
+(6)
+
+m=1
+
+We can sample from the approximate distribution
+qβ (C | π, x) rather than our desired distribution p(C |
+π, x). This introduces a bias, but we can correct for
+this bias using Metropolis-Hastings. Speciﬁcally, we
+accept a new clustering Cnew ∼ qβ with probability
+min 1,
+
+p(Cnew , π, x)qβ (Cold , π, x)
+.
+p(Cold , π, x)qβ (Cnew , π, x)
+
+The only issue now is to choose β so that p and qβ are
+not very far apart. Our solution is to Taylor expand
+the log of the factorial function around the current
+number of clusters: log |Cnew |!
+log Γ(|Cold | + 1) +
+Ψ(|Cold | + 1)(|Cnew | − |Cold |), where Ψ(x) = Γ (x) is
+Γ(x)
+the digamma function, the derivative of log Γ(x). Letting β = exp Ψ(|Cold |), we have |Cnew |! aβ |Cnew |+1 ,
+where a is a constant which can be absorbed into A .
+The approximation is good when we expect the distribution of |C| to be concentrated around the current
+number of clusters.
+While this approach yields a signiﬁcant reduction in
+complexity, it is important to note that the adaptation
+of β yields a sampler that does not necessarily have
+the correct stationary distribution. In practice, we
+adapt β only during the burn-in phase of the Markov
+chain. Thereafter, we ﬁx β to the average value of |C|
+observed during burn-in.
+3.3. Optimization 2: Using a Beam
+The Metropolis-Hastings optimization yields a sampling algorithm that has a complexity of O(n2 ) time
+per sample. We now develop a second optimization
+that improves the running time to roughly O(n). This
+optimization is motivated by two empirical observations. First, the sum for computing g (r) (Equation 6)
+is dominated by only a few terms (most of the time
+just a single term). Second, the vector of terms in
+the summation for computing g (r) (which we call the
+summation proﬁle) and that of g (r + 1) are usually
+very similar. Figure 2 shows the summation proﬁle for
+several values of r.
+The ﬁrst observation suggests representing the summation proﬁle of g (r) by a small subset of cluster sizes
+Mr ⊂ {1, . . . , r} suﬃcient to capture at least 1 − of
+the full sum. Then we are guaranteed to lose at most
+a 1 − (1 − )n fraction of g (n).
+
+A Permutation-Augmented Sampler for DP Mixture Models
+-47000
+
+-47200
+
+log contribution to g[r]
+
+cluster when we sample the clustering. We present two
+ways of ﬂeshing out this intuition: the ﬁrst is based on
+constructing a permutation sequentially; the second is
+based on random projections.
+
+r=400
+r=401
+r=402
+r=403
+r=404
+r=405
+r=406
+r=407
+r=408
+r=409
+r=410
+r=411
+r=412
+r=413
+r=414
+
+-47400
+
+-47600
+
+4.1. Markov Gibbs Scans
+
+-47800
+
+-48000
+
+-48200
+5
+
+10
+
+15
+
+20
+
+25
+
+30
+
+35
+
+m
+
+probability of choosing m
+
+1
+
+With that in mind, we generate the permutation as
+follows: we ﬁrst choose one of the |C|! cluster permutations uniformly at random.4 Then for each cluster
+c ∈ C, we choose the ﬁrst point uniformly from c. We
+choose the next point with probability proportional to
+the predictive likelihood given the previous point, and
+repeat until all points in the cluster have been chosen.
+
+r=400
+r=401
+r=402
+r=403
+r=404
+r=405
+r=406
+r=407
+r=408
+r=409
+r=410
+r=411
+r=412
+r=413
+r=414
+
+0.8
+
+0.6
+
+If we want to leverage dynamic programming when
+sampling the clustering, we must take care to generate
+a permutation π so that the factors of p(π | C) respect
+the A(|C|) c∈C B(c) template.
+
+0.4
+
+0.2
+
+0
+5
+
+10
+
+15
+
+20
+
+25
+
+30
+
+35
+
+m
+
+Figure 2. An example of the summation proﬁle (the contribution g (r − m)B ({πr−m+1 , . . . , πr }) as m varies) for
+several values of r. Top: log of the contribution. Bottom:
+the contribution normalized by g (r). For each r, we wish
+to ﬁnd a few values of m that have large contributions.
+Since small diﬀerences in log space (a) are magniﬁed in
+(b), ﬁnding the values of m with the largest contributions
+is crucial.
+
+The second observation suggests computing the sets
+M1 , M2 , . . . incrementally as follows: given Mr , let
+Mr+1 be the smallest subset of Nr = {m + 1 : m ∈
+Mr } ∪ {1} that captures at least 1 − of the sum over
+Nr . This procedure is heuristic because we choose Mr
+based on Nr rather than {1, . . . , r}.
+Empirically, we have found this approximation to be
+quite eﬀective. On a data set with n = 500 points and
+= 10−32 , the approximate g (n) was 0.97 of the true
+g (n). This was obtained by keeping |Mr | 5 cluster
+sizes instead of the 250 that would have been required
+for the full O(n2 ) computation.
+
+4. Data-dependent Permutations
+Thus far we have focused on the problem of sampling
+the clustering; we now turn to the problem of sampling
+the permutation. We propose doing this in a datadependent way. Intuitively, “similar” points should be
+placed next to each other in the permutation, so that
+they will have a better chance of ending up in the same
+
+This particular choice is motivated by the fact that
+it encourages similar points to appear next to each
+other. It is simple to evaluate the likelihood p(π | C),
+which is needed exactly (not just up to a normalization
+constant) for sampling C given π. The running time
+unfortunately increases from O(|c|) to O(|c|2 ), which
+means that this technique will be eﬀective only when
+clusters are moderately-sized.
+4.2. Random Projections
+Random projections are a powerful technique that allow one to project n high-dimensional data points into
+O(log n) dimensions and preserve the pairwise distances (Johnson & Lindenstrauss, 1984). We use this
+to technique to project the data points down to one
+dimension, which induces a random permutation on
+the points. A vectorial representation of our data is
+needed, which is natural in most common cases (e.g.,
+Gaussian or multinomial data). Speciﬁcally, we generate the permutation as follows:
+
+• Choose a random unit vector u.
+• For each cluster c ∈ C, let vc be the vectorial
+representation of the average suﬃcient statistics
+of xc (e.g., the mean for Gaussian data).
+• Sort the clusters by increasing u · vc .
+• For each cluster c ∈ C:
+– Let vi be the vectorial representation of xi .
+– Sort the data points i ∈ c by increasing u · vi .
+4
+
+A non-uniform distribution that tends to place similar
+clusters next to each other would be preferable, but then
+p(π | C) would not be amenable to dynamic programming.
+
+A Permutation-Augmented Sampler for DP Mixture Models
+
+Unlike in the case of Markov Gibbs scans, it is a nontrivial task to compute p(π | C), which is the proportion of the unit ball {u : ||u|| ≤ 1} that would produce
+the permutation π (characterized by linear constraints
+c
+c
+such as u · vπ1 < · · · < u · vπ|c| ). This would require
+computing the volume of a convex body.5
+Nonetheless, as we will show in Section 5, random projections can be very eﬀective during the initial burn-in
+phase of the Markov chain for reaching good clusterings. For this phase, we propose the following stochastic hill-climbing algorithm: alternate between sampling from p(π | C, x) using random projections and
+sampling a clustering C with probability proportional
+to p(C, x)1[π ∈ Π(C)]. An advantage of this approach
+is that p(C, x)1[π ∈ Π(C)] does not depend on |C|, so
+we can forgo the ﬁrst optimization (Section 3.2). After burn-in, we can switch to the data-independent or
+Markov Gibbs scan permutation sampling schemes to
+explore the state space in an unbiased manner.
+
+5. Experiments
+All ergodic samplers converge to the correct posterior
+over clusterings; the important question is how fast
+this happens. A typical sample path of a Markov chain
+can be broken into two phases, a burn-in phase and a
+mixing phase. A prerequisite to convergence is visiting
+high probability regions of the state space. During the
+burn-in phase, the sampler essentially does stochastic
+hill-climbing starting from a low probability clustering.
+In practice, when immediate progress has ceased (regardless of whether the chain has actually converged)
+the mixing phase begins, in which samples are used to
+compute averages of desired quantities. Our experiments show that using permutation augmentation can
+help quite a bit during the burn-in phase (Section 5.1)
+and is competitive in the mixing phase (Section 5.2).
+We compared our permutation-augmented sampler
+with Gibbs (Escobar & West, 1995) and split-merge
+(Dahl, 2003a). Since neither of the samplers work well
+alone, we formed the following hybrids for comparison: Gibbs, Gibbs+SplitMerge, Gibbs+Perm,
+and Gibbs+SplitMerge+Perm. For the samplers
+that use more than one type of move, we interleaved
+the moves, dividing the CPU time roughly evenly
+among them.
+After each iteration of sampling, we also sample the
+concentration parameter α0 (West, 1995). We have
+devised a way of integrating out α0 as part of the dynamic program for sampling clusterings; we omit the
+5
+A general O(n5 ) algorithm exists for this task (Kannan
+et al., 1997) but is impractical for our purposes.
+
+details for reasons of space.
+5.1. Burn-in Phase
+We use the stochastic hill-climbing permutationaugmented algorithm with random projections (Section 4.2) during the burn-in phase. Though biased,
+sampling the permutation in this data-dependent way
+is crucial for performance.
+Synthetic Data We generated 10,000 points from
+a ﬁnite mixture of Gaussians with a N (0, 2) prior on
+the mean (but used N (0, 100) during inference) and
+identity covariance matrix. To understand the regimes
+in which the various algorithms perform well, we varied
+three settings: sampler initialization, number of true
+clusters, and number of dimensions. Figure 3(a)–(h)
+demonstrates the rates of convergence of the diﬀerent
+samplers across these conditions.
+An often neglected issue is the question of initialization, which can impact performance signiﬁcantly. For
+example, when initialized with a single cluster containing all the data points, Gibbs cannot easily form
+new clusters. On the other hand, initializing with too
+many clusters makes both Gibbs and split-merge ineﬃcient: Gibbs takes O(n2 ) time per iteration and since
+split-merge proposes merging clusters at random, it
+will reject most of the time. As Figure 3(a)–(c) shows,
+Gibbs+Perm and Gibbs+SplitMerge+Perm, the
+two samplers with permutation moves, are largely
+insensitive to the type of initialization. We see
+that Gibbs+SplitMerge catches up slowly, but its
+performance degrades with more initial clusters (c).
+Gibbs remains stuck in a local optima, although it
+does much better with more initial clusters.
+For all of the remaining experiments, we initialized
+using sequential prediction: a clustering is sampled
+according to the CRP but weighting the probability of
+choosing a cluster by the predictive likelihood of the
+new point given the existing points in the cluster.
+Figure 3(d)–(f) shows the performance on 40dimensional data for diﬀerent numbers of true clusters.
+This experiment conﬁrms our intuition that having
+more true clusters worsens the convergence of samplers with split-merge moves but does not aﬀect the
+samplers with permutation moves.
+Figure 3(g)–(h) shows the performance for 10 and 80
+dimensional data sets with 40 true clusters. The gains
+resulting from permutation moves are sharpened in
+higher dimensions (h). We speculate that this is because random projections are more eﬀective at separating out the true clusters in this regime.
+
+A Permutation-Augmented Sampler for DP Mixture Models
+
+Real-world Data To test the samplers on realworld data, we took 10,000 handwritten digits from
+the MNIST data set (collected by Yann LeCun), normalized the data, and ran PCA to reduce the dimensionality from 28 × 28 to 50. The covariance of the DP
+mixture model is ﬁxed to 16I. Figure 3(i) shows that
+using permutation moves improves performance.
+For multinomial data, we clustered 2246 AP news
+documents (collected by David Blei). Each document is represented as a 10,473-dimensional vector of word counts.
+Figure 3(j) shows that
+Gibbs+Perm underperforms Gibbs+SplitMerge,
+but is competitive when combined with split-merge
+(Gibbs+SplitMerge+Perm). We suspect that random projections are less eﬀective at separating AP
+data, which consists of raw word counts and overlapping topics.
+5.2. Mixing Phase
+We now evaluate the ability of the four samplers to
+mix after burn-in. We took 1000 examples from the
+MNIST data set and reduced the dimensionality to
+two.6 Instead of using random projections, we sample
+the permutation uniformly in order to sample from the
+exact posterior.
+Figure 3(k)–(l) shows the autocorrelation7 of two
+statistics: the number of clusters and largest cluster
+size. Smaller values of autocorrelation indicate faster
+mixing. We see that for the number of clusters, there
+is little diﬀerence between the various algorithms. In
+the case of the largest cluster size, the samplers that
+include split-merge moves mix faster.
+
+6. Discussion
+We have presented a new sampling algorithm for DP
+mixtures by introducing an auxiliary variable representing the permutation of the data points. This enables us to use dynamic programming to sum over an
+exponential number of clusterings. We also proposed
+the use of random projections to yield an eﬃcient approach to sampling the permutation.
+Our method can be extended to hierarchical Dirichlet
+processes by deﬁning a global permutation on the data
+6
+
+We reduced to two dimensions in this experiment so
+that we could ensure that a chain converges to the stationary distribution. This allows us to accurately estimate the
+mean and variance of the two statistics for computing the
+autocorrelation.
+7
+Autocorrelation at lag τ of a sequence x1 , . . . , xn is
+P
+(x −µ)(xi+τ −µ)
+1
+, where µ and σ 2 are
+deﬁned as n−τ −1 n−τ i
+i=1
+σ2
+the mean and variance of x1 , . . . , xn .
+
+points in all groups. In more complex models such as
+these, local optima are likely to be a bigger issue.
+The permutation augmentation deﬁnes a tractable
+subset of clusterings which can be summed over efﬁciently. It would also be worthwhile to explore other
+types of augmentation schemes that yield tractable
+subproblems. For example, trees might deﬁne richer
+subsets of clusterings. As DP mixtures become more
+prevalent, the need for fast inference procedures becomes more pressing. This work is the ﬁrst step in a
+new direction, which we hope will lead to many more
+algorithms.
+
+References
+Antoniak, C. E. (1974). Mixtures of Dirichlet processes
+with applications to Bayesian nonparametric problems.
+Annals of Statistics, 2, 1152–1174.
+Blei, D., & Jordan, M. I. (2005). Variational inference for
+Dirichlet process mixtures. Bayesian Analysis, 1, 121–
+144.
+Dahl, D. B. (2003a). An improved merge-split sampler
+for conjugate Dirichlet process mixture models (Technical Report). University of Wisconsin.
+Dahl, D. B. (2003b). Modal clustering in a univariate class
+of product partition models (Technical Report). University of Wisconsin.
+Daume, H. (2007). Fast search for Dirichlet process mixture models. Artiﬁcial Intelligence and Statistics.
+Escobar, M. D., & West, M. (1995). Bayesian density estimation and inference using mixtures. Journal of the
+American Statistical Association, 90, 577–588.
+Ferguson, T. S. (1973). A Bayesian analysis of some nonparametric problems. Annals of Statistics, 1, 209–230.
+Friedman, N., & Koller, D. (2000). Being Bayesian about
+Bayesian network structure: A Bayesian approach to
+structure discovery in Bayesian networks. Uncertainty
+in Artiﬁcial Intelligence (pp. 201–210).
+Heller, K. A., & Ghahramani, Z. (2005). Bayesian hierarchical clustering. International Conference on Machine
+Learning.
+Ishwaran, H., & James, L. F. (2001). Gibbs sampling methods for stick-breaking priors. Journal of the American
+Statistical Association, 96, 161–173.
+Jain, S., & Neal, R. (2000). A split-merge Markov chain
+Monte Carlo procedure for the Dirichlet process mixture
+model (Technical Report). University of Toronto.
+Johnson, W., & Lindenstrauss, J. (1984). Extensions of
+Lipschitz maps into a Hilbert space. Contemporary
+Mathematics, 26, 189–206.
+Kannan, R., Lovasz, L., & Simonovits, M. (1997). Random walks and an O∗ (n5 ) volume algorithm for convex
+bodies. 11, 1–50.
+Kurihara, K., Welling, M., & Teh, Y. W. (2007). Collapsed
+variational Dirichlet process mixture models. International Joint Conference on Artiﬁcial Intelligence.
+
+A Permutation-Augmented Sampler for DP Mixture Models
+(a) Initialize with 1 cluster
+
+(b) Initialize with 40 clusters
+
+-610000
+
+(c) Initialize with 300 clusters
+-611000
+
+log probability
+
+log probability
+
+-650000
+
+-700000
+
+-750000
+
+-800000
+
+-850000
+
+log probability
+
+-615000
+
+-620000
+
+-625000
+
+-630000
+
+-635000
+
+-640000
+
+-645000
+-900000
+
+-612000
+
+-613000
+
+-614000
+
+-615000
+
+-650000
+0
+
+50
+
+100
+
+150
+
+200
+
+250
+
+50
+
+100
+
+150
+
+200
+
+250
+
+100
+
+150
+
+200
+
+250
+
+seconds
+
+seconds
+
+seconds
+
+(d) 20 true clusters, 40 dimensions
+
+(e) 80 true clusters, 40 dimensions
+
+(f) 160 true clusters, 40 dimensions
+
+-600000
+
+-650000
+
+-700000
+
+-750000
+
+log probability
+
+log probability
+
+log probability
+
+-650000
+-650000
+
+-700000
+
+-750000
+
+-800000
+
+-800000
+
+-700000
+
+-750000
+
+-800000
+
+-850000
+
+-850000
+-900000
+20
+
+40
+
+60
+
+80
+
+100
+
+120
+
+140
+
+0
+
+100
+
+200
+
+300
+
+400
+
+500
+
+600
+
+0
+
+seconds
+
+(g) 10 dimensions, 40 true clusters
+
+200
+
+400
+
+seconds
+
+(h) 80 dimensions, 40 true clusters
+
+600
+
+800
+
+1000
+
+1200
+
+seconds
+
+(i) MNIST
+
+-600000
+
+-700000
+
+-750000
+
+-1.252e+06
+
+log probability
+
+log probability
+
+log probability
+
+-650000
+
+-650000
+
+-700000
+
+-750000
+
+-800000
+
+-850000
+
+50
+
+100
+
+150
+
+200
+
+-1.256e+06
+
+-1.258e+06
+
+-1.26e+06
+
+-800000
+0
+
+-1.254e+06
+
+250
+
+50
+
+100
+
+seconds
+
+150
+
+200
+
+250
+
+0
+
+500
+
+1000
+
+seconds
+
+(j) AP
+
+1500
+
+2000
+
+2500
+
+3000
+
+seconds
+
+(k) MNIST: number of clusters
+
+(l) MNIST: largest cluster size
+
+1
+
+1
+
+0.8
+
+0.8
+
+-3.59e+06
+-3.6e+06
+-3.61e+06
+-3.62e+06
+-3.63e+06
+
+autocorrelation
+
+-3.58e+06
+
+autocorrelation
+
+log probability
+
+-3.57e+06
+
+0.6
+
+0.4
+
+0.2
+
+0.6
+
+0.4
+
+0.2
+
+-3.64e+06
+0
+
+0
+
+-3.65e+06
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+2500
+
+3000
+
+0
+
+10
+
+20
+
+30
+
+40
+
+seconds
+
+50
+
+60
+
+70
+
+80
+
+90
+
+0
+
+10
+
+lag
+Gibbs
+
+Gibbs+SplitMerge
+
+Gibbs+Perm
+
+20
+
+30
+
+40
+
+50
+
+60
+
+70
+
+80
+
+90
+
+lag
+Gibbs+SplitMerge+Perm
+
+Figure 3. Plots (a)–(j) show the log probability during the burn-in phase for the four samplers on various data sets and
+initializations. Plots (k)–(l) show autocorrelations during the mixing phase. The error bars show the range of values
+obtained across ﬁve runs with diﬀerent random seeds for both initialization and sampling.
+
+Liu, J., & Wu, Y. (1999). Parameter expansion for data
+augmentation. Journal of the American Statistical Association, 94, 1264–1274.
+Pitman, J. (2002). Combinatorial stochastic processes
+(Technical Report 621). Department of Statistics, UC
+Berkeley.
+Pitman, J., & Yor, M. (1997). The two-parameter PoissonDirichlet distribution derived from a stable subordinator. Annals of Probability, 25, 855–900.
+Sudderth, E. B., Torralba, A. B., Freeman, W. T., & Willsky, A. S. (2006). Describing visual scenes using transformed Dirichlet processes. Advances in Neural Information Processing Systems (pp. 1297–1304).
+Swendsen, R. H., & Wang, J. S. (1987). Nonuniversal critical dynamics in MC simulations. Physics Review Letters,
+58, 86–88.
+Tanner, M. A., & Wong, W. H. (1987). The calculation of
+
+posterior distributions by data augmentation. Journal
+of the American Statistical Association, 82, 528–540.
+Teh, Y. W., Jordan, M., Beal, M., & Blei, D. (2006). Hierarchical Dirichlet processes. Journal of the American
+Statistical Association, 101, 1566–1581.
+West, M. (1995). Hyperparameter estimation in Dirichlet
+process mixture models (Technical Report). Duke University.
+Xing, E. P., Sharan, R., & Jordan, M. I. (2004). Bayesian
+haplotype inference via the Dirichlet process. International Conference on Machine Learning (p. 111).
+
+

@@ -1,0 +1,715 @@
+Unsupervised Transcription of Piano Music
+
+Taylor Berg-Kirkpatrick Jacob Andreas Dan Klein
+Computer Science Division
+University of California, Berkeley
+{tberg,jda,klein}@cs.berkeley.edu
+
+Abstract
+We present a new probabilistic model for transcribing piano music from audio to
+a symbolic form. Our model reﬂects the process by which discrete musical events
+give rise to acoustic signals that are then superimposed to produce the observed
+data. As a result, the inference procedure for our model naturally resolves the
+source separation problem introduced by the the piano’s polyphony. In order to
+adapt to the properties of a new instrument or acoustic environment being transcribed, we learn recording-speciﬁc spectral proﬁles and temporal envelopes in an
+unsupervised fashion. Our system outperforms the best published approaches on
+a standard piano transcription task, achieving a 10.6% relative gain in note onset
+F1 on real piano audio.
+
+1
+
+Introduction
+
+Automatic music transcription is the task of transcribing a musical audio signal into a symbolic representation (for example MIDI or sheet music). We focus on the task of transcribing piano music,
+which is potentially useful for a variety of applications ranging from information retrieval to musicology. This task is extremely difﬁcult for multiple reasons. First, even individual piano notes are
+quite rich. A single note is not simply a ﬁxed-duration sine wave at an appropriate frequency, but
+rather a full spectrum of harmonics that rises and falls in intensity. These proﬁles vary from piano
+to piano, and therefore must be learned in a recording-speciﬁc way. Second, piano music is generally polyphonic, i.e. multiple notes are played simultaneously. As a result, the harmonics of the
+individual notes can and do collide. In fact, combinations of notes that exhibit ambiguous harmonic
+collisions are particularly common in music, because consonances sound pleasing to listeners. This
+polyphony creates a source-separation problem at the heart of the transcription task.
+In our approach, we learn the timbral properties of the piano being transcribed (i.e. the spectral and
+temporal shapes of each note) in an unsupervised fashion, directly from the input acoustic signal. We
+present a new probabilistic model that describes the process by which discrete musical events give
+rise to (separate) acoustic signals for each keyboard note, and the process by which these signals are
+superimposed to produce the observed data. Inference over the latent variables in the model yields
+transcriptions that satisfy an informative prior distribution on the discrete musical structure and at
+the same time resolve the source-separation problem.
+For the problem of unsupervised piano transcription where the test instrument is not seen during
+training, the classic starting point is a non-negative factorization of the acoustic signal’s spectrogram. Most previous work improves on this baseline in one of two ways: either by better modeling
+the discrete musical structure of the piece being transcribed [1, 2] or by better adapting to the timbral properties of the source instrument [3, 4]. Combining these two kinds of approaches has proven
+challenging. The standard approach to modeling discrete musical structures—using hidden Markov
+or semi-Markov models—relies on the availability of fast dynamic programs for inference. Here,
+coupling these discrete models with timbral adaptation and source separation breaks the conditional
+independence assumptions that the dynamic programs rely on. In order to avoid this inference
+problem, past approaches typically defer detailed modeling of discrete structure or timbre to a postprocessing step [5, 6, 7].
+1
+
+Event Params
+PLAY
+
+µ(n)
+
+M (nr)
+
+velocity
+
+Note Events
+
+REST
+
+velocity
+
+duration
+
+time
+
+Envelope Params
+
+Note Activation
+
+↵
+
+(n)
+
+A
+
+(nr)
+
+time
+
+time
+
+Component Spectrogram
+
+(n)
+
+S (nr)
+
+freq
+
+freq
+
+Spectral Params
+
+time
+
+N
+
+freq
+
+Spectrogram
+
+X (r)
+
+R
+
+time
+
+Figure 1: We transcribe a dataset consisting of R songs produced by a single piano with N notes. For each
+keyboard note, n, and each song, r, we generate a sequence of musical events, M (nr) , parameterized by µ(n) .
+Then, conditioned on M (nr) , we generate an activation time series, A(nr) , parameterized by α(n) . Next,
+conditioned on A(nr) , we generate a component spectrogram for note n in song r, S (nr) , parameterized by
+σ (n) . The observed total spectrogram for song r is produced by superimposing component spectrograms:
+X (r) = n S (nr) .
+
+We present the ﬁrst approach that tackles these discrete and timbral modeling problems jointly. We
+have two primary contributions: ﬁrst, a new generative model that reﬂects the causal process underlying piano sound generation in an articulated way, starting with discrete musical structure; second,
+a tractable approximation to the inference problem over transcriptions and timbral parameters. Our
+approach achieves state-of-the-art results on the task of polyphonic piano music transcription. On
+a standard dataset consisting of real piano audio data, annotated with ground-truth onsets, our approach outperforms the best published models for this task on multiple metrics, achieving a 10.6%
+relative gain in our primary measure of note onset F1 .
+
+2
+
+Model
+
+Our model is laid out in Figure 1. It has parallel random variables for each note on the piano keyboard. For now, we illustrate these variables for a single concrete note—say C in the 4th octave—
+and in Section 2.4 describe how the parallel components combine to produce the observed audio
+signal. Consider a single song, divided into T time steps. The transcription will be I musical events
+long. The component model for C consists of three primary random variables:
+M , a sequence of I symbolic musical events, analogous to the locations
+and values of symbols along the C staff line in sheet music,
+A, a time series of T activations, analogous to the loudness of sound emitted by the C piano string over time as it peaks and attenuates during each
+event in M ,
+S, a spectrogram of T frames, specifying the spectrum of frequencies over
+time in the acoustic signal produced by the C string.
+2
+
+M (nr)
+
+Envelope Params
+
+↵(n)
+
+Event State
+
+E2
+
+E1
+
+E3
+
+Truncate to duration Di
+Scale to velocity Vi
+Add noise
+
+Duration
+
+Velocity
+
+V1
+
+D3
+
+D2
+
+D1
+
+V2
+
+V3
+
+A(nr)
+Figure 2: Joint distribution on musical events, M (nr) , and activations, A(nr) , for note n in song r, conditioned
+on event parameters, µ(n) , and envelope parameters, α(n) . The dependence of Ei , Di , and Vi on n and r is
+suppressed for simplicity.
+
+The parameters that generate each of these random variables are depicted in Figure 1. First, musical
+events, M , are generated from a distribution parameterized by µ(C ) , which speciﬁes the probability
+that the C key is played, how long it is likely to be held for (duration), and how hard it is likely to
+be pressed (velocity). Next, the activation of the C string over time, A, is generated conditioned on
+M from a distribution parameterized by a vector, α(C ) (see Figure 1), which speciﬁes the shape of
+the rise and fall of the string’s activation each time the note is played. Finally, the spectrogram, S,
+is generated conditioned on A from a distribution parameterized by a vector, σ (C ) (see Figure 1),
+which speciﬁes the frequency distribution of sounds produced by the C string. As depicted in
+Figure 3, S is produced from the outer product of σ (C ) and A. The joint distribution for the note1 is:
+P (S, A, M |σ (C ) , α(C ) , µ(C ) ) = P (M |µ(C ) )
+· P (A|M, α
+
+(C )
+
+[Event Model, Section 2.1]
+)
+
+· P (S|A, σ (C ) )
+
+[Activation Model, Section 2.2]
+[Spectrogram Model, Section 2.3]
+
+In the next three sections we give detailed descriptions for each of the component distributions.
+2.1
+
+Event Model
+
+Our symbolic representation of musical structure (see Figure 2) is similar to the MIDI format used by
+musical synthesizers. M consists of a sequence of I random variables representing musical events
+for the C piano key: M = (M1 , M2 , . . . , MI ). Each event Mi , is a tuple consisting of a state,
+Ei , which is either PLAY or REST, a duration Di , which is a length in time steps, and a velocity Vi ,
+which speciﬁes how hard the key was pressed (assuming Ei is PLAY).
+The graphical model for the process that generates M is depicted in Figure 2. The sequence of
+states, (E1 , E2 , . . . , EI ), is generated from a Markov model. The transition probabilities, µTRANS ,
+control how frequently the note is played (some notes are more frequent than others). An event’s
+duration, Di , is generated conditioned on Ei from a distribution parameterized by µDUR . The durations of PLAY events have a multinomial parameterization, while the durations of REST events are
+distributed geometrically. An event’s velocity, Vi , is a real number on the unit interval and is generated conditioned on Ei from a distribution parameterized by µVEL . If Ei = REST, deterministically
+Vi = 0. The complete event parameters for keyboard note C are µ(C ) = (µTRANS , µDUR , µVEL ).
+1
+
+For notational convenience, we suppress the C superscripts on M , A, and S until Section 2.4.
+
+3
+
+2.2
+
+Activation Model
+
+In an actual piano, when a key is pressed, a hammer strikes a string and a sound with sharply
+rising volume is emitted. The string continues to emit sound as long as the key remains depressed, but the volume decays since no new energy is being transferred. When the key is
+released, a damper falls back onto the string, truncating the decay. Examples of this trajectory are depicted in Figure 1 in the graph of activation values. The graph depicts the note being played softly and held, and then being played more loudly, but held for a shorter time.
+In our model, PLAY events represent hammer strikes on a piano string with raised damper,
+while REST events represent the lowered damper. In our parameterization, the shape of the
+rise and decay is shared by all PLAY events for a given note, regardless of their
+↵
+duration and velocity. We call this shape an envelope and describe it using a positive vector of parameters. For our running example of C , this parameter vector is
+α(C ) (depicted to the right).
+The time series of activations for the C string, A, is a positive vector of length T , where T denotes
+the total length of the song in time steps. Let [A]t be the activation at time step t. As mentioned in
+Section 2, A may be thought of as roughly representing the loudness of sound emitted by the piano
+string as a function of time. The process that generates A is depicted in Figure 2. We generate A
+conditioned on the musical events, M . Each musical event, Mi = (Ei , Di , Vi ), produces a segment
+of activations, Ai , of length Di . For PLAY events, Ai will exhibit an increase in activation. For
+REST events, the activation will remain low. The segments are appended together to make A. The
+activation values in each segment are generated in a way loosely inspired by piano mechanics. Given
+α(C ) , we generate the values in segment Ai as follows: α(C ) is ﬁrst truncated to duration Di , then
+is scaled by the velocity of the strike, Vi , and, ﬁnally, is used to parameterize an activation noise
+distribution which generates the segment Ai . Speciﬁcally, we add independent Gaussian noise to
+each dimension after α(C ) is truncated and scaled. In principle, this choice of noise distribution
+gives a formally deﬁcient model, since activations are positive, but in practice performs well and has
+the beneﬁt of making inference mathematically simple (see Section 3.1).
+2.3
+
+Component Spectrogram Model
+
+Piano sounds have a harmonic structure; when played, each piano string primarily emits
+energy at a fundamental frequency determined by the string’s length, but also at all
+integer multiples of that frequency (called partials) with diminishing strength (see the depiction to the right). For example, the audio signal produced by the C string will vary in
+loudness, but its frequency distribution will remain mostly ﬁxed. We call this frequency
+distribution a spectral proﬁle. In our parameterization, the spectral proﬁle of C is speciﬁed by a positive spectral parameter vector, σ (C ) (depicted to the right). σ (C ) is a vector
+of length F , where [σ (C ) ]f represents the weight of frequency bin f .
+In our model, the audio signal produced by the C string over the course of the song is represented
+as a spectrogram, S, which is a positive matrix with F rows, one for each frequency bin, f , and T
+columns, one for each time step, t (see Figures 1 and 3 for examples). We denote the magnitude
+of frequency f at time step t as [S]f t . In order to generate the spectrogram (see Figure 3), we
+ﬁrst produce a matrix of intermediate values by taking the outer product of the spectral proﬁle,
+σ (C ) , and the activations, A. These intermediate values are used to parameterize a spectrogram
+noise distribution that generates S. Speciﬁcally, for each frequency bin f and each time step t, the
+corresponding value of the spectrogram, [S]f t , is generated from a noise distribution parameterized
+by [σ (C ) ]f · [A]t . In practice, the choice of noise distribution is very important. After examining
+residuals resulting from ﬁtting mean parameters to actual musical spectrograms, we experimented
+with various noising assumptions, including multiplicative gamma noise, additive Gaussian noise,
+log-normal noise, and Poisson noise. Poisson noise performed best. This is consistent with previous
+ﬁndings in the literature, where non-negative matrix factorization using KL divergence (which has
+a generative interpretation as maximum likelihood inference in a Poisson model [8]) is commonly
+chosen [7, 2]. Under the Poisson noise assumption, the spectrogram is interpreted as a matrix of
+(large) integer counts.
+4
+
+A(1r)
+
+(N )
+
+freq
+
+...
+
+freq
+
+(1)
+
+A(N r)
+
+time
+
+time
+
+S (1r)
+
+S (N r)
+
+freq
+
+X (r)
+
+2.4
+
+Figure 3:
+Conditional distribution for song r on the observed
+total spectrogram, X (r) , and
+the component spectrograms for
+each note, (S (1r) , . . . , S (N r) ),
+given the activations for each
+note, (A(1r) , . . . , A(N r) ), and
+spectral parameters for each note,
+(σ (1) , . . . , σ (N ) ).
+X (r) is the
+superposition of the component
+spectrograms: X (r) = n S (nr) .
+
+time
+
+Full Model
+
+So far we have only looked at the component of the model corresponding to a single note’s contribution to a single song. Our full model describes the generation of a collection of many songs, from
+a complete instrument with many notes. This full model is diagrammed in Figures 1 and 3. Let a
+piano keyboard consist of N notes (on a standard piano, N is 88), where n indexes the particular
+note. Each note, n, has its own set of musical event parameters, µ(n) , envelope parameters, α(n) ,
+and spectral parameters, σ (n) . Our corpus consists of R songs (“recordings”), where r indexes a
+particular song. Each pair of note n and song r has it’s own musical events variable, M (nr) , activations variable, A(nr) , and component spectrogram S (nr) . The full spectrogram for song r, which is
+the observed input, is denoted as X (r) . Our model generates X (r) by superimposing the component
+spectrograms: X (r) = n S (nr) . Going forward, we will need notation to group together variables
+across all N notes: let µ = (µ(1) , . . . , µ(N ) ), α = (α(1) , . . . , α(N ) ), and σ = (σ (1) , . . . , σ (N ) ).
+Also let M (r) = (M (1r) , . . . , M (N r) ), A(r) = (A(1r) , . . . , A(N r) ), and S (r) = (S (1r) , . . . , S (N r) ).
+
+3
+
+Learning and Inference
+
+Our goal is to estimate the unobserved musical events for each song, M (r) , as well as the unknown
+envelope and spectral parameters of the piano that generated the data, α and σ. Our inference will
+estimate both, though our output is only the musical events, which specify the ﬁnal transcription.
+Because MIDI sample banks (piano synthesizers) are readily available, we are able to provide the
+system with samples from generic pianos (but not from the piano being transcribed). We also give
+the model information about the distribution of notes in real musical scores by providing it with an
+external corpus of symbolic music data. Speciﬁcally, the following information is available to the
+model during inference: 1) the total spectrogram for each song, X (r) , which is the input, 2) the event
+parameters, µ, which we estimate by collecting statistics on note occurrences in the external corpus
+of symbolic music, and 3) truncated normal priors on the envelopes and spectral proﬁles, α and σ,
+which we extract from the MIDI samples.
+¯
+¯
+¯
+Let M = (M (1) , . . . , M (R) ), A = (A(1) , . . . , A(R) ), and S = (S (1) , . . . , S (R) ), the tuples of event,
+activation, and spectrogram variables across all notes n and songs r. We would like to compute
+¯
+¯
+the posterior distribution on M , α, and σ. However, marginalizing over the activations A couples
+the discrete musical structure with the superposition process of the component spectrograms in an
+¯ ¯
+intractable way. We instead approximate the joint MAP estimates of M , A, α, and σ via iterated
+¯
+conditional modes [9], only marginalizing over the component spectrograms, S. Speciﬁcally, we
+perform the following optimization via block-coordinate ascent:
+P (X (r) , S (r) , A(r) , M (r) |µ, α, σ) · P (α, σ)
+
+max
+
+¯ ¯
+M ,A,α,σ
+
+r
+
+S (r)
+
+¯
+The updates for each group of variables are described in the following sections: M in Section 3.1,
+¯
+α in Section 3.2, A in Section 3.3, and σ in Section 3.4.
+5
+
+3.1
+
+Updating Events
+
+¯
+We update M to maximize the objective while the other variables are held ﬁxed. The joint dis¯
+¯
+tribution on M and A is a hidden semi-Markov model [10]. Given the optimal velocity for each
+segment of activations, the computation of the emission potentials for the semi-Markov dynamic
+¯
+program is straightforward and the update over M can be performed exactly and efﬁciently. We let
+the distribution of velocities for PLAY events be uniform. This choice, together with the choice of
+Gaussian activation noise, yields a simple closed-form solution for the optimal setting of the velocity
+(nr)
+(nr)
+variable Vi
+. Let [α(n) ]j denote the jth value of the envelope vector α(n) . Let [Ai ]j be the jth
+(nr)
+entry of the segment of A(nr) generated by event Mi . The velocity that maximizes the activation
+segment’s probability is given by:
+(nr)
+
+(nr)
+Vi
+
+=
+
+Di
+j=1
+
+(nr)
+
+[α(n) ]j · [Ai
+(nr)
+Di
+
+j=1
+
+3.2
+
+]j
+
+[α(n) ]2
+j
+
+Updating Envelope Parameters
+
+Given settings of the other variables, we update the envelope parameters, α, to optimize the objec(nr)
+tive. The truncated normal prior on α admits a closed-form update. Let I(j, n, r) = {i : Di
+≤ j},
+(n)
+the set of event indices for note n in song r with durations no longer than j time steps. Let [α0 ]j
+(n)
+be the location parameter for the prior on [α ]j , and let β be the scale parameter (which is shared
+across all n and j). The update for [α(n) ]j is given by:
+(nr)
+
+[α(n) ]j =
+
+(n,r)
+
+i∈I(j,n,r)
+(n,r)
+
+3.3
+
+Vi
+
+(nr)
+
+[Ai
+
+]j +
+
+(nr) 2
+]j
+i∈I(j,n,r) [Ai
+
++
+
+(n)
+1
+2β 2 [α0 ]j
+1
+2β 2
+
+Updating Activations
+
+¯
+¯
+In order to update the activations, A, we optimize the objective with respect to A, with the other
+variables held ﬁxed. The choice of Poisson noise for generating each of the component spectrograms, S (nr) , means that the conditional distribution of the total spectrogram for each song,
+(nr)
+X (r) =
+, with S (r) marginalized out, is also Poisson. Speciﬁcally, the distribution of
+nS
+(r)
+[X ]f t is Poisson with mean n [σ (n) ]f · [A(nr) ]t . Optimizing the probability of X (r) under
+this conditional distribution with respect to A(r) corresponds to computing the supervised NMF
+using KL divergence [7]. However, to perform the correct update in our model, we must also incorporate the distribution of A(r) , and so, instead of using the standard multiplicative NMF updates,
+we use exponentiated gradient ascent [11] on the log objective. Let L denote the log objective, let
+α(n, r, t) denote the velocity-scaled envelope value used to generate the activation value [A(nr) ]t ,
+˜
+and let γ 2 denote the variance parameter for the Gaussian activation noise. The gradient of the log
+objective with respect to [A(nr) ]t is:
+∂L
+=
+∂[A(nr) ]t
+3.4
+
+f
+
+[X (r) ]f t · [σ (n) ]f
+1
+− [σ (n) ]f − 2 [A(nr) ]t − α(n, r, t)
+˜
+(n ) ] · [A(n r) ]
+γ
+f
+t
+n [σ
+
+Updating Spectral Parameters
+
+The update for the spectral parameters, σ, is similar to that of the activations. Like the activations, σ
+is part of the parameterization of the Poisson distribution on each X (r) . We again use exponentiated
+(n)
+gradient ascent. Let [σ0 ]f be the location parameter of the prior on [σ (n) ]f , and let ξ be the scale
+parameter (which is shared across all n and f ). The gradient of the the log objective with respect to
+[σ (n) ]f is given by:
+∂L
+=
+∂[σ (n) ]f
+
+(r,t)
+
+[X (r) ]f t · [A(nr) ]t
+1
+(n)
+− [A(nr) ]t − 2 [σ (n) ]f − [σ0 ]f
+ξ
+[σ (n ) ]f · [A(n r) ]t
+n
+6
+
+4
+
+Experiments
+
+Because polyphonic transcription is so challenging, much of the existing literature has either worked
+with synthetic data [12] or assumed access to the test instrument during training [5, 6, 13, 7]. As
+our ultimate goal is the transcription of arbitrary recordings from real, previously-unseen pianos, we
+evaluate in an unsupervised setting, on recordings from an acoustic piano not observed in training.
+Data We evaluate on the MIDI-Aligned Piano Sounds (MAPS) corpus [14]. This corpus includes
+a collection of piano recordings from a variety of time periods and styles, performed by a human
+player on an acoustic “Disklavier” piano equipped with electromechanical sensors under the keys.
+The sensors make it possible to transcribe directly into MIDI while the instrument is in use, providing
+a ground-truth transcript to accompany the audio for the purpose of evaluation. In keeping with much
+of the existing music transcription literature, we use the ﬁrst 30 seconds of each of the 30 ENSTDkAm
+recordings as a development set, and the ﬁrst 30 seconds of each of the 30 ENSTDkCl recordings
+as a test set. We also assume access to a collection of synthesized piano sounds for parameter
+initialization, which we take from the MIDI portion of the MAPS corpus, and a large collection of
+symbolic music data from the IMSLP library [15, 16], used to estimate the event parameters in our
+model.
+Preprocessing We represent the input audio as a magnitude spectrum short-time Fourier transform
+with a 4096-frame window and a hop size of 512 frames, similar to the approach used by Weninger
+et al. [7]. We temporally downsample the resulting spectrogram by a factor of 2, taking the maximum magnitude over collapsed bins. The input audio is recorded at 44.1 kHz and the resulting
+spectrogram has 23ms frames.
+Initialization and Learning We estimate initializers and priors for the spectral parameters, σ,
+and envelope parameters, α, by ﬁtting isolated, synthesized, piano sounds. We collect these isolated
+sounds from the MIDI portion of MAPS, and average the parameter values across several synthesized
+pianos. We estimate the event parameters µ by counting note occurrences in the IMSLP data. At
+decode time, to ﬁt the spectral and envelope parameters and predict transcriptions, we run 5 iterations
+of the block-coordinate ascent procedure described in Section 3.
+Evaluation We report two standard measures of performance: an onset evaluation, in which a
+predicted note is considered correct if it falls within 50ms of a note in the true transcription, and
+a frame-level evaluation, in which each transcription is converted to a boolean matrix specifying
+which notes are active at each time step, discretized to 10ms frames. Each entry is compared to
+the corresponding entry in the true matrix. Frame-level evaluation is sensitive to offsets as well
+as onsets, but does not capture the fact that note onsets have greater musical signiﬁcance than do
+offsets. As is standard, we report precision (P), recall (R), and F1 -measure (F1 ) for each of these
+metrics.
+4.1
+
+Comparisons
+
+We compare our system to three state-of-the-art unsupervised systems: the hidden semi-Markov
+model described by Benetos and Weyde [2] and the spectrally-constrained factorization models described by Vincent et al. [3] and O’Hanlon and Plumbley [4]. To our knowledge, Benetos and Weyde
+[2] report the best published onset results for this dataset, and O’Hanlon and Plumbley [4] report the
+best frame-level results.
+The literature also includes a number of supervised approaches to this task. In these approaches,
+a model is trained on annotated recordings from a known instrument. While best performance
+is achieved when testing on the same instrument used for training, these models can also achieve
+reasonable performance when applied to new instruments. Thus, we also compare to a discriminative
+baseline, a simpliﬁed reimplementation of a state-of-the-art supervised approach [7] which achieves
+slightly better performance than the original on this task. This system only produces note onsets,
+and therefore is not evaluated at a frame-level. We train the discriminative baseline on synthesized
+audio with ground-truth MIDI annotations, and apply it directly to our test instrument, which the
+system has never seen before.
+7
+
+System
+Discriminative [7]
+Benetos [2]
+Vincent [3]
+O’Hanlon [4]
+This work
+
+P
+
+Onsets
+R
+
+F1
+
+P
+
+Frames
+R
+
+F1
+
+76.8
+62.7
+48.6
+78.1
+
+65.1
+76.8
+73.0
+74.7
+
+70.4
+68.6
+69.0
+58.3
+76.4
+
+79.6
+73.4
+69.1
+
+63.6
+72.8
+80.7
+
+68.0
+70.7
+73.2
+74.4
+
+Table 1: Unsupervised transcription results on the MAPS corpus. “Onsets” columns show scores for identiﬁcation (within ±50ms) of note start times. “Frames” columns show scores for 10ms frame-level evaluation. Our
+system achieves state-of-the-art results on both metrics.2
+
+4.2
+
+Results
+
+Our model achieves the best published numbers on this task: as shown in Table 1, it achieves an
+onset F1 of 76.4, which corresponds to a 10.6% relative gain over the onset F1 achieved by the
+system of Vincent et al. [3], the top-performing unsupervised baseline on this metric. Surprisingly,
+the discriminative baseline [7], which was not developed for the unsupervised task, outperforms
+all the unsupervised baselines in terms of onset evaluation, achieving an F1 of 70.4. Evaluated on
+frames, our system achieves an F1 of 74.4, corresponding to a more modest 1.6% relative gain over
+the system of O’Hanlon and Plumbley [4], which is the best performing baseline on this metric.
+The surprisingly competitive discriminative baseline shows that it is possible to achieve high onset
+accuracy on this task without adapting to the test instrument. Thus, it is reasonable to ask how much
+of the gain our model achieves is due to its ability to learn instrument timbre. If we skip the blockcoordinate ascent updates (Section 3) for the envelope and spectral parameters, and thus prevent our
+system from adapting to the test instrument, onset F1 drops from 76.4 to 72.6. This result indicates
+that learning instrument timbre does indeed help performance.
+As a short example of our system’s behavior, Figure 4 shows our system’s output passed through a
+commercially-available MIDI-to-sheet-music converter. This example was chosen because its onset
+F1 of 75.5 and error types are broadly representative of the system’s performance on our data. The
+resulting score has musically plausible errors.
+
+Predicted score
+
+Reference score
+
+Figure 4: Result of passing our system’s prediction and the reference transcription MIDI through the GarageBand MIDI-to-sheet-music converter. This is a transcription of the ﬁrst three bars of Schumann’s Hobgoblin.
+
+A careful inspection of the system’s output suggests that a large fraction of errors are either off by
+an octave (i.e. the frequency of the predicted note is half or double the correct frequency) or are
+segmentation errors (in which a single key press is transcribed as several consecutive key presses).
+While these are tricky errors to correct, they may also be relatively harmless for some applications
+because they are not detrimental to musical perception: converting the transcriptions back to audio
+using a synthesizer yields music that is qualitatively quite similar to the original recordings.
+
+5
+
+Conclusion
+
+We have shown that combining unsupervised timbral adaptation with a detailed model of the generative relationship between piano sounds and their transcriptions can yield state-of-the-art performance. We hope that these results will motivate further joint approaches to unsupervised music
+transcription. Paths forward include exploring more nuanced timbral parameterizations and developing more sophisticated models of discrete musical structure.
+2
+For consistency we re-ran all systems in this table with our own evaluation code (except for the system
+of Benetos and Weyde [2], for which numbers are taken from the paper). For O’Hanlon and Plumbley [4]
+scores are higher than the authors themselves report; this is due to an extra post-processing step suggested by
+O’Hanlon in personal correspondence.
+
+8
+
+References
+[1] Masahiro Nakano, Yasunori Ohishi, Hirokazu Kameoka, Ryo Mukai, and Kunio Kashino. Bayesian nonparametric music parser. In IEEE International Conference on Acoustics, Speech and Signal Processing,
+2012.
+[2] Emmanouil Benetos and Tillman Weyde. Explicit duration hidden markov models for multiple-instrument
+polyphonic music transcription. In International Society for Information Music Retrieval, 2013.
+[3] Emmanuel Vincent, Nancy Bertin, and Roland Badeau. Adaptive harmonic spectral decomposition for
+multiple pitch estimation. IEEE Transactions on Audio, Speech, and Language Processing, 2010.
+[4] Ken O’Hanlon and Mark D. Plumbley. Polyphonic piano transcription using non-negative matrix factorisation with group sparsity. In IEEE International Conference on Acoustics, Speech, and Signal Processing, 2014.
+[5] Graham E. Poliner and Daniel P.W. Ellis. A discriminative model for polyphonic piano transcription.
+EURASIP Journal on Advances in Signal Processing, 2007.
+[6] R. Lienhart C. G. van de Boogaart. Note onset detection for the transcription of polyphonic piano music.
+In Multimedia and Expo ICME. IEEE, 2009.
+[7] Felix Weninger, Christian Kirst, Bjorn Schuller, and Hans-Joachim Bungartz. A discriminative approach
+to polyphonic piano note transcription using supervised non-negative matrix factorization. In IEEE International Conference on Acoustics, Speech and Signal Processing, 2013.
+[8] Paul H. Peeling, Ali Taylan Cemgil, and Simon J. Godsill. Generative spectrogram factorization models
+for polyphonic piano transcription. IEEE Transactions on Audio, Speech, and Language Processing,
+2010.
+[9] Julian Besag. On the statistical analysis of dirty pictures. Journal of the Royal Statistical Society, 1986.
+[10] Stephen Levinson. Continuously variable duration hidden Markov models for automatic speech recognition. Computer Speech & Language, 1986.
+[11] Jyrki Kivinen and Manfred K. Warmuth. Exponentiated gradient versus gradient descent for linear predictors. Information and Computation, 1997.
+[12] Matti P. Ryynanen and Anssi Klapuri. Polyphonic music transcription using note event modeling. In
+IEEE Workshop on Applications of Signal Processing to Audio and Acoustics, 2005.
+[13] Sebastian B¨ ck and Markus Schedl. Polyphonic piano note transcription with recurrent neural networks.
+o
+In IEEE International Conference on Acoustics, Speech and Signal Processing, 2012.
+[14] Valentin Emiya, Roland Badeau, and Bertrand David. Multipitch estimation of piano sounds using a
+new probabilistic spectral smoothness principle. IEEE Transactions on Audio, Speech, and Language
+Processing, 2010.
+[15] The international music score library project, June 2014. URL http://imslp.org.
+[16] Vladimir Viro. Peachnote: Music score search and analysis platform. In The International Society for
+Music Information Retrieval, 2011.
+
+9
+
+

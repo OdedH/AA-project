@@ -1,0 +1,1234 @@
+Simple MAP Inference via Low-Rank Relaxations
+⇤
+Roy Frostig⇤ Sida I. Wang, Percy Liang, Christopher D. Manning
+,
+Computer Science Department, Stanford University, Stanford, CA, 94305
+{rf,sidaw,pliang}@cs.stanford.edu, manning@stanford.edu
+
+Abstract
+We focus on the problem of maximum a posteriori (MAP) inference in Markov
+random ﬁelds with binary variables and pairwise interactions. For this common
+subclass of inference tasks, we consider low-rank relaxations that interpolate between the discrete problem and its full-rank semideﬁnite relaxation. We develop
+new theoretical bounds studying the effect of rank, showing that as the rank grows,
+the relaxed objective increases but saturates, and that the fraction in objective value
+retained by the rounded discrete solution decreases. In practice, we show two algorithms for optimizing the low-rank objectives which are simple to implement, enjoy
+ties to the underlying theory, and outperform existing approaches on benchmark
+MAP inference tasks.
+
+1
+
+Introduction
+
+Maximum a posteriori (MAP) inference in Markov random ﬁelds (MRFs) is an important problem
+with abundant applications in computer vision [1], computational biology [2], natural language
+processing [3], and others. To ﬁnd MAP solutions, stochastic hill-climbing and mean-ﬁeld inference
+are widely used in practice due to their speed and simplicity, but they do not admit any formal
+guarantees of optimality. Message passing algorithms based on relaxations of the marginal polytope
+[4] can offer guarantees (with respect to the relaxed objective), but require more complex bookkeeping.
+In this paper, we study algorithms based on low-rank SDP relaxations which are both remarkably
+simple and capable of guaranteeing solution quality.
+Our focus is on MAP in a restricted but common class of models, namely those over binary variables
+coupled by pairwise interactions. Here, MAP can be cast as optimizing a quadratic function over
+the vertices of the n-dimensional hypercube: maxx2{ 1,1}n xT Ax. A standard optimization strategy
+is to relax this integer quadratic program (IQP) to a semideﬁnite program (SDP), and then round
+the relaxed solution to a discrete one achieving a constant factor approximation to the IQP optimum
+[5, 6, 7]. In practice, the SDP can be solved efﬁciently using low-rank relaxations [8] of the form
+maxX2Rn⇥k tr(X > AX).
+The ﬁrst part of this paper is a theoretical study of the effect of the rank k on low-rank relaxations of
+the IQP. Previous work focused on either using SDPs to solve IQPs [5] or using low-rank relaxations
+to solve SDPs [8]. We instead consider the direct link between the low-rank problem and the IQP. We
+show that as k increases, the gap between the relaxed low-rank objective and the SDP shrinks, but
+vanishes as soon as k rank(A); our bound adapts to the problem A and can thereby be considerably
+p
+better than the typical data-independent bound of O( n) [9, 10]. We also show that the rounded
+objective shrinks in ratio relative to the low-rank objective, but at a steady rate of ⇥(1/k) on average.
+This result relies on the connection we establish between IQP and low-rank relaxations. In the end,
+our analysis motivates the use of relatively small values of k, which is advantageous from both a
+solution quality and algorithmic efﬁciency standpoint.
+⇤
+
+Authors contributed equally.
+
+1
+
+The second part of this paper explores the use of very low-rank relaxation and randomized rounding
+(R3 ) in practice. We use projected gradient and coordinate-wise ascent for solving the R3 relaxed
+problem (Section 4). We note that R3 interfaces with the underlying problem in an extremely simple
+way, much like Gibbs sampling and mean-ﬁeld: only a black box implementation of x 7! Ax is
+required. This decoupling permits users to customize their implementation based on the structure
+of the weight matrix A: using GPUs for dense A, lists for sparse A, or much faster specialized
+algorithms for A that are Gaussian ﬁlters [11]. In contrast, belief propagation and marginal polytope
+relaxations [2] need to track messages for each edge or higher-order clique, thereby requiring more
+memory and a ﬁner-grained interface to the MRF that inhibits ﬂexibility and performance.
+Finally, we introduce a comparison framework for algorithms via the x 7! Ax interface, and use it to
+compare R3 with annealed Gibbs sampling and mean-ﬁeld on a range of different MAP inference
+tasks (Section 5). We found that R3 often achieves the best-scoring results, and we provide some
+intuition for our advantage in Section 4.1.
+
+2
+
+Setup and background
+
+Notation We write Sn for the set of symmetric n ⇥ n real matrices and S k for the unit sphere
+{x 2 Rk : kxk2 = 1}. All vectors are columns unless stated otherwise. If X is a matrix, then
+Xi 2 R1⇥k is its i’th row.
+
+This section reviews how MAP inference on binary graphical models with pairwise interactions can
+be cast as integer quadratic programs (IQPs) and approximately solved via semideﬁnite relaxations
+and randomized rounding. Let us begin with the deﬁnition of an IQP:
+
+Deﬁnition 2.1. Let A 2 Sn be a symmetric n ⇥ n matrix. An (indeﬁnite) integer quadratic program
+(IQP) is the following optimization problem:
+max
+
+def
+
+x2{ 1,1}n
+
+IQP(x) = xT Ax
+
+(1)
+
+Solving (1) is NP-complete in general: the MAX-CUT problem immediately reduces to it [5]. With
+an eye towards tractability, consider a ﬁrst candidate relaxation: maxx2[ 1,1]n xT Ax. This relaxation
+is always tight in that the maxima of the relaxed objective and original objective (1) are equal.1
+Therefore it is just as hard to solve. Let us then replace each scalar xi 2 [ 1, 1] with a unit vector
+Xi 2 Rk and deﬁne the following low-rank problem (LRP):
+Deﬁnition 2.2. Let k 2 {1, . . . , n} and A 2 Sn . Deﬁne the low-rank problem LRPk by:
+max
+
+X2Rn⇥k
+
+def
+
+LRPk (X) = tr(X T AX)
+
+subject to kXi k2 = 1, i = 1, . . . , n.
+
+(2)
+
+Note that setting Xi = [xi , 0, . . . , 0] 2 Rk recovers (1). More generally, we have a sequence of
+successively looser relaxations as k increases. What we get in return is tractability. The LRPk
+objective generally yields a non-convex problem, but if we take k = n, the objective can be rewritten
+as tr(X > AX) = tr(AXX > ) = tr(AS), where S is a positive semideﬁnite matrix with ones on the
+diagonal. The result is the classic SDP relaxation, which is convex:
+max
+
+S2Sn
+
+def
+
+SDP(S) = tr(AS)
+
+subject to S ⌫ 0, diag(S) = 1
+
+(3)
+
+Although convexity begets easy optimization in a theoretical sense, the number of variables in the
+SDP is quadratic in n. Thus for large SDPs, we actually return to the low-rank parameterization (2).
+Solving LRPk via simple gradient methods works extremely well in practice and is partially justiﬁed
+by theoretical analyses in [8, 12].
+1
+Proof. WLOG, A ⌫ 0 because adding to its diagonal merely adds a constant term to the IQP objective.
+The objective is a convex function, as we can factor A = LLT and write xT LLT x = kLT xk2 , so it must be
+2
+maximized over its convex polytope domain at a vertex point.
+
+2
+
+To complete the picture, we need to convert the relaxed solutions X 2 Rn⇥k into integral solutions
+x 2 { 1, 1}n of the original IQP (1). This can be done as follows: draw a vector g 2 Rk on the
+unit sphere uniformly at random, project each Xi onto g, and take the sign. Formally, we write
+x = rrd(X) to mean xi = sign(Xi · g) for i = 1, . . . , n. This randomized rounding procedure was
+pioneered by [5] to give the celebrated 0.878-approximation of MAX-CUT.
+
+3
+
+Understanding the relaxation-rounding tradeoff
+
+The overall IQP strategy is to ﬁrst relax the integer problem domain, then round back in to it. The
+optimal objective increases in relaxation, but decreases in randomized rounding. How do these effects
+compound? To guide our choice of relaxation, we analyze the effect that the rank k in (2) has on the
+approximation ratio of rounded versus optimal IQP solutions.
+More formally, let x? , X ? , and S ? denote global optima of IQP, of LRPk , and of SDP, respectively.
+We can decompose the approximation ratio as follows:
+1
+
+E[IQP(rrd(X ? ))]
+SDP(S ? )
+LRPk (X ? )
+E[IQP(rrd(X ? ))]
+=
+⇥
+⇥
+IQP(x? )
+IQP(x? )
+SDP(S ? )
+LRPk (X ? )
+|
+{z
+} | {z }
+| {z }
+|
+{z
+}
+approximation ratio
+
+constant
+
+1
+
+tightening ratio T (k)
+
+(4)
+
+rounding ratio R(k)
+
+As k increases from 1, the tightening ratio T (k) increases towards 1 and the rounding ratio R(k)
+decreases from 1. In this section, we lower bound T and R each in turn, thus lower-bounding the
+approximation ratio as a function of k. Speciﬁcally, we show that T (k) reaches 1 at small k and that
+2
+1
+R(k) falls as ⇡ + ⇥( k ).
+In practice, one cannot ﬁnd X ? for general k with guaranteed efﬁciency (if we could, we would
+simply use LRP1 to directly solve the original IQP). However, Section 5 shows empirically that
+simple procedures solve LRPk well for even small k.
+3.1
+
+The tightening ratio T (k) increases
+
+We now show that, under the assumption of A ⌫ 0, the tightening ratio T (k) plateaus early and
+that it approaches this plateau steadily. Hence, provided k is beyond this saturation point, and large
+enough so that an LRPk solver is practically capable of providing near-optimal solutions, there is no
+advantage in taking k larger.
+First, T (k) is steadily bounded below. The following is a result of [13] (that also gives insight into
+the theoretical worst-case hardness of optimizing LRPk ):
+Theorem 3.1 ([13]). Fix A ⌫ 0 and let S ? be an optimal SDP solution. There is a randomized
+˜
+˜
+algorithm that, given S ? , outputs X feasible for LRPk such that EX [LRPk (X)]
+(k) · SDP(S ? ),
+˜
+where
+✓
+◆2
+✓ ◆
+((k + 1)/2)
+1
+1
+def 2
+(k) =
+=1
++o
+(5)
+k
+(k/2)
+2k
+k
+
+For example, (1) =
+
+2
+⇡
+
+= 0.6366, (2) = 0.7854, (3) = 0.8488, (4) = 0.8836, (5) = 0.9054.2
+
+˜
+By optimality of X ? , LRPk (X ? ) EX [LRPk (X)] under any probability distribution, so the exis˜
+tence of the algorithm in Theorem 3.1 implies that T (k)
+(k).
+Moreover, T (k) achieves its maximum of 1 at small k, and hence must strictly exceed the (k) lower
+bound early on. We can arrive at this fact by bounding the rank of the SDP-optimal solution S ? .
+?
+This is because S ? factors into S ? = XX T , where X is in Rn⇥rank S and must be optimal since
+?
+LRPrank S ? (X) = SDP(S ). Without consideration of A, the following theorem uniformly bounds
+this rank at well below n. The theorem was established independently by [9] and [10]:
+Theorem 3.2 ([9, 10]). Fix a weight matrix A. There exists an optimal solution S ? to SDP (3) such
+p
+that rank S ?  2n.
+
+2
+The function (k) generalizes the constant approximation factor 2/⇡ = (1) with regards to the implications of the unique games conjecture: the authors show that no polynomial time algorithm can, in general,
+approximate LRPk to a factor greater than (k) assuming P 6= NP and the UGC.
+
+3
+
+1
+
+1.05
+R(k)
+lower bound
+
+1
+
+0.85
+
+1600
+objective
+
+0.85
+
+0.8
+
+0.8
+
+0.7
+
+0.7
+
+0.65
+
+1500
+1400
+
+0.75
+
+0.75
+
+SDP
+Max
+Mean
+Mean+Std
+Mean−Std
+
+1700
+
+0.9
+
+0.9
+
+objective
+
+0.95
+rounding ratio
+
+1800
+
+γ(k)
+T(k)=LRPk/SDP
+
+0.95
+
+0.65
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+1300
+1200
+
+1
+
+2
+
+3
+
+4
+
+(a)
+
+R(k) (blue) is close to it 2/(⇡ (k))
+lower bound (red) across the small k.
+
+5
+
+6
+
+1100
+
+1
+
+2
+
+3
+
+k
+
+k
+
+4
+
+5
+
+6
+
+k
+
+˜
+(b) T (k) (blue), the empirical tightening ra- (c) Rounded objective values vs. k: optimal
+tio, clears its lower bound (k) (red) and hits SDP (cyan), best IQP rounding (green), and
+its ceiling of 1 at k = 4.
+mean IQP rounding ± (black).
+100⇥100
+
+Figure 1: Plots of quantities analyzed in Section 3, under A 2 R
+whose entries are sampled
+independently from a unit Gaussian. For this instance, the empirical post-rounding objectives are
+shown at the right for completeness.
+Hence we know already that the tightening ratio T (k) equals 1 by the time k reaches
+
+p
+
+2n.
+
+Taking A into consideration, we can identify a class of problem instances for which T (k) actually
+saturates at even smaller k. This result is especially useful when the rank of the weight matrix A is
+known, or even under one’s control, while modeling the underlying optimization task:
+Theorem 3.3. If A is symmetric, there is an optimal SDP solution S ? such that rank S ?  rank A.
+A complete proof is in Appendix A.1. Because adding to the diagonal of A is equivalent to merely
+adding a constant to the objective of all problems considered, Theorem 3.3 can be strengthened:
+Corollary 3.4. For any symmetric weight matrix A, there exists an optimal SDP solution S ? such
+that rank S ?  minu2Rn rank(A + diag(u)).
+That is, changes to the diagonal of A that reduce its rank may be applied to improve the bound.
+In summary, T (k) grows at least as fast as (k), from T (k) = 0.6366 at k = 1 to T (k) = 1 at
+p
+k = min{ 2n, minu2Rn rank(A + diag(u))}. This is validated empirically in Figure 1b.
+3.2
+
+The rounding ratio R(k) decreases
+
+As the dimension k grows for row vectors Xi in the LRPk problem, the rounding procedure incurs a
+larger expected drop in objective value. Fortunately, we can bound this drop. Even more fortunately,
+the bound grows no faster than (k), exactly the steady lower bound for T (k). We obtain this result
+with an argument based on the analysis of [13]:
+Theorem 3.5. Fix a weight matrix A ⌫ 0 and any LRPk -feasible X 2 Rn⇥k . The rounding ratio for
+X is bounded below as
+✓
+✓ ◆◆
+E[IQP(rrd(X))]
+2
+2
+1
+1
+=
+1+
++o
+(6)
+LRPk (X)
+⇡ (k)
+⇡
+2k
+k
+Note that X in the theorem need not be optimal – the bound applies to whatever solution an LRPk
+solver might provide. The proof, given in Appendix section A.1, uses Lemma 1 from [13], which is
+based on the theory of positive deﬁnite functions on spheres [14]. A decrease in R(k) that tracks the
+lower bound is observed empirically in Figure 1a.
+In summary, considering only the steady bounds (Theorems 3.1 and 3.5), T will always rise opposite
+to R at least at the same rate. Then, the added fact that T plateaus early (Theorem 3.2 and Corollary
+3.4) means that T in fact rises even faster.
+In practice, we would like to take k beyond 1 as we ﬁnd that the ﬁrst few relaxations give the optimizer
+an increasing advantage in arriving at a good LRPk solution, close to X ? in objective. The rapid rise
+of T relative to R just shown then justiﬁes not taking k much larger if at all.
+4
+
+4
+
+Pairwise MRFs, optimization, and inference alternatives
+
+Having understood theoretically how IQP relates to low-rank relaxations, we now turn to MAP
+inference and empirical evaluation. We will show that the LRPk objective can be optimized via
+a simple interface to the underlying MRF. This interface then becomes the basis for (a) a MAP
+inference algorithm based on very low-rank relaxations, and (b) a comparison to two other basic
+algorithms for MAP: Gibbs sampling and mean-ﬁeld variational inference.
+A binary pairwise Markov random ﬁeld (MRF) models a function h over x 2 {0, 1}n given by
+P
+P
+h(x) = i i (xi ) + i<j ✓i,j (xi , xj ), where the i and ✓i,j are real-valued functions. The MAP
+inference problem asks for the variable assignment x? that maximizes the function h. An MRF
+being binary-valued and pairwise allows the arbitrary factor tables i and ✓i,j to be transformed
+with straightforward algebra into weights A 2 Sn for the IQP. For the complete reduction, see
+Appendix A.2.
+We make Section 3 actionable by deﬁning the randomized relaxation and rounding (R3 ) algorithm for
+MAP via low-rank relaxations. The ﬁrst step of this algorithm involves optimizing LRPk (2) whose
+weight matrix encodes the MRF. In practice, MRFs usually have special structure, e.g., edge sparsity,
+factor templates, and Gaussian ﬁlters [11]. To develop R3 as a general tool, we provide two interfaces
+between the solver and MRF representation, both of which allow users to exploit special structure.
+Left-multiplication (x 7! Ax) Assume a function F that implements left matrix multiplication by
+the MRF matrix A. This sufﬁces to compute the gradient of the relaxed objective: rX LRPk (X) =
+2AX. We can optimize the relaxation using projected gradient ascent (PGA): alternate between
+taking gradient steps and projecting back onto the feasible set (unit-normalizing the rows Xi if the
+norm exceeds 1); see Algorithm 1. A user supplying a left-multiplication routine can parallelize its
+implementation on a GPU, use sparse linear algebra, or efﬁciently implement a dense ﬁlter.
+Row-product ((i, x) 7! Ai x) If the function F further provides left multiplication by any row of
+A, we can optimize LRPk with coordinate-wise ascent (BCA). Fixing all but the i’th row of X gives
+a function linear in Xi whose optimum is Ai X normalized to have unit norm.
+Left-multiplication is suitable when one expects to parallelize multiplication, or exploit common
+dense structure as with ﬁlters. Row product is suitable when one already expects to compute Ax
+serially. BCA also eliminates the need for the step size scheme in PGA, thus reducing the number of
+calls to the left-multiplication interface if this step size is chosen by line search.
+X
+random initialization in Rk⇥n
+for t
+1 to T do
+if parallel then
+X
+⇧S k (X + 2⌘t AX) // Parallel update
+else
+for i
+1 to n do
+Xi
+⇧S k (hAi , Xi) // Sweep update
+for j
+1 to M do
+x(j)
+sign(Xg), where g is a random vector from unit sphere S k (normalized Gaussian)
+Output the x(j) for which the objective (x(j) )T Ax(j) is largest.
+Algorithm 1: The full randomized relax-and-round (R3 ) procedure, given a weight matrix A;
+⇧S k (·) is row normalization and ⌘t is the step size in the t’th iteration.
+4.1
+
+Comparison to Gibbs sampling and mean-ﬁeld
+
+The R3 algorithm affords a tidy comparison to two other basic MAP algorithms. First, it is iterative
+and maintains a constant amount of state per MRF variable (a length k row vector). Using the
+row-product interface, R3 under BCA sequentially sweeps through and updates each variable’s state
+(row Xi ) while holding all others ﬁxed. This interface bears a striking resemblance to (annealed)
+Gibbs sampling and mean-ﬁeld iterative updates [4, 15], which are popular due to their simplicity.
+Table 1 shows how both can be implemented via the row-product interface.
+5
+
+Algorithm
+
+Domain
+
+Gibbs
+Mean-ﬁeld
+R3
+
+Sweep update
+n
+
+x 2 { 1, 1}
+x 2 [ 1, 1]n
+X 2 (S k )n
+
+Parallel update
+
+xi ⇠ ⇧Z (exp(Ai x))
+xi
+tanh(Ai x)
+Xi
+⇧S k (Ai X)
+
+x ⇠ ⇧Z (exp(Ax))
+x
+tanh(Ax)
+X
+⇧S k (X + 2⌘t AX)
+
+Table 1: Iterative updates for MAP algorithms that use constant state per MRF variable. ⇧S k denotes
+`2 unit-normalization of rows and ⇧Z denotes scaling rows so that they sum to 1. The R3 sweep
+update is not a gradient step, but rather the analytic maximum for the i’th row ﬁxing the rest.
+
+x1
+1 (x1 )
+
+10x1 x2
+= x1
+
+x2
+2 (x2 )
+
+= x2
+
+"
+1 0
+1
+A=
+2 1
+
+1
+0
+10
+
+1
+10
+0
+
+#
+
+Figure 2: Consider the two variable MRF on the left (with x1 , x2 2 { 1, 1} for the factor expressions)
+and its corresponding matrix A. Note x0 is clamped to 1 as per the reduction (A.2). The optimum is
+x = [1, 1, 1]T with a value of xT Ax = 12. If Gibbs or LRP1 is initialized at x = [1, 1, 1]T , then
+either one will be unlikely to transition away from its suboptimal objective value of 8 (as ﬂipping
+only one of x1 or x2 decreases the objective to 10). Meanwhile, LRP2 succeeds with probability 1
+over random initializations. Suppose X = [1, 0; X1 ; X2 ] with X1 = X2 . Then the gradient update
+?
+?
+is X1 = ⇧S 2 (A1 X) = ⇧S 2 (([1, 0] + 10X1 )/2), which always points towards X1 = X2 = [1, 0]
+except in the 0-probability event that X1 = X2 = [ 1, 0] (corresponding to the poor initialization
+of [1, 1, 1]T above). The gradient with respect to X1 at points along the unit circle is shown on
+the right. The thick arrow represents an X1 ⇡ [ 0.95, 0.3], and the gradient ﬁeld shows that it will
+iteratively update towards the optimum.
+Using left-multiplication, R3 updates the state of all variables in parallel. Superﬁcially, both Gibbs
+and the iterative mean-ﬁeld update can be parallelized in this way as well (Table 1), but doing
+so incorrectly alters the their convergence properties. Nonetheless, [11] showed that a simple
+modiﬁcation works well in practice for mean-ﬁeld, so we consider these algorithms for a complete
+comparison.3
+While Gibbs, mean-ﬁeld, and R3 are similar in form, they differ in their per-variable state: Gibbs
+maintains a number in { 1, 1} whereas R3 stores an entire vector in Rk . We can see by example
+that the extra state can help R3 avoid local optima that ensnarls Gibbs. A single coupling edge in a
+two-node MRF, described in Figure 2, gives intuition for the advantage of optimizing relaxations
+over stochastic hill-climbing.
+Another widely-studied family of MAP inference techniques are based on belief propagation or
+relaxations of the marginal polytope [4]. For belief propagation, and even for the most basic of the
+LP relaxations (relaxing to the local consistency polytope), one needs to store state for every edge in
+addition to every variable. This demands a more complex interface to the MRF, introduces substantial
+added bookkeeping for dense graphs, and is not amenable to techniques such as the ﬁlter of [11].
+
+5
+
+Experiments
+
+We compare the algorithms from Table 1 on three benchmark MRFs and an additional artiﬁcial MRF.
+We also show the effect of the relaxation k on the benchmarks in Figure 3.
+Rounding in practice The theory of Section 3 provides safeguard guarantees by considering the
+average-case rounding. In practice, we do far better than average since we take several roundings and
+output the best. Similarly, Gibbs’ output is taken as the best along its chain.
+Budgets Our goal is to see how efﬁciently each method utilizes the same ﬁxed budget of queries to
+the function, so we ﬁx the number queries to the left-multiplication function F of Section 4. A budget
+jointly limits the relaxation updates and the number of random roundings taken in R3 . We charge
+3
+Later, in [16], the authors derive the parallel mean-ﬁeld update as being that of a concave approximation to
+the cross-entropy term in the true mean-ﬁeld objective.
+
+6
+
+algo.
+Gibbs
+MF
+R3
+Gibbs
+MF
+R3
+Gibbs
+MF
+R3
+Gibbs
+MF
+R3
+
+parallel sweep parallel sweep
+
+low budget
+high budget
+
+seg (50)
+8.35 (23)
+8.36 (23)
+8.39 (15)
+7.4 (19)
+7.4 (26)
+7.4 (17)
+7.07 (33)
+7.03
+(9)
+7.09 (23)
+6.78 (31)
+6.75 (12)
+6.8 (25)
+
+dataset [name (# of instances)]
+dbn (108)
+grid40 (8) chain (300)
+1.39
+(30) 14.5 (7) .473
+(37)
+1.3
+(7) 13.6 (1) .463
+(39)
+1.42
+(71) 13.7 (0) .538 (296)
+.826
+(3) .843 (0) .124
+(3)
+1.16
+(6) 11.3 (3)
+.35
+(50)
+1.29
+(99) 11.3 (5) .418 (282)
+1.26
+(42) 12.5 (7) .367
+(85)
+1.16
+(4) 11.7 (1)
+.33
+(39)
+1.28
+(62) 11.9 (0) .398 (300)
+.814
+(2) 1.85 (0) .132
+(11)
+1.1
+(2) 10.9 (2) .259
+(47)
+1.25 (104)
+11 (6) .321 (296)
+
+Table 2: Benchmark performance of algorithms in each comparison regime, in which the benchmarks
+are held to different computational budgets that cap their access to the left-multiplication routine. The
+score shown is an average relative gain in objective over the uniform-random baseline. Parenthesized
+is the win count (including ties), and bold text highlights qualitatively notable successes.
+seg
+
+4
+
+580
+
+1.3
+
+LRP
+Max
+Mean
+Mean+Std
+Mean−Std
+
+1.25
+1.2
+objective
+
+objective
+
+540
+
+1.4
+LRP
+Max
+Mean
+Mean+Std
+Mean−Std
+
+520
+
+1.1
+
+500
+
+1
+0.95
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+1.25
+1.2
+
+1.05
+
+460
+
+LRP
+Max
+Mean
+Mean+Std
+Mean−Std
+
+1.3
+
+1.15
+
+480
+
+grid
+
+x 10
+
+1.35
+
+objective
+
+560
+
+4
+
+dbn
+
+x 10
+
+1.15
+
+1
+
+2
+
+3
+
+4
+
+k
+
+k
+
+5
+
+6
+
+1.1
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+k
+
+Figure 3: Relaxed and rounded objectives vs. the rank k in an instance of seg, dbn, and grid40. Blue:
+max of roundings. Red: value of LRPk . Black: mean of roundings (± ). The relaxation objective
+increases with k, suggesting that increasingly good solutions are obtained by increasing k, in spite of
+non-convexity (here we are using parallel updates, i.e. using R3 with PGA). The maximum rounding
+also improves considerably with k, especially at ﬁrst when increasing beyond k = 1.
+R3 k-fold per use of F when updating, as it queries F with a k-row argument.4 Sweep methods are
+charged once per pass through all variables.
+We experiment with separate budgets for the sweep and parallel setup, as sweeps typically converge
+more quickly. The benchmark is run under separate low and high budget regimes – the latter more
+than double the former to allow for longer-run effects to set in. In Table 2, the sweep algorithms’ low
+budget is 84 queries; the high budget is 200. The parallel low budget is 180; the high budget is 400.
+We set R3 to take 20 roundings under low budgets and 80 under high ones, and the remaining budget
+goes towards LRPk updates.
+Datasets Each dataset comprises a family of binary pairwise MRFs. The sets seg, dbn, and grid40
+are from the PASCAL 2011 Probabilistic Inference Challenge5 — seg are small segmentation models
+(50 instances, average 230 variables, 622 edges), dbn are deep belief networks (108 instances, average
+920 variables, 54160 edges), and grid40 are 40x40 grids (8 instances, 1600 variables, 6240 or 6400
+edges) whose edge weights outweigh their unaries by an order of magnitude. The chain set comprises
+300 randomly generated 20-node chain MRFs with no unary potentials and random unit-Gaussian
+edge weights – it is principally an extension of the coupling two-node example (Figure 2), and serves
+as a structural obverse to grid40 in that it lacks cycles entirely. Among these, the dbn set comprises
+the largest and most edge-dense instances.
+4
+5
+
+This conservatively disfavors R3 , as it ignores the possible speedups of treating length-k vectors as a unit.
+http://www.cs.huji.ac.il/project/PASCAL/
+
+7
+
+Evaluation To aggregate across instances of a dataset, we measure the average improvement over
+a simple baseline that, subject to the budget constraint, draws uniformly random vectors in { 1, 1}n
+and selects the highest-scoring among them. Improvement over the baseline is relative: if z is the
+solution objective and z 0 is that of the baseline, (z z 0 )/z 0 is recorded for the average. We also
+count wins (including ties), the number of times a method obtains the best objective among the
+competition. Baseline performance varies with budget so scores are incomparable across sweep and
+parallel experiments.
+In all experiments, we use LRP4 , i.e. the width-4 relaxation. The R3 gradient step size scheme is
+p
+⌘t = 1/ t. In the parallel setting, mean-ﬁeld updates are prone to large oscillations, so we smooth
+the update with the current point: x
+(1 ⌘)x + ⌘ tanh(Ax). Our experiments set ⌘ = 0.5. Gibbs
+is annealed from an initial temperature of 10 down to 0.1. These settings were tuned towards the
+benchmarks using a few arbitrary instances from each dataset.
+Results are summarized in Table 2. All methods fare well on the seg dataset and ﬁnd solutions very
+near the apparent global optimum. This shows that the rounding scheme of R3 , though elementary,
+is nonetheless capable of recovering an actual MAP point. On grid40, R3 is competitive but not
+outstanding, and on chain it is a clear winner. Both datasets have edge potentials that dominate
+the unaries, but the cycles in the grid help break local frustrations that occur in chain where they
+prevents Gibbs from transitioning. On dbn – the more difﬁcult task grounded in a real model – R3
+outperforms the others by a large margin.
+Figure 3 demonstrates that relaxation beyond the quadratic program maxx2[ 1,1]xT Ax (i.e. k = 1) is
+crucial, both for optimizing LRPk and for obtaining a good maximum among roundings. Figure 4 in
+the appendix visualizes the distribution of rounded objective values across different instances and
+relaxations, illustrating that the difﬁculty of the problem can be apparent in the rounding distribution.
+
+6
+
+Related work and concluding remarks
+
+In this paper, we studied MAP inference problems that can be cast as an integer quadratic program
+over hypercube vertices (IQP). Relaxing the IQP to an SDP (3) and rounding back with rrd(·) was
+introduced by Goemans and Williamson in the 1990s for MAX-CUT. It was generalized to positive
+semideﬁnite weights shortly thereafter by Nesterov [6].
+Separately, in the early 2000s, there was interest in scalably solving SDPs, though not with the
+speciﬁc goal of solving the IQP. The low-rank reparameterization of an SDP, as in (2), was developed
+by [8] and [12]. Recent work has taken this approach to large-scale SDP formulations of clustering,
+embedding, matrix completion, and matrix norm optimization for regularization [17, 18]. Upper
+bounds on SDP solutions in terms of problem size n, which help justify using a low rank relaxation,
+have been known since the 1990s [9, 10].
+The natural joint use of these ideas (IQP relaxed to SDP and SDP solved by low-rank relaxation) is
+somewhat known. It was applied in a clustering experiment in [19], but no theoretical analysis was
+given and no attention paid to rounding directly from a low-rank solution. The beneﬁt of rounding
+from low-rank was noticed in coarse MAP experiments in [20], but no theoretical backing was given
+and no attention paid to coordinate-wise ascent or budgeted queries to the underlying model.
+Other relaxation hierarchies have been studied in the MRF MAP context, namely linear program
+(LP) relaxations given by hierarchies of outer bounds on the marginal polytope [21, 2]. They differ
+from this paper’s setting in that they maintain state for every MRF clique conﬁguration – an approach
+that extends beyond pairwise MRFs but that scales with the number of factors (unwieldy versus a
+large, dense binary pairwise MRF) and requires ﬁne-grained access to the MRF. Sequences of LP and
+SDP relaxations form the Sherali-Adams and Lasserre hierarchies, respectively, whose relationship is
+discussed in [4] (Section 9). The LRPk hierarchy sits at a lower level: between the IQP (1) and the
+ﬁrst step of the Lasserre hierarchy (the SDP (3)).
+From a practical point of view, we have presented an algorithm very similar in form to Gibbs sampling
+and mean-ﬁeld. This provides a down-to-earth perspective on relaxations within the realm of scalable
+and simple inference routines. It would be interesting to see if the low-rank relaxation ideas from this
+paper can be adapted to other settings (e.g., for marginal inference). Conversely, the rich literature
+on the Lasserre hierarchy may offer guidance in extending the low-rank semideﬁnite approach (e.g.,
+beyond the binary pairwise setting).
+8
+
+References
+[1] S. Geman and D. Geman. Stochastic relaxation, Gibbs distributions, and the Bayesian restoration of
+images. IEEE Transactions on Pattern Analysis and Machine Intelligence (PAMI), 6:721–741, 1984.
+[2] D. Sontag, T. Meltzer, A. Globerson, Y. Weiss, and T. Jaakkola. Tightening LP relaxations for MAP using
+message-passing. In Uncertainty in Artiﬁcial Intelligence (UAI), pages 503–510, 2008.
+[3] A. Rush, D. Sontag, M. Collins, and T. Jaakkola. On dual decomposition and linear programming
+relaxations for natural language processing. In Empirical Methods in Natural Language Processing
+(EMNLP), pages 1–11, 2010.
+[4] M. Wainwright and M. I. Jordan. Graphical models, exponential families, and variational inference.
+Foundations and Trends in Machine Learning, 1:1–307, 2008.
+[5] M. Goemans and D. Williamson. Improved approximation algorithms for maximum cut and satisﬁability
+problems using semideﬁnite programming. Journal of the ACM (JACM), 42(6):1115–1145, 1995.
+[6] Y. Nesterov. Semideﬁnite relaxation and nonconvex quadratic optimization. Optimization methods and
+software, 9:141–160, 1998.
+[7] N. Alon and A. Naor. Approximating the cut-norm via Grothendieck’s inequality. SIAM Journal on
+Computing, 35(4):787–803, 2006.
+[8] S. Burer and R. Monteiro. A nonlinear programming algorithm for solving semideﬁnite programs via
+low-rank factorization. Mathematical Programming, 95(2):329–357, 2001.
+[9] A. I. Barvinok. Problems of distance geometry and convex properties of quadratic maps. Discrete &
+Computational Geometry, 13:189–202, 1995.
+[10] G. Pataki. On the rank of extreme matrices in semideﬁnite programs and the multiplicity of optimal
+eigenvalues. Mathematics of Operations Research, 23(2):339–358, 1998.
+[11] P. Kr¨ henb¨ hl and V. Koltun. Efﬁcient inference in fully connected CRFs with Gaussian edge potentials.
+a
+u
+In Advances in Neural Information Processing Systems (NIPS), 2011.
+[12] S. Burer and R. Monteiro. Local minima and convergence in low-rank semideﬁnite programming. Mathematical Programming, 103(3):427–444, 2005.
+[13] J. Bri¨ t, F. M. d. O. Filho, and F. Vallentin. The positive semideﬁnite Grothendieck problem with rank
+e
+constraint. In Automata, Languages and Programming, pages 31–42, 2010.
+[14] I. J. Schoenberg. Positive deﬁnite functions on spheres. Duke Mathematical Journal, 9:96–108, 1942.
+[15] M. I. Jordan, Z. Ghahramani, T. S. Jaakkola, and L. K. Saul. An introduction to variational methods for
+graphical models. Machine Learning, 37:183–233, 1999.
+[16] P. Kr¨ henb¨ hl and V. Koltun. Parameter learning and convergent inference for dense random ﬁelds. In
+a
+u
+International Conference on Machine Learning (ICML), pages 513–521, 2013.
+[17] B. Kulis, A. C. Surendran, and J. C. Platt. Fast low-rank semideﬁnite programming for embedding and
+clustering. In Artiﬁcial Intelligence and Statistics (AISTATS), pages 235–242, 2007.
+[18] B. Recht and C. R´ . Parallel stochastic gradient algorithms for large-scale matrix completion. Mathematical
+e
+Programming Computation, 5:1–26, 2013.
+[19] J. Lee, B. Recht, N. Srebro, J. Tropp, and R. Salakhutdinov. Practical large-scale optimization for maxnorm regularization. In Advances in Neural Information Processing Systems (NIPS), pages 1297–1305,
+2010.
+[20] S. Wang, R. Frostig, P. Liang, and C. Manning. Relaxations for inference in restricted Boltzmann machines.
+In International Conference on Learning Representations (ICLR), 2014.
+[21] D. Sontag and T. Jaakkola. New outer bounds on the marginal polytope. In Advances in Neural Information
+Processing Systems (NIPS), pages 1393–1400, 2008.
+
+9
+
+A
+
+Appendix
+
+A.1
+A.1.1
+
+Proofs
+Proof of Theorem 3.3
+
+Proof. For simplicity, we ﬁrst consider the case of symmetric PSD A. Let k ? = rank A. Consider
+X 2 Rn⇥k with ||Xi ||2  1 and k > k ? such that LRPk (X) = tr(X T AX) attains the optimal
+value of the SDP (this is possible in particular when k = n). We want to to transform X to the
+?
+?
+thinner X ? 2 Rn⇥k that still satisﬁes the row norm constraints ||Xi ||2  1. Let Q 2 Rk⇥k be an
+T
+orthonormal matrix (QQ = Ik ). Note that XQ still satisﬁes the row norm constraints (since each
+row of Xi just gets rotated). Thus, it sufﬁces to ﬁnd Q so that some columns of XQ fall into the
+null-space of A and can be discarded.
+?
+
+?
+
+Suppose A ⌫ 0. Let A = LLT for L 2 Rn⇥k and let Y = LT X 2 Rk ⇥k . We can choose
+?
+Q so that Y Q 2 Rk ⇥k has at most k ? non-zero columns, i.e. take Q = [Qbasis , Qnull ], where
+?
+?
+Qnull 2 Rk⇥(k k ) comprises the k k ? columns such that Y Qnull = 0 and Qbasis 2 Rk⇥k
+comprises the ﬁrst k ? columns of Q. Obtaining such a Q is possible by taking an orthonormal basis
+of the null space of Y as the columns of Qnull , and taking an orthonormal basis of the k ? -dimensional
+row space of Y as the columns of Qbasis . Both bases can be obtained by applying the Gram-Schmidt
+process.
+Now when we transform X by Q to get XQ = [XQbasis , XQnull ], we can drop the columns XQnull
+since 0 = Y Qnull = LT XQnull , thus removing XQnull does not change the objective. Setting
+?
+X ? = XQbasis 2 Rn⇥k gives that LRPk (X ? ) = LRPk (X) and we get the desired rank reduction
+without changing the objective and while maintaining satisﬁability of the row norm constraints.
+More generally if A is real symmetric (but not necessarily A ⌫ 0) then we can consider instead the
+factorization A = LRT where the columns of R are identical to the columns of L except possibly
+negated. Such a factorization is given by the eigendecomposition of a real symmetric matrix. In this
+case, Q still rotates both L and R correctly and the above argument follows in the same way.
+?
+
+We remark that even more generally, if A = LU T for L, U 2 Rn⇥k for n k 2k ? , then we can
+?
+set Qbasis to be the basis of the row space of Y = [LT X; U T X] 2 R2k ⇥k . Then the same argument
+still applies but we can only reduce the solution rank from k to 2k ? = 2 rank(A).
+A.1.2
+
+Proof of Theorem 3.5
+
+Proof. The proof relies on Grothendieck’s identity: if u, v 2 Rk and g is drawn uniformly from the
+unit sphere S k , then
+⇥
+⇤
+2
+E sign(uT g) sign(v T g) = arcsin(uT v).
+(7)
+⇡
+Let Y = f (XX T ) 2 Rn⇥n be the elementwise application of the scalar function
+⇣
+⌘
+2
+t
+f (t) = ⇡ arcsin(t)
+(k) .
+
+(8)
+
+Lemma 1 in [13] shows that f (t) is a function of the positive type on S k , which by deﬁnition means
+that Y ⌫ 0 provided Xi 2 S k for all i. The underlying theory is developed in [14].
+For A, Y ⌫ 0 we have that tr(AY )
+
+0. Rearranging terms and applying Grothendieck’s identity,
+✓
+✓
+◆◆
+2
+XX T
+T
+0  tr(AY ) = tr A
+arcsin(XX )
+(9)
+⇡
+(k)
+✓
+◆
+2
+2
+() tr A arcsin(XX T )
+tr(AXX T )
+(10)
+⇡
+⇡ (k)
+2
+() E[IQP(rrd(X))]
+LRPk (X),
+(11)
+⇡ (k)
+
+as claimed.
+10
+
+A.2
+
+MRF to IQP reduction
+
+Using the shorthand i;u = i (u) and ✓ij;uv = ✓i,j (u, v), the negative energy can be written as a
+sum of terms i;1 xi + i;0 (1 xi ) and of terms
+✓ij;11 xi xj + ✓ij;10 xi (1
+
+xj ) + ✓ij;01 (1
+
+xi )xj + ✓ij;00 (1
+
+xi )(1
+
+xj )
+
+(12)
+
+for every i, j, i.e. negative energy is a quadratic form over {0, 1} , and ﬁnding its maximum is
+precisely the MAP problem. This quadratic form over can be written as xT M x + T x + 0 , where
+n
+
+def
+
+Mi,j = ✓ij;11 + ✓ij;00
+def
+i
+
+=
+
+def
+0
+
+=
+
+i;1
+
+P
+
+i
+
++
+P
+
+i;0
+i;0
+
++
+
+✓ij;10
+P
+
+i<j
+
+j>i
+
+for i < j
+
+✓ij;01
+
+(✓ij;10
+
+✓ij;00 ) +
+
+✓ij;00
+
+P
+
+j<i
+
+(✓ji;01
+
+✓ji;00 )
+
+(13)
+
+for every i
+
+(14)
+(15)
+
+This in turn can be written more compactly as xT (M 0 + diag( ))x + 0 , where M 0 = (M + M T )/2
+is taken for symmetry. In summary, MAP in the MRF reduces to maximizing the term left of 0 (that
+which we can control), which is now in a form that differs from IQP only by the domain of x.
+One can then reduce the problem from the x 2 {0, 1}n domain to x 2 { 1, 1}n by a linear change
+of variables. Given an IQP as in (1) with objective xT Ax over x 2 {0, 1}n , we can equivalently
+optimize [ 1 (˜ + 1)]T A[ 1 (˜ + 1)] over x 2 { 1, 1}n . This reduction introduces cross-terms. Deﬁne
+˜
+2 x
+2 x
+def
+
+def
+
+b = 1T A + A1 = 2A1 2 Rn
+
+b0 = 1T A1 = 1 1T b 2 Rn
+2
+
+(16)
+
+Now, optimizing over x 2 { 1, 1}n , we can fold b and b0 into A by introducing a single auxiliary
+variable x0 (so the new domain is x0 = (x0 , x)) and augmenting A to
+
+1 b 0 1 bT
+0
+2
+A =
+.
+(17)
+4 1b A
+2
+
+The variable x0 must be constrained to 1, but in practice such a constraint can be ignored up until we
+output a ﬁnal solution, because negating all of x has no effect on the IQP objective.
+A.3
+
+Evaluations
+
+Additional ﬁgures
+
+Histograms of the rrr-MAP samples vs. k
+
+Figure 4 shows empirical histograms of objectives of random roundings from an LRPk solution.
+Random$
+
+k=2
+$$$
+$
+k=4
+$$$
+$
+*
+
+k=8
+$$$
+$
+*
+
+Distance$
+
+*
+
+*
+
+*
+
+Seg.$
+
+*
+
+DBN$
+
+*
+
+*
+
+*
+
+*
+
+*
+
+*
+
+Figure 4: Distribution of the value of random roundings across problem instances and ranks. From
+top to bottom, Fromvary across k = 2,rows Fromacross right,2, 4, 8. From left to right, A; (2) a
+Figure : rows top to bottom, 4, 8. vary left to k = columns show: (1) random
+pairwise distance matrix formed by A; (2) a pairwise distance matrix formed by (4) an instance
+columns show: (1) random MNIST digits 4 and 9; (3) an instance from seg; MNIST
+from dbn. The range of the x-axis is identical in each column.
+
+digits 4 and 9; (3) an instance from seg; (4) an instance from dbn. The limits of
+the x-axis is identical in each column.
+
+Wang & Frostig (Stanford)
+
+Randomized relax-and-round
+
+11
+
+April 15, 2014
+
+23 / 27
+
+

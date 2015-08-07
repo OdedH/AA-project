@@ -1,0 +1,1500 @@
+Empirical Risk Minimization of Graphical Model Parameters Given
+Approximate Inference, Decoding, and Model Structure
+
+Veselin Stoyanov
+Alexander Ropson
+Jason Eisner
+Center for Language and Speech Processing, Johns Hopkins University
+Baltimore, MD 21218
+
+Abstract
+Graphical models are often used “inappropriately,” with approximations in the topology, inference, and prediction. Yet it is
+still common to train their parameters to
+approximately maximize training likelihood.
+We argue that instead, one should seek
+the parameters that minimize the empirical risk of the entire imperfect system. We
+show how to locally optimize this risk using back-propagation and stochastic metadescent. Over a range of synthetic-data
+problems, compared to the usual practice of
+choosing approximate MAP parameters, our
+approach signiﬁcantly reduces loss on test
+data, sometimes by an order of magnitude.
+
+1
+
+Introduction
+
+Graphical models are widely used across AI. By modeling joint distributions, they permit structured prediction with arbitrary patterns of missing data (including
+latent variables and statistical relational learning). By
+explicitly representing how distributions are factored,
+they can expose problem-speciﬁc structure to be exploited by generic inference and learning algorithms.
+However, several compromises are often made in practice. Predictive systems based on graphical models
+typically suﬀer from multiple approximations:
+Mis-speciﬁed model structure. Usually the model
+structure is a guess or an oversimpliﬁcation. We do
+not know that the true distribution of the data can be
+described by any setting of the model parameters θ.
+MAP estimation. Even if the model structure is correct, we cannot infer the correct parameters θ from ﬁnite training data. A proper Bayesian approach would
+Appearing in Proceedings of the 14th International Conference on Artiﬁcial Intelligence and Statistics (AISTATS)
+2011, Fort Lauderdale, FL, USA. Volume 15 of JMLR:
+W&CP 15. Copyright 2011 by the authors.
+
+integrate over the posterior distribution of θ, but this
+can be expensive. It is common to choose a single θ
+vector via MAP estimation (i.e., empirical Bayes).
+Approximate inference. Even if the model structure and parameters are both correct, we often cannot
+aﬀord exact inference (in the usual sense of eﬃciently
+computing posterior marginals or partition functions).
+For model structures of high treewidth, we must fall
+back on approximations such as variational inference.
+Inference also plays a key role in parameter estimation,
+and Kulesza and Pereira (2008) show that approximate
+inference here can lead to pathological learning.
+Approximate decoding. Even if we can perform
+exact inference, that is not the ﬁnal goal. Ideally, a
+system would follow decision theory and emit the prediction, decision, or estimate that has lowest expected
+loss under the posterior distribution, i.e., the lowest
+Bayes risk. This is called a generalized Bayes rule,
+or a minimum Bayes risk (MBR) decoder. Alas, in
+structured prediction, global loss functions can make
+MBR decoding intractable even when exact inference
+is tractable.1 So various heuristic procedures are used
+in place of MBR to extract structured predictions.
+These approximations may have been forced by practical considerations—so we are stuck with some given
+model structure, approximate inference algorithm, decoding procedure, and parameter vector θ to optimize.2 The loss function is also given.
+Solution: Direct Risk Minimization. Our main
+observation is that at the end of the day, this is merely
+a discriminative learning setting. Just as when train1
+E.g., in an HMM, exact inference is tractable, yet it is
+intractable to predict the emission sequence (with nothing
+observed) that minimizes expected global 0-1 loss. I.e.,
+ﬁnding the most probable emission sequence (summing out
+the states) is NP-hard (Casacuberta and Higuera, 2000).
+2
+More generally, we may be willing to consider a family
+of model structures or inference/decoding procedures. In
+this case, θ will include extra parameters that select within
+these families. We try to choose the best θ at training time.
+
+Empirical Risk Minimization of Graphical Model Parameters Given Approximations
+
+ing a linear classiﬁer, we should simply set the model
+parameters θ to make the system perform accurately
+at test time. The entire system— approximations and
+all—can be treated as a black-box decision rule to be
+tuned via θ. The computation performed inside the
+black box may have been motivated by probabilistic inference (albeit with approximations). But ultimately
+it is just some parametric function constructed to suit
+the problem at hand, and one may accordingly train
+its parameters θ to minimize risk (expected loss).
+Minimizing risk is the proper goal of any training, since
+it directly optimizes the evaluation measure. This is
+not to say that traditional training methods are always misguided. If one is lucky enough to enjoy correct model structure, exact inference, and MBR decoding, one’s risk is minimized by choosing the true
+model parameters, which is accomplished by traditional maximum-likelihood or MAP estimation—at
+least in the limit of inﬁnite training data. But trying to identify the true parameters of an approximate
+system makes no sense: no “true parameters” exist.
+In this paper we focus on locally minimizing the empirical risk, i.e., the observed error of the system on
+supervised training data. (See section 10 for future
+work that goes beyond this setting.)
+Recall how a feed-forward neural network is trained.
+One does not need to make any probabilistic interpretation of the neural network. It is simply a parametric function of the input, y = fθ (x), that is used
+to predict y from x. The training procedure directly
+seeks a θ that works well in practice. In the terminology of decision theory, fθ is a family of estimators.
+Traditionally, the parameters θ (synaptic weights) are
+tuned by gradient descent to minimize the empirical
+N
+1
+˜
+risk R(θ) = N i=1 (fθ (xi ), yi ), which is the average
+loss of the chosen estimator fθ over the training set
+{(xi , yi )}. The empirical risk is merely a diﬀerentiable
+function of θ, determined by the structure of the neural
+network, the inference method and the loss function.
+Graphical models can be trained in the same way.
+When a practitioner builds a system around some approximate Bayesian technique, she is constructing a
+family of decision rules fθ . The empirical risk is a
+˜
+function R(θ) (often diﬀerentiable) of the parameters
+θ. We can use methods such as gradient descent to
+tune θ to minimize the empirical risk. In general, it is
+fast to ﬁnd the gradient by automatic diﬀerentiation—
+and we will show speciﬁcally how to do this when the
+inference algorithm is loopy belief propagation.
+
+2
+
+Modeling and Inference
+
+An undirected graphical model, or Markov random ﬁeld (MRF), is deﬁned by a triple (X , F, Ψ).
+
+X = (X1 , X2 , . . . , Xn ) is a sequence of n random variables; we use x = (x1 , x2 , . . . , xn ) to denote a possible
+assignment of values. F is a collection of subsets of
+{1, 2, . . . , n}; for each α ∈ F, we write xα to denote a
+sub-assignment to the subset of variables Xα .
+Finally, Ψ = {ψα : α ∈ F} is a set of factors, where
+each factor ψα is a function that maps each xα to
+a potential value in [0, ∞). Each of the factors ψα
+depends implicitly on a parameter vector θ.
+The probability of a given assignment x is given by
+pθ (X = x) =
+
+1
+Z
+
+ψα (xα )
+
+(1)
+
+α∈F
+
+where Z is chosen to normalize the distribution.
+2.1
+
+Loopy Belief Propagation
+
+Inference in general MRFs is intractable. We focus in
+this paper on a popular approximate inference technique, loopy belief propagation (BP) (Pearl, 1988).
+BP is eﬃcient provided that the domains of the factors ψα are small (i.e., no ψα has to evaluate too many
+local conﬁgurations xα ) and exact for “non-loopy” Ψ.
+BP uses the following iterative update equations to
+solve for the messages µi→α and µα→i . Both kinds
+of messages are unnormalized probability distributions
+over the possible values of Xi (initialized to uniform):
+µi→α (xi ) ←
+
+µβ→i (xi )
+
+(2)
+
+β∈F : i∈β,β=α
+
+µα→i (xi ) ←
+
+ψα (xα )
+
+xα : (xα )i =xi
+
+µj→α ((xα )j ) (3)
+
+j∈α: j=i
+
+Provided that the messages (or rather, normalized versions of them) converge, we may then compute
+bxi (xi ) ←
+bα (xα ) ←
+
+1
+Zbxi
+
+µβ→i (xi )
+
+(4)
+
+β∈F : i∈β
+
+1
+ψα (xα )
+Zbα
+
+µj→α ((xα )j )
+
+(5)
+
+j∈α
+
+where the beliefs bi and bα respectively approximate
+the MRF’s marginal distributions over the variable Xi
+and the set of variables Xα . Zbxi and Zbα are normalizing functions.
+To approximate the posterior marginals given some observations, run BP over a modiﬁed MRF that enforces
+those observations. (If Xi has been observed to equal
+v, then set ψ{i} (xi ) to be 1 or 0 according to whether
+xi = v or not, ﬁrst adding {i} to F if {i} ∈ F.)
+
+3
+
+Training θ
+
+We assume a supervised or semi-supervised learning
+setting. Each training example {(xi , y i )} consists of a
+
+Veselin Stoyanov, Alexander Ropson, Jason Eisner
+
+set xi of input random variables with observed values,
+and a set y i of output random variables with observed
+values. (We do not assume that the same sets are
+designated as input and output in each example, and
+there may be additional hidden variables.)
+For purposes of this paper, our system’s goal is to predict y i . (y, y i ) deﬁnes the task-speciﬁc loss that the
+system would incur by outputting y.
+
+In practice, the true data distribution is unknown, but
+we can do empirical risk minimization and take
+the expectation over our sample of (xi , y i ) pairs. In
+our setting, we explicitly evaluate the loss of a given θ
+on example (xi , y i ) by computing from xi our beliefs b,
+decoding the beliefs about y i to obtain the prediction
+y ∗ , and returning (y ∗ , y i ).
+
+4
+3.1
+
+The Standard Learning Paradigm
+
+MRFs are usually trained by maximizing the loglikelihood given training data (xi , yi ):
+θ∗ = argmax LogL(θ) = argmax
+θ
+
+θ
+i
+
+log pθ (xi , y i ) (6)
+
+To approximate the log Z of each MRF, one can run
+belief propagation. The resulting beliefs can be combined into a quantity called the Bethe free energy
+that approximates − log Z (Yedidia et al., 2000). The
+gradient of the Bethe free energy is very closely connected to the beliefs, making it easy to follow the gradient of the approximate log-likelihood. Training MRFs
+based on the Bethe free energy approximation has
+been shown to work relatively well in practice (Vishwanathan et al., 2006; Sutton and McCallum, 2005).
+Decoding
+
+The log-likelihood training aims to produce θ∗ that
+causes the MRF to predict good beliefs about the output variables y i . A decoder is a decision rule that
+converts these beliefs into a prediction. According to
+the minimum Bayes risk (MBR) principle, the procedure should pick the output that minimizes the expected risk under pθ :
+y∗
+
+=
+
+argmin Epθ (y |xi ) [ (y, y )]
+
+(7)
+
+y
+
+The MBR decoding procedure depends on the loss
+function and can be computed eﬃciently only in some
+cases. The MBR decoders that we use are described
+in more detail in Section 5.1.
+3.3
+
+Empirical Risk Minimization
+
+The risk minimization principle says that if we have
+fθ , a family of decision functions parameterized by θ,
+we should select θ to minimize the expected loss under
+the true data distribution over (x, y):
+def
+
+θ∗ = argmin E[ (fθ (x), y)]
+θ
+
+To carry out the above empirical risk minimization,
+we propose to use a gradient-based optimizer. The
+gradient indicates how slight changes to θ would aﬀect
+the loss (y ∗ , y i ) via the beliefs b and prediction y ∗ .
+
+i
+
+The log-likelihood log pθ (xi , y ), or the conditional loglikelihood log pθ (y i | xi ), can be found by considering
+two slightly diﬀerent MRFs, one with (xi , y i ) both observed and one with only the conditioning events (if
+any) observed. The desired result is the diﬀerence between the log Z values of the two MRFs.
+
+3.2
+
+Gradient of Empirical Risk
+
+(8)
+
+4.1
+
+Back-Propagation
+
+To determine this gradient on example (xi , y i ), we
+employ automatic diﬀerentiation in the reverse mode
+(Griewank and Corliss, 1991), a general technique
+for sensitivity analysis in computations. The intuition behind automatic diﬀerentiation is that our entire “black-box” predictor is nothing but a sequence
+of elementary diﬀerentiable operations. If intermediate results are recorded during the computation of the
+function (the forward pass), we can then compute the
+partial derivative of the loss with respect to each intermediate quantity, in the reverse order (the backward
+pass). At the end, we have accumulated the partials
+of the loss with respect to each parameter θ.
+A well-known special case of this algorithm is backpropagation in feed-forward neural networks. Its extension to recurrent neural networks (Williams and
+Zipser, 1989) involves cyclic updates like those in BP.
+In this case we must consider an “unrolled” version of
+the forward pass, in which “snapshots” of a variable
+at times t and t + 1 are treated as distinct variables,
+with one perhaps inﬂuencing the other.
+In our case the forward pass constitutes of running
+BP (equations (2) and (3)) until convergence is “good
+enough.” Beliefs b are computed from the ﬁnal messages using equations (4) and (5). The beliefs are then
+converted to a decision y ∗ = d(b(y|x)) using a decoder
+function d. Finally, the loss relative to the truth y i is
+computed as (y ∗ , y i ). The forward pass includes inference in the model, but we record the messages that
+are sent and their order, as detailed in our Appendix.3
+The backward pass computes the partials of loss with
+respect to the decision (diﬀerentiating the loss function) and next with respect to the marginal beliefs
+(diﬀerentiating the decoder). Subsequently, BP is replayed backwards in time, computing the partials with
+3
+We do not assume that BP is run to convergence, so we
+must record what the forward pass actually accomplished.
+
+Empirical Risk Minimization of Graphical Model Parameters Given Approximations
+
+respect to each message that was sent on the forward
+pass, and eventually with respect to the input parameters θ. The total time required by this algorithm is
+roughly twice the time of the forward pass, so its complexity is equivalent to approximate inference. The
+complete equations can be found in our Appendix.
+4.2
+
+Numerical Optimization
+
+The above gradient could be used directly to optimize
+θ. While the objective function is locally rather bumpy
+(see below), stochastic gradient descent has some ability to escape small local optima.
+However, we ﬁnd that we obtain better optima when
+we collect second-order information about the optimization surface. Instead of stochastic gradient descent, we use the Stochastic Meta-Descent (SMD)
+method of Schraudolph (1999). SMD maintains a separate positive gain adaptation ηi for each optimization dimension θi . Parameter updates are scaled by
+ηi . Updates for the ηi themselves are computed using
+the product of the Hessian matrix with a vector. For
+this, we apply more automatic diﬀerentiation magic.
+It is not necessary to compute the full Hessian—as
+our Appendix explains, a Hessian-vector product can
+be computed by forward-mode automatic diﬀerentiation of the back-propagation pass (Pearlmutter, 1994;
+Griewank and Walther, 2008), without increasing the
+asymptotic complexity.
+
+5
+
+Experiments
+
+To allow a proper factorial experimental design with a
+range of controlled and well-understood conditions, we
+experiment on artiﬁcially generated data. A companion paper shows improvements on 3 natural language
+tasks using real data (Stoyanov and Eisner, in review).
+We randomly generate graphical models with known
+structure and parameters (the true model). We use 12
+models consisting of a varying number of random variables and varying degree of connectivity in the model
+(shown in Table 1). We use binary random variables
+and functions ψ over pairs of random variables. Model
+structure is generated by picking edges at random.
+The true parameters θi are sampled IID from the standard normal, and each potential value ψα (xα ) is set to
+exp θi for a diﬀerent i. 1 lists all models used in the experiments. We generate training and test sets of 1000
+examples from the true model by Gibbs sampling. Our
+experiments perform conditional training (i.e. we are
+training Conditional Random Fields). We select a random third of the random variables of the true model
+and designate them as input variables, another randomly selected third we designate as hidden variables
+and the rest we consider output variables. We then
+
+num. vars (n)
+num.
+2n
+edges
+4n
+n ln(n)
+
+50
+50·100
+50·200
+50·195
+
+100
+100·200
+100·400
+100·461
+
+150
+150·300
+150·600
+150·752
+
+200
+200·400
+200·800
+200·1051
+
+Table 1: A listing of all models used in the experiments.
+50·100 denotes a MRF with 50 binary variables and 100
+binary edges.
+
+learn a function of the input variables with the goal
+of minimizing loss on the output variables. Hidden
+variables are not observed even in training.
+5.1
+
+Test Settings
+
+We experiment with diﬀerent settings for the type of
+output the decoder is expected to produce and diﬀerent loss functions.
+Type of output:
+• Integer: The algorithm is required to output a
+complete assignment for the output random variables (i.e., it has to commit to a speciﬁc value for
+each output random variable).
+• Fractional (soft): The algorithm can output a
+fractional assignment for the output random variables. For example, it may hedge its bets by predicting 0.6 for a variable X with domain {0, 1}.
+• Distributional: The output is a distribution
+over the output random variables. The algorithm
+outputs probability for a joint assignment of the
+input and output variables. In our work, this setting is used only for the appr-logl loss function.
+Loss functions (to be averaged over examples):
+1
+∗
+• L1 loss: L1 loss L1 = k i |yi − yi |, where k
+is the number of output nodes. For integer outputs on our binary variables, it is proportional to
+Hamming loss or accuracy.
+1
+∗
+• MSE: Mean squared error mse = k i (yi − yi )2 .
+Equivalent to Hamming loss for integer outputs.
+• F-measure: The harmonic average of precision
+and recall, F = (2 ∗ prec ∗ rec)/(prec + rec). Fmeasure is deﬁned for integer outputs.
+• Conditional log-likelihood: The negative of
+the conditional log-likelihood of the test data under the predicted distribution of the model. Approximated in our case, since we use loopy MRFs.
+As noted previously in the paper, the MBR decoder
+depends on the loss. It also depend on the type of
+output that the system is allowed to predict (i.e., integer vs. fractional). The MBR decoders for the loss
+functions that we will be using are discussed below and
+listed in Table 2:
+L1 loss: Expected loss in both the integer and fractional case is minimized by placing all probability mass
+
+Veselin Stoyanov, Alexander Ropson, Jason Eisner
+
+Output
+integer
+
+fractional
+
+Loss
+L1
+MSE
+F
+L1
+MSE
+F
+LogL
+
+Decoder
+max
+max
+apprF
+max
+ident
+apprF
+distr
+
+Setting
+int-L1
+int-L1
+int-F
+int-L1
+frac-MSE
+int-F
+appr-logl
+
+distributional
+Table 2: Experimental settings and their corresponding
+shortcut names. Some names appear in more than one
+cell in the table indicating that the particular conditions
+lead to equivalent settings of the algorithm. In total, we
+experiment with four unique settings.
+
+on the most probable assignment for each output variable. In other words, the MBR decoder is the argmax
+function. The argmax is not diﬀerentiable, so when
+training, we enable back-propagation by using a soft
+version of the argmax function parameterized by tem1
+1
+perature t: softargmax(x, t) = x t / x x t .
+MSE: In the integer case this loss is equivalent to
+the L1 loss, so the same MBR decoder applies. If
+fractional outputs are allowed, the MBR decode of a
+binary-valued variable is its marginal probability. In
+other words, the MBR decoder is the identity function.
+F-measure: This loss does not factorize over the
+output variables, making MBR decoding intractable
+(computing the expected loss includes summing over
+exponentially many settings for the random variables). Our approximate MBR decoder simply picks
+the threshold that would assign an equal number of
+variables to 0 and 1.4 In preliminary experiments, the
+two approximations performed identically, so we chose
+the simple one in the interest of time. When minimizing F-score we again use softargmax during training.
+log-likelihood: This loss requires no decoding.
+Standard learning setting. Our baseline training setting (labeled appr-logl below) follows Vishwanathan et al. (2006). It uses SMD to maximize the
+conditional log-likelihood of the training data (log p(y i |
+xi ), as in CRFs) as approximated by loopy BP. (At test
+time, we do decode the beliefs using the proper MBR
+decoder matched to the evaluation loss function.)
+Error Back-Propagation. Here we take the loss
+into account during training, using SMD this time to
+minimize the empirical risk. The gradient is computed
+as in Section 4.1. We implemented our algorithm in
+4
+
+We also tried sampling from the posterior distribution and selecting the threshold value that minimizes the
+expected loss according to the samples. This is bettermotivated but slower, and performed identically in preliminary experiments.
+
+the libDAI framework (Mooij, 2010) extending the implementation of Eaton and Ghahramani (2009) (see
+Related Work Section).
+
+6
+
+The Optimization Landscape
+
+The advantage of using ERM is that it properly simulates test conditions. While it is not a convex objective, neither is the conventional choice of approximate
+log-likelihood—nor even exact log-likelihood in semisupervised cases like ours.
+To visualize the landscape of objective functions, we
+show in Figure 1 plots of the diﬀerent losses in a particular direction. Plots show the continuum of loss on
+a line through the true parameters θ∗ (α = 0) and the
+parameters θ found by some method (α = 1). Each
+point shows the loss from an interpolated parameter
+vector (1 − α)θ∗ + αθ . The plots are computed for a
+single model and are along only one dimension—the
+true optimization surface is high-dimensional.
+Plots in Figure 1 show that approximate log-likelihood
+appears to be smoother than the other three loss functions. It is also clear, however, that the approximate
+log-likelihood function has a global minimum that does
+not occur at point θ∗ (the true parameters), and the
+other three loss functions have other minima. Of the
+other loss functions, MSE appears smoothest and appears to closely resemble F and L1 loss.
+
+7
+
+Dealing with Non-Convexity
+
+The previous section suggests that loss functions that
+we want to optimize can be non-convex and bumpy. In
+fact, initial experiments showed that the optimizing Fscore and L1 loss was prone to getting stuck in local
+optima. We propose two continuation methods to deal
+with the non-convexity of the optimization function.
+Interpolated Objective. We observed that MSE
+is smoother than F-score and L1 loss and the three
+losses have similar shapes. This motivates the use of
+a hybrid optimization function, which is a mix of the
+smoother loss and the function that ultimately needs
+to be optimized. By changing the balance between the
+two functions we can rely on the smooth function to get
+us to a good region and switch to optimizing the test
+loss. More formally, we deﬁne a hybrid loss function
+1,2 (y, y ) = λ 1 (y, y ) + (1 − λ) 2 (y, y ) between losses
+1 and 2 . The coeﬃcient λ changes from 0 to 1 during
+training. Preliminary experiments on external models
+found that using a three value schedule λ ∈ {0, .5, 1}
+and changing the value upon convergence works well
+in practice. In our experiments we use hybrids with
+MSE for F and L1 losses and label the corresponding
+runs with -hyb.
+
+Empirical Risk Minimization of Graphical Model Parameters Given Approximations
+
+0
+
+4
+0
+
+−1.0
+
+−0.5
+
+0.0
+
+0.5
+
+1.0
+
+1.5
+
+0.4
+0.1 0.2 0.3
+MSE / L1 / F
+
+19
+
+0
+−1.5
+
+0.09 0.18 0.26 0.35
+MSE / L1 / F
+
+APPR−LOGL
+MSE
+L1
+F
+
+LogL
+8
+
+12
+
+16
+
+0=True 1=APPR_LOGL
+
+−1.5
+
+LogL
+9.5 14.25
+
+1.5
+
+−1.0
+
+−0.5
+
+0.0
+
+0.5
+
+1.0
+
+1.5
+
+1.0
+
+1.5
+
+0=True 1=MSE
+APPR−LOGL
+MSE
+L1
+F
+
+0
+
+1.0
+
+10
+
+0.5
+
+LogL
+5
+7.5
+
+0.0
+
+2.5
+
+−0.5
+
+0
+
+−1.0
+
+0.06 0.12 0.19 0.25
+MSE / L1 / F
+
+0
+
+15
+0
+
+−1.5
+
+APPR−LOGL
+MSE
+L1
+F
+
+4.75
+
+0.18 0.35 0.52
+MSE / L1 / F
+
+APPR−LOGL
+MSE
+L1
+F
+
+0
+
+0.7
+
+0=True 1=APPR_LOGL−i1
+
+LogL
+30
+
+45
+
+60
+
+0=True 1=random
+
+−1.5
+
+−1.0
+
+−0.5
+
+0.0
+
+0.5
+
+Figure 1: Plots of loss (objective) functions (on the 50 · 200 model) starting at the true generating parameters (θ∗ ) and
+moving toward: a random initialization (top left); the model found by one iteration of appr-logl training (top right);
+appr-logl training upon termination (bottom left); and, MSE training upon termination (bottom right). Note that the
+y axes have diﬀerent scales.
+
+Staged Training. The second strategy is motivated
+by the observation that the approximate log-likelihood
+is smooth and generally gets in the right region of parameter values. Thus, we can run a few iterations
+of appr-logl (we use three) and use the learned parameters to initialize further tuning for loss, much as
+(Hinton et al., 2006) follow a unsupervised learning in
+a deep belief network with supervised tuning.
+
+8
+
+Results and Discussion
+
+Results are averaged over the 12 models that we use
+in testing. We report the average of the diﬀerence
+between the loss of the training run and the loss of the
+corresponding true model using MBR decoding. Score
+of 0 indicates performance identical to the optimal.
+All models were trained for 25 iterations of SMD with
+the exception of the hybrid models, which were trained
+until convergence of the optimization (in all cases convergence took < 25 iterations). We used 5 random
+restarts for each run with the exception of the -in runs
+where we used a single run. Parameters for the SMD
+algorithm (η0 , µ and λ) were tuned using grid search
+on supplemental models not used in the evaluation.
+8.1
+
+Overall Results
+
+Table 3 lists the overall results of our experiments under “ideal” conditions—the exact model structure is
+
+known, there is suﬃcient amount of training data and
+BP is run to convergence. The table shows results
+for the four testing settings and for training runs that
+use hybrids (-hyb), staged training (-in) or both (-inhyb) when applicable. Error back-propagation always
+outperforms the traditional appr-logl setting on average. Both strategies for overcoming non-convexity
+appear to work, but improvements using only the hybrid loss are smaller and not statistically signiﬁcant,
+while improvements using staged training are statistically signiﬁcant (p < 0.05). Best results are obtained
+by combining the two strategies: staged training with
+a few iterations of appr-logl followed by learning
+with hybrid loss. In the rest of the results, we only
+report this learning setting omitting the -in-hyb suﬃx.
+Improvements are greatest when the loss function is
+MSE, which we empirically found to be relatively
+smooth. Error back-propagation is also very beneﬁcial
+in the case of F-score where the MBR decoder is only
+approximate. By keeping the decoder ﬁxed and learning parameters that minimize the loss of the decoder,
+EMR training can help the model learn parameters
+that optimize the particular approximate decoder.
+Finally, we observe that the models trained on
+appr-logl exhibit smaller approximate negative loglikelihood than the true model, which conﬁrms our
+observation that the approximation induces a diﬀerent
+global minimum of the log-likelihood function that is
+
+Veselin Stoyanov, Alexander Ropson, Jason Eisner
+
+test setting
+frac-MSE
+(.04610)
+int-F
+(.06425)
+
+int-L1
+(.06385)
+
+train setting
+appr-logl
+frac-MSE
+frac-MSE-in
+appr-logl
+int-F-hyb
+int-F-in
+int-F-hyb-in
+appr-logl
+int-L1-hyb
+int-L1-in
+int-L1-hyb-in
+appr-logl
+
+∆loss
+.00710
+.00482
+.00057
+.01170
+.00411
+.00115
+.00081
+.00751
+.00398
+.00137
+.00079
+-.31618
+
+wins
+5·0·7
+12·0·0
+7·0·5
+10·1·1
+11·0·1
+5·1·6
+10·2·0
+10·2·0
+
+appr-logl
+Table 3: Average loss for the diﬀerent training settings.
+∆loss lists the diﬀerence between the performance of the
+trained and the true model (negative loss indicates smaller
+loss than the true model). The average loss of the true
+model in a setting is shown in parentheses below the setting name. The wins column shows on how many models the setting wins/ties/loses vs. appr-logl training. A
+bold number indicates a statistically signiﬁcant improvement over appr-logl (p < 0.05, paired permutation test).
+
+test
+setting
+
+train
+Perturbation
+setting
+10%
+20%
+30%
+40%
+appr-logl .00352 .00642 .00622 .01118
+frac-MSE
+.00101 .00316 .00312 .00534
+frac-MSE
+12·0·0 11·0·1 11·0·1 10·0·2
+appr-logl .01042 .01928 .01026 .02123
+int-F
+.00095 .00472 .00473 .00969
+int-F
+11·0·1 10·1·1 11·0·1 9·0·3
+appr-logl .00452 .00748 .00569 .01173
+int-L1
+.00147 .00442 .00602 .00945
+int-L1
+9·2·1
+9·0·3
+9·0·3
+9·0·3
+appr-loglappr-logl -.3096 -.0180 -.0373 -.1169
+
+Table 4: Results on varying degree of structure mismatch.
+test
+setting
+
+train
+Num. of BP iterations
+setting
+100
+30
+20
+10
+appr-logl .00710 .00301 .00816 .02461
+frac-MSE
+.00057 .00072 .00063 .00064
+frac-MSE
+12·0·0 11·0·1 12·0·0 12·0·0
+appr-logl .01170 .00476 .01276 .03085
+int-F
+.00081 .00126 .00058 .00091
+int-F
+11·0·1 12·0·0 10·1·1 11·0·1
+appr-logl .00751 .00344 .01087 .02984
+int-L1
+.00079 .00101 .00078 .00096
+int-L1
+10·2·0 10·0·2 10·2·0 12·0·0
+appr-loglappr-logl -.3161 -.1823 -.2422 -.1104
+
+not a minimum for the other loss functions.
+
+Table 5: Results for diﬀerent BP approximation quality.
+
+Table 6 in Appendix B lists additional results for all
+pairs of test settings and training runs and shows that
+the smallest loss is achieved when training and test
+conditions are matched in all of our settings.
+
+number of BP iterations. We use 100 iterations as our
+base case as most of the runs converge in that limit.
+
+8.2
+
+Model Structure Mismatch
+
+In real problems, model structure matches the true
+structure of the process generating data only approximately. To represent this condition, we introduce mismatch between the structure of the true model and
+the structure of the model that we train by removing
+and adding at random a pre-speciﬁed percentage of
+the links of the graphical model.
+Table 4 shows the results of the mismatched condition.
+Again, error back-propagation beats appr-logl at all
+levels of structure noise, except for L1 loss, where it
+performs worse at the 30% level (not statistically signiﬁcant) and improvement is statistically insigniﬁcant
+at the 40% level. Performance degradation in the error
+back-propagation runs is gradual. Interestingly, performance of the appr-logl training slightly improves
+with a low level of structure noise. We speculate that
+the noise acts as a regularizer to prevent appr-log
+from overﬁtting to the approximate criterion.
+8.3
+
+Approximation quality
+
+Finally, to emulate the case in which the approximate
+algorithms may be forced to terminate early, we limit
+the run of BP to a ﬁxed number of iterations. Table
+5 shows the results of our experiments for diﬀerent
+
+As the quality of the approximation decreases, we see
+that back-propagation training remains quite robust,
+while the performance gap with appr-logl widens.
+When using only 10 iterations, back-propagation training reduces the error by a factor of more than 30
+in all testing settings. This shows that using backpropagation and ERM is very important when working with poor approximations. In general appr-logl
+training appears to ﬁnd parameters that require more
+iterations of BP to converge.
+
+9
+
+Related Work
+
+ERM has been used with appropriate loss functions in
+speech recognition (Bahl et al., 1988), machine translation (Och, 2003), and energy-based models generally (LeCun et al., 2006). Our own contributions to
+this area included general algorithms for computing
+the gradient of annealed risk when dynamic programming is involved (Li and Eisner, 2009). In graphical
+models, methods have been proposed to directly minimize loss in tree-shaped or linear chain MRFs and
+CRFs (Kakade et al., 2002; Suzuki et al., 2006; Gross
+et al., 2007). All of these focus on exact inference.
+Our present paper can be seen as generalizing these
+methods to arbitrary graph structures, arbitrary loss
+functions and approximate inference.
+
+Empirical Risk Minimization of Graphical Model Parameters Given Approximations
+
+Kulesza and Pereira (2008) show that within a ﬁxed
+training method—the perceptron—substituting approximate inference may or may not allow the method
+to achieve low risk, depending on the inference
+method. In particular, loopy BP within a perceptron
+learner may lead to pathological results. They remark
+that that the empirical risk under loopy BP could be
+directly minimized by using grid search. Our gradientbased method is an improvement over grid search.
+Guided by the intuition that the errors of approximate
+methods in the estimation and prediction phases may
+cancel one another, Wainwright (2006) provides theoretical analysis to show that it is beneﬁcial with respect
+to end-to-end performance to learn the “wrong” model
+by using inconsistent methods for parameter estimation. This holds even in the inﬁnite data limit.
+Lacoste-Julien et al. (2011) also consider the eﬀects of
+approximate inference on loss. Unlike us, they assume
+the parameters are given but propose an approximate
+inference algorithm that considers the loss function.
+Simultaneous to us, Domke (2010) propose a ﬁnitediﬀerence method that can compute the gradient of
+any loss that is a function of marginal inference results. His method relies on running the inference (forward) procedure three times, and, like our method,
+can be used with approximate inference. Compared
+to Domke’s algorithm, our method has several advantages: it does not suﬀer from the numerical instabilities inherent in ﬁnite-diﬀerence methods; it does not
+require that inference runs to convergence; it can be
+used to compute gradients of additional parameters
+that are used in the inference algorithm (initial conditions, termination parameters, etc.). Furthermore,
+his algorithm imposes some additional (albeit mild)
+technical conditions on the choice of inference algorithm. The advantage of Domke’s algorithm is that
+it is very easy to implement: in addition to computing the derivative of the loss function with respect to
+the marginals, it requires running inference two more
+times with perturbed parameters.
+We are not aware of prior work that uses backpropagation to cope with approximate inference, approximate decoding, or arbitrary diﬀerentiable loss
+functions. Eaton and Ghahramani (2009) did independently apply back-propagation to BP for a quite
+diﬀerent purpose: sensitivity analysis to ﬁnd the “important” random variables in an MRF. They then conditioned the MRF on the important variables for subsequent runs of BP in the hope of ﬁnding better approximations. Their back-propagation algorithm is related to ours, but considers only the state where BP
+has converged, without saving intermediate messages;
+it could not handle our early stopping in section 8.3.
+
+Many other learning methods have been proposed
+for when exact inference is intractable. Those include pseudolikelihood (Besag, 1975, 1977),5 , piecewise training (Sutton and McCallum, 2005), and many
+variational approaches. These training methods focus
+on approximately maximizing log-likelihood. They do
+not take into account the loss function or the choice of
+approximate inference or decoding procedure, nor do
+they try to compensate for model error.
+
+10
+
+Conclusions and Future Work
+
+We have presented a new and well-motivated training objective for graphical models. Because the objective directly minimizes the empirical risk, it is robust
+to approximations in modeling, inference, and decoding. We show that this in fact leads to signiﬁcant and
+substantial practical gains across a variety of distributions, models, inference procedures, and decoding procedures when evaluated on a range of synthetic data.
+Separately, we have found that the method also works
+well on real data (Stoyanov and Eisner, in review).
+To optimize the objective, we have shown how to compute its gradient using automatic diﬀerentiation (see
+Appendix), and how to use a second-order optimization method. We have also experimented with two
+methods that mitigate the local optimum problem.
+This line of work opens up many opportunities. Our
+sequel paper (in progress) will consider extensions
+• to select also a graphical model topology (along
+with parameters) that gets good results despite
+loopy BP inference, still using back-propagation
+but on a modiﬁed objective (Lee et al., 2006);
+• to re-incorporate a Bayesian prior (the need for
+which was pointed out by Minka (2000)—the
+present paper eliminates any role for a prior, and
+does not even regularize θ);
+• to handle more complex patterns of missing data
+at training and test time; and
+• to reparameterize the system to allow convex
+training (while the present paper copes with many
+approximations, it does not yet solve the signiﬁcant approximation of local optimization).
+Acknowledgements
+This material is based upon work supported by the
+National Science Foundation under Grant # 0937060
+to the Computing Research Association for the CIFellows Project.
+
+5
+Vishwanathan et al. (2006) ﬁnd that our baseline
+(SMD + loopy BP) outperforms pseudolikelihood training.
+
+Veselin Stoyanov, Alexander Ropson, Jason Eisner
+
+References
+L. R. Bahl, P. F. Brown, P. V. de Souza, and R. L.
+Mercer. A new algorithm for the estimation of hidden Markov model parameters. In Proceedings of
+ICASSP, pages 493–496, 1988.
+J. Besag. Statistical analysis of non-lattice data. The
+Statistician, 24(3):179–195, 1975. ISSN 0039-0526.
+J. Besag. Eﬃciency of pseudolikelihood estimation for
+simple Gaussian ﬁelds. Biometrika, 64(3):616–618,
+1977. ISSN 0006-3444.
+F. Casacuberta and C. De La Higuera. Computational
+complexity of problems on probabilistic grammars
+and transducers. In Proceedings of the 5th International Colloquium on Grammatical Inference: Algorithms and Applications, pages 15–24, 2000.
+J. Domke. Implicit Diﬀerentiation by Perturbation.
+In Advances in Neural Information Processing Systems, 2010.
+F. Eaton and Z. Ghahramani. Choosing a variable to
+clamp: Approximate inference using conditioned belief propagation. In Proceedings of AISTATS, 2009.
+
+regularization. In Advances in Neural Information
+Processing Systems, pages 817–824, 2006.
+Z. Li and J. Eisner. First- and second-order expectation semirings with applications to minimum-risk
+training on translation forests. In Proc. of EMNLP,
+pages 40–51, 2009.
+T. Minka. Empirical risk minimization is an incomplete inductive principle. MIT Media Lab note, August 2000.
+J. Mooij. libDAI: A free and open source C++ library for discrete approximate inference in graphical models. Journal of Machine Learning Research,
+11:2169–2173, Aug 2010.
+F. Och. Minimum error rate training in statistical machine translation. In Proceedings of ACL, 2003.
+J. Pearl. Probabilistic Reasoning in Intelligent Systems: Networks of Plausible Inference. Morgan
+Kaufmann, 1988. ISBN 1558604790.
+B. Pearlmutter. Fast exact multiplication by the Hessian. Neural Computation, 6:147–160, 1994.
+
+A. Griewank and G. Corliss, editors. Automatic Diﬀerentiation of Algorithms. SIAM, Philadelphia, 1991.
+
+N.N. Schraudolph. Local gain adaptation in stochastic
+gradient descent. In Proceedings of the Ninth International Conference on Artiﬁcial Neural Networks,
+volume 2, pages 569–574, 1999.
+
+A. Griewank and A. Walther. Evaluating Derivatives:
+Principles and Techniques of Algorithmic Diﬀerentiation. SIAM, 2008.
+
+Veselin Stoyanov and Jason Eisner. Minimum-risk
+training of approximate CRF-based NLP systems,
+in review.
+
+S. Gross, O. Russakovsky, C. Do, and S. Batzoglou.
+Training conditional random ﬁelds for maximum labelwise accuracy. Advances in Neural Information
+Processing Systems, 19:529, 2007.
+
+C. Sutton and A. McCallum. Piecewise training of
+undirected models. In 21st Conference on Uncertainty in Artiﬁcial Intelligence, 2005.
+
+G.E. Hinton, S. Osindero, and Y.W. Teh. A fast learning algorithm for deep belief nets. Neural computation, 18(7):1527–1554, 2006. ISSN 0899-7667.
+S. Kakade, Y.W. Teh, and S.T. Roweis. An alternate
+objective function for Markovian ﬁelds. In International Conference on Machine Learning, pages 275–
+282, 2002.
+A. Kulesza and F. Pereira. Structured learning with
+approximate inference. In Advances in Neural Information Processing Systems, 2008.
+S. Lacoste-Julien, F. Huszr, and Z. Ghahramani. Approximate inference for the loss-calibrated Bayesian.
+In Proceedings of AISTATS, 2011.
+Y. LeCun, S. Chopra, R. Hadsell, M. Ranzato, and
+F. Huang. A tutorial on energy-based learning. In
+G. Bakir, T. Hofman, B. Schlkopf, A. Smola, and
+B. Taskar, editors, Predicting Structured Data. MIT
+Press, 2006.
+S.-I. Lee, V. Ganapathi, and D. Koller. Eﬃcient
+structure learning of markov networks using l1 -
+
+J. Suzuki, E. McDermott, and H. Isozaki. Training
+conditional random ﬁelds with multivariate evaluation measures. In Proceedings of COLING/ACL,
+pages 217–224, 2006.
+S.V.N. Vishwanathan, N.N. Schraudolph, M.W.
+Schmidt, and K.P. Murphy. Accelerated training of
+conditional random ﬁelds with stochastic gradient
+methods. In Proceedings of the 23rd International
+Conference on Machine Learning, pages 969–976.
+ACM, 2006.
+M. J. Wainwright. Estimating the “wrong” graphical model: Beneﬁts in the computation-limited setting. Journal of Machine Learning Research, 7:
+1829–1859, September 2006.
+R.J. Williams and D. Zipser. A learning algorithm
+for continually running fully recurrent neural networks. Neural Computation, 1(2):270–280, 1989.
+ISSN 0899-7667.
+J. Yedidia, W. Freeman, and Y. Weiss. Bethe free
+energy, Kikuchi approximations and belief propagation algorithms. Technical Report TR2001-16, Mitsubishi Electric Research Laboratories, 2000.
+
+A
+
+Back-Propagating the Error over the Belief Propagation Run
+
+In this appendix, we will use a version of belief propagation where the messages and beliefs are normalized at
+every step. (Normalization is optional but is usually required for convergence testing and for decoding.)
+In the main paper, µ (messages) and b (beliefs) refer to unnormalized probability distributions, but here they
+refer to the normalized versions. We use µ and ˜ to refer to the unnormalized versions, which are computed by
+˜
+b
+the update equations below. The normalized versions are then constructed via
+q (x)
+˜
+
+q(x) =
+
+(9)
+
+q (x )
+˜
+x
+
+A.1
+
+Belief Propagation
+
+The recurrence equations (2)–(5) for belief propagation are repeated below with normalization. To update a
+single message, the distribution µi→α or µα→i , we compute the unnormalized distribution µ, using equation (A.3)
+˜
+or (11) (respectively) for each value xi in the domain of random variable Xi :
+
+µi→α (xi ) ←
+˜
+
+µβ→i (xi )
+
+(10)
+
+β∈F : i∈β,β=α
+
+µα→i (xi ) ←
+˜
+
+ψα (xα )
+
+xα : (xα )i =xi
+
+µj→α ((xα )j )
+
+(11)
+
+j∈α: j=i
+
+We then compute the normalized version µ using equation (9). Upon convergence of the normalized messages
+or when another stopping criterion is reached (i.e., maximum number of iterations), beliefs are computed as:
+(T )
+
+˜x (xi ) ←
+b i
+
+µβ→i (xi )
+
+(12)
+
+β∈F : i∈β
+(T )
+
+˜α (xα ) ← ψα (xα )
+b
+
+µj→α ((xα )j )
+
+(13)
+
+j∈α
+
+The normalized beliefs b are used by a decoder d to produce a decode of the output variables. Finally, a loss
+function computes the “badness” of the decoded output as compared to the gold standard: V = (d(b), y ∗ ). In
+this paper we work with decoders that are function of beliefs at the variables, but the method would also work
+with decoders that consider beliefs at the factors (e.g., variants of the Viterbi decoder).
+The only requirement is that the decoder and loss function are diﬀerentiable functions of their inputs. Hence we
+replace non-diﬀerentiable functions, in particular max, with diﬀerentiable approximations such as softargmax, as
+described in the main paper.
+A.2
+
+Back-propagation
+
+Let V be the loss of the system on a given example. We will use the notation ðy to represent ∂V /∂y, called the
+adjoint of y. An adjoint is deﬁned for each intermediate quantity that was computed during evaluation of V .
+If diﬀerent quantities were assigned to the variable y at diﬀerent times, then ðy will likewise take on diﬀerent
+values during the algorithm, representing the various partials of V with respect to those various quantities.
+Ultimately we are able to compute the adjoint ðθj for each parameter θj , which gives us the gradient
+
+θV
+
+.
+
+We ﬁrst compute V (the forward pass). This begins with belief propagation as described above. The only
+diﬀerence from standard loopy belief propagation is that we record an “undo list” (known as the tape) of the
+message values that are overwritten at each time step t ∈ {1, ..., T }. That is, if at time t the message µα→i was
+(t−1)
+updated, then we save the old value as µα→i 1 . We then run the decoder over the resulting beliefs to obtain a
+prediction y, and compute the loss V with respect to the supervised answer y ∗ .
+1
+
+(t−1)
+
+In reality, the normalized version of the message µα→i alone is not suﬃcient for the backward pass because the
+
+The backward pass begins by setting ðV = 1. We then diﬀerentiate the loss function to obtain the adjoints
+∂V
+of the decoded output: ðd(xi ) = ðV · ∂d(xi ) . (The actual formulas depend on the choice of loss function: if the
+decoded output for xi were to change by an inﬁnitesimal , how much would V change?) We use the chain rule
+i)
+again to propagate backward through the decoder to obtain the adjoints of the beliefs: ðb(xj ) = i ðd(xi )· ∂d(xj ) .
+∂b(x
+(Again, the actual formula for this partial derivative depends on the decoder.)
+From the belief adjoints, we can initialize the adjoints of the belief propagation messages by applying the chain
+rule to equations (12)–(13):
+
+ðµi→α (xi ) ←
+
+µj→α (xj )ð˜xi (xi )
+b
+
+ψα ((xα )k )
+k∈α:k=i
+
+(14)
+
+j∈α:j=i
+
+µβ→i (xi )ð˜α (xα )
+b
+
+ðµα→i (xi ) ←
+
+(15)
+
+β∈F : i∈β,β=α
+
+µi→α ((xα )i )ð˜α (xα )
+b
+
+(T
+ðψα ) (xα ) ←
+
+(16)
+
+i∈α
+
+Starting with these message adjoints, the algorithm proceeds to run the belief propagation computation backwards as follows. Loop for t ← {T, T − 1, ..., 1}. If the message update at time t was to a message µi→α according
+to equation (A.3), we increment the adjoint for every β occurring in the right-hand side of equation (A.3), for
+each value xi in the domain of Xi :
+
+
+
+
+ðµβ→i (xi ) ← ðµβ→i (xi ) + 
+
+µγ→i (xi ) ð˜i→α (xi )
+µ
+
+(17)
+
+i∈γ:γ=α,β
+
+We then undo the update, restoring the old message (and initializing the adjoints of its components to 0):
+
+(t−1)
+
+µi→α ← µi→α
+
+(18)
+
+ðµi→α (xi ) ← 0
+
+(19)
+
+Otherwise, the message update at time t was µα→i (xi ) according to equation (11). We increment the adjoints
+for all j and ψα occurring on the right-hand side of equation (11):
+
+ðµj→α (xj ) ← ðµj→α (xj ) +
+
+
+
+xi
+
+xα : (xα )i =xi ∧(xα )j =xj
+
+
+i∈α
+
+µj→α (xj ) ð˜α→i (xi )
+µ
+
+(20)
+
+k∈α:k=i,j
+
+
+
+
+
+ðψα (xα ) ← ðψα (xα ) +
+
+µk→α (xk ) ð˜α→i (xi )
+µ
+
+ψα (xα )
+
+
+
+(21)
+
+j∈α:j=i
+
+And again, we undo the update:
+
+(t−1)
+
+µα→i ← µα→i
+ðµα→i (xi ) ← 0
+(t−1)
+
+(22)
+(23)
+
+unnormalized message µα→i is also needed. There are two possible solutions: to save the unnormalized version of the
+˜
+(t−1)
+message µα→i and compute the normalized value as needed or to save the normalizing constant together with the message.
+˜
+(t−1)
+We use the latter option in our implementation for eﬃciency. Given the normalization constants, and µα→i , it is trivial
+(t−1)
+to reconstruct the values for µα→i in the backward pass, so this computation is omitted from the rest of the discussion
+˜
+for brevity.
+
+In either case, for each normalized distribution q whose adjoint was updated on the left-hand side of the above
+rules, we then update the adjoint of the corresponding normalized distribution q :
+˜
+
+ð˜(x) =
+q
+
+1
+˜
+x q (x )
+
+ðq(x) −
+
+q(x )ðq(x )
+
+(24)
+
+x
+
+Finally, we compute the adjoints of the parameters θ (i.e., the desired gradient for optimization). Remember
+that each real-valued potential ψα (xα ) (where xα represents a speciﬁc assigment to variables Xα ) is derived from
+θ by some function: ψα (xα ) = f (θ). Adjoints of θ are computed from the ﬁnal ψ adjoints as:
+
+ðψα (xα ) ·
+
+ðθi =
+α,xα
+
+A.3
+
+∂f (ψα (xα ))
+ðθi
+
+(25)
+
+Complexity
+
+For nodes of high degree in the factor graph, the computations in the forward pass can be sped up using the
+“division trick.” For example, the various messages β∈F : i∈β,β=α µβ→i (xi ) in (10) for diﬀerent α can be found
+by found by ﬁrst computing the belief (12) and then dividing out the respective factors µα→i (xi ).
+To perform the backward pass, we must save all updated values during the forward pass, requiring space of
+O(runtime).
+The runtime of the backward pass is asymptotically the same as that of the forward pass (about three to four
+times as long). This is not the case for a straightforward implementation, since a single update µi→α in the
+˜
+forward pass results in ni updates in the backward pass, where ni is the number of functions (features) in which
+node i participates (see equation (17)). Similarly, a single update µα→i in the forward pass results in 2nα updates,
+˜
+where nα is the number of nodes in the domain of ψα (from the updates in equations (20) and (21)). However, the
+computations can again be sped up using the division trick—for example,
+µγ→i (xi ) can be computed
+i∈γ:γ=α,β
+
+
+
+
+µγ→i (xi ) /µβ→i (xi ). Note from equation (10) that µi→α (xi ) ←
+˜
+
+as 
+i∈γ:γ=α
+
+µβ→i (xi ), so this quantity
+i∈β,β=α
+
+is already available and the whole product can be computed using a single division as µi→α (xi )/µβ→i (xi ). This
+˜
+optimization saves considerable amount of computation when nodes participate in many functions. The same
+optimization trick can be used for the updates in equations (20) and (21) and will lead to savings when domains
+of potential functions contain multiple nodes. This is not the case for the experiments in this paper as we work
+only with potential functions deﬁned over pairs of nodes. In general, running inference in MRFs with functions
+over domains with large cardinalities is computationally expensive. Thus, MRFs used in practice can be expected
+to either have limited size potential function domains or use specialized computations for the µα→i messages.
+Therefore, speeding up the computation in equations (20) and (21) is less of a concern. Our implementation
+runs approximately three times slower than the forward pass.
+
+A.4
+
+Hessian-Vector Product
+
+Section 4.2 of the main paper notes that for our Stochastic Meta-Descent optimization, we must repeatedly
+compute not only the gradient of the loss (with respect to the current parameters θ), but also the product of the
+Hessian of the loss (again computed with respect to the current θ) with a given vector v.
+This requires a small adjustment to the algorithms above, using “dual numbers.” Every quantity x computed
+by the forward or backward pass above should be replaced by an ordered pair of scalars (x, R{x}), where R{x}
+measures the instantaneous rate of change of x as θ is moved along the direction v.
+As the base case, each θi is replaced by (θi , vi ). For other quantities, if x is computed from y and z by some
+diﬀerentiable function, then it is possible to compute R{x} from y, z, R{y}, and R{z}. Thus, operations such
+as addition and multiplication can be deﬁned on the dual numbers.
+In practice, therefore, code for the forward and backward passes can be left nearly unchanged, using operator
+overloading to make them run on dual numbers. See Pearlmutter (1994) for details.
+
+B
+
+Supplementary Results
+test setting
+frac-MSE
+int-F
+int-L1
+appr-logl
+
+frac-MSE
+.00057
+.00109
+.00069
+.11141
+
+train setting
+int-F
+int-L1
+.00122
+.00115
+.00081
+.00106
+.00096 .00079
+.16153
+.1508
+
+appr-logl
+.0071
+.0117
+.00751
+-0.31618
+
+Table 6: Results for all pairs of settings
+As suggested by an anonymous reviewer, Table 6 lists the results (the ∆loss as in all previous tables) for all pairs
+of train and test settings. More speciﬁcally, the training loss is the option including staged training and hybrid
+loss where applicable (i.e., the -in and -hyb settings).
+The results show that matching training and test conditions (the bolded diagonal of the table) leads to the
+best results in all settings. Only the last column was achievable with previously published algorithms, so our
+contribution is to provide the diagonal elements, which in each row do better than the last column.
+
+

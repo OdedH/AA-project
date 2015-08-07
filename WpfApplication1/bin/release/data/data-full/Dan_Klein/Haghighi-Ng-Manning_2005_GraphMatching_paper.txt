@@ -1,0 +1,835 @@
+Robust Textual Inference via Graph Matching
+Aria D. Haghighi
+Dept. of Computer Science
+Stanford University
+Stanford, CA
+
+Andrew Y. Ng
+Dept. of Computer Science
+Stanford University
+Stanford, CA
+
+Christopher D. Manning
+Dept. of Computer Science
+Stanford University
+Stanford, CA
+
+aria42@stanford.edu
+
+ang@cs.stanford.edu
+
+manning@cs.stanford.edu
+
+Abstract
+We present a system for deciding whether
+a given sentence can be inferred from
+text. Each sentence is represented as a
+directed graph (extracted from a dependency parser) in which the nodes represent
+words or phrases, and the links represent
+syntactic and semantic relationships. We
+develop a learned graph matching model
+to approximate entailment by the amount
+of the sentence’s semantic content which
+is contained in the text. We present results on the Recognizing Textual Entailment dataset (Dagan et al., 2005), and
+show that our approach outperforms BagOf-Words and TF-IDF models. In addition, we explore common sources of errors
+in our approach and how to remedy them.
+
+1 Introduction
+A fundamental stumbling block for several NLP applications is the lack of robust and accurate semantic inference. For instance, question answering systems must be able to recognize, or infer, an answer
+which may be expressed differently from the query.
+Information extraction systems must also be able
+recognize the variability of equivalent linguistic expressions. Document summarization systems must
+generate succinct sentences which express the same
+content as the original document. In Machine Translation evaluation, we must be able to recognize legitimate translations which structurally differ from our
+reference translation.
+
+One sub-task underlying these applications is the
+ability to recognize semantic entailment; whether
+one piece of text follows from another. In contrast
+to recent work which has successfully utilized logicbased abductive approaches to inference (Moldovan
+et al., 2003; Raina et al., 2005b), we adopt a graphbased representation of sentences, and use graph
+matching approach to measure the semantic overlap of text. Graph matching techniques have proven
+to be a useful approach for tractable approximate
+matching in other domains including computer vision. In the domain of language, graphs provide
+a natural way to express the dependencies between
+words and phrases in a sentence.
+
+2 Task Deﬁnition and Data
+We describe our approach in the context of the 2005
+Recognizing Textual Entailment (RTE) Challenge
+(Dagan et al., 2005), but note that our approach easily extends to other related inference tasks. The system presented here was one component of our research group’s RTE submission (Raina et al., 2005a)
+which was the top-ranking system according to one
+of the two evaluation metrics.
+In the 2005 RTE domain, we are given a set of
+pairs, each consisting of two parts: 1) the text, a
+small passage,1 and the hypothesis, a single sentence. Our task is to decide if the hypothesis is “entailed” by the text. Here, “entails” does not mean
+strict logical implication, but roughly means that
+a competent speaker with basic world-knowledge
+would be happy to conclude the hypothesis given
+1
+
+Usually a single sentence, but occasionally longer.
+
+S
+NP-Bezos
+
+establish
+(VBD)
+
+VP-established
+Subj (Agent)
+
+NNP
+
+VBD
+
+Obj (Patient)
+
+NP-company
+
+Bezos established DT
+
+NN
+
+Bezos
+(person)
+
+company
+(organization)
+
+a company
+
+Figure 1: An example parse tree and the corresponding dependency graph. Each phrase of the parse tree
+is annotated with its head word, and the parenthetical edge labels in the dependency graph correspond
+to semantic roles.
+the text. Despite the informality of the criterion
+and the fact that the available world knowledge is
+left unspeciﬁed, human judges show extremely good
+agreement on this task – 3 human judges independent of the organizers calculated agreement rates
+with the released data set ranging from 91–96% (Dagan et al., 2005). We believe that this in part reﬂects
+that the task is fairly natural to human beings. For
+a ﬂavor of the nature (and difﬁculty) of the task, see
+Table 1.
+We give results on the data provided for the RTE
+task which consists of 567 development pairs and
+800 test pairs. In both sets the pairs are divided into
+7 tasks – each containing roughly the same number
+of entailed and not-entailed instances – which were
+used as both motivation and means for obtaining and
+constructing the data items. We will use the following toy example to illustrate our representation and
+matching technique:
+Text: In 1994, Amazon.com was founded by Jeff Bezos.
+Hypothesis: Bezos established a company.
+
+3 Semantic Representation
+3.1
+
+was established in 1979.
+In this example, it’s important to try to match relationships as well as words. In particular, any answer
+to the question should preserve the dependency between Israel and established. However, in the proposed answer, the expected dependency is missing
+although all the words are present.
+Our approach is to view sentences as graphs between words and phrases, where dependency relationships are characterized by the path between vertices. (Lin and Pantel, 2001) have successfully used
+this representation to characterize semantic relationships .
+Given this representation, we judge entailment by
+measuring not only how many of the hypothesis vertices are matched to the text but also how well the
+relationships between vertices in the hypothesis are
+preserved in their textual counterparts. For the remainder of the section we outline how we produce
+graphs from text, and in the next section we introduce our graph matching model.
+3.2
+
+From Text To Graphs
+
+Starting with raw English text, we use a version of
+the parser described in (Klein and Manning, 2003),
+to obtain a parse tree. Then, we derive a dependency
+tree representation of the sentence using a slightly
+modiﬁed version of Collins’ head propagation rules
+(Collins, 1999), which make main verbs not auxiliaries the head of sentences. Edges in the dependency graph are labeled by a set of hand-created
+tgrep expressions. These labels represent “surface” syntax relationships such as subj for subject
+and amod for adjective modiﬁer, similar to the relations in Minipar (Lin and Pantel, 2001). The dependency graph is the basis for our graphical representation, but it is enhanced in the following ways:
+
+The Need for Dependencies
+
+Perhaps the most common representation of text for
+assessing content is “Bag-Of-Words” or “Bag-of-NGrams” (Papineni et al., 2002). However, such representations lose syntactic information which can
+be essential to determining entailment. Consider a
+Question Answer system searching for an answer
+to When was Israel established? A representation
+which did not utilize syntax would probably enthusiastically return an answer from (the 2005 RTE text):
+The National Institute for Psychobiology in Israel
+
+1. Collapse Collocations and Named-Entities: We
+“collapse” dependency nodes which represent
+named entities (e.g., Jeff Bezos in Figure ﬁgexample) and also collocations listed in WordNet, including verbs and their adjacent particles
+( e.g. , blow off in He blew off his work) .
+2. Dependency Folding: As in (Lin and Pantel, 2001), we found it useful to fold certain dependencies (such as modifying prepositions) so that modiﬁers became labels connect-
+
+Task
+Question
+Answer
+(QA)
+Machine
+Translation
+(MT)
+Comparable
+Documents
+(CD)
+Paraphrase
+Recognition
+(PP)
+Information
+Retrieval
+(IR)
+
+Text
+Prince Charles was previously married to
+Princess Diana, who died in a car crash in
+Paris in August 1997.
+Sultan Al-Shawi, a.k.a the Attorney, said
+during a funeral held for the victims,
+”They were all children of Iraq killed during the savage bombing.”.
+Napster, which started as an unauthorized
+song-swapping Web site, has transformed
+into a legal service offering music downloads for a monthly fee.
+Kerry hit Bush hard on his conduct on the
+war in Iraq.
+
+Hypothesis
+Prince Charles and Princess Diana got married in August 1997.
+
+Entailed
+False
+
+The Attorney, said at the funeral,
+”They were all Iraqis killed during the brutal shelling.”.
+
+True
+
+Napster illegally offers music
+downloads.
+
+False
+
+Kerry shot Bush.
+
+False
+
+The country’s largest private employer,
+Wal-Mart Stores Inc., is being sued by
+a number of its female employees who
+claim they were kept out of jobs in management because they are women.
+
+Wal-Mart sued for sexual discrimination.
+
+True
+
+Table 1: Some Textual Entailment examples. The last three demonstrate some of the harder instances.
+ing the modiﬁer’s governor and dependent directly. For instance, in the text graph in Figure
+2, we have changed in from a word into a relation between its head verb and the head of its
+NP complement.
+3. Semantic Role Labeling: We also augment
+the graph representation with Probank-style
+semantic roles via the system described in
+(Toutanova et al., 2005). Each predicate adds
+an arc labeled with the appropriate semantic role to the head of the argument phrase.
+This helps to create links between words which
+share a deep semantic relation not evident in
+the surface syntax. Additionally, modifying
+phrases are labeled with their semantic types
+(e.g., in 1991 is linked by a Temporal edge in
+the text graph of Figure 2), which should be
+useful in Question Answering tasks.
+For the remainder of the paper, we will refer to
+the text as T and hypothesis as H, and will speak
+of them in graph terminology. In addition we will
+use HV and HE to denote the vertices and edges,
+respectively, of H.
+
+4 Entailment by Graph Matching
+We take the view that a hypothesis is entailed from
+the text when the cost of matching the hypothesis
+graph to the text graph is low. For the remainder of
+this section, we outline a general model for assigning a match cost to graphs.
+For hypothesis graph H, and text graph T , a
+matching M is a mapping from the vertices of H to
+those of T . For vertex v in H, we will use M (v) to
+denote its “match” in T . As is common in statistical
+machine translation, we allow nodes in H to map to
+ﬁctitious NULL vertices in T if necessary. Suppose
+the cost of matching M is Cost(M ). If M is the set
+of such matchings, we deﬁne the cost of matching
+H to T to be
+MatchCost(H, T ) = min Cost(M )
+M ∈M
+
+(1)
+
+Suppose we have a model, VertexSub(v, M (v)),
+which gives us a cost in [0, 1], for substituting vertex v in H for M (v) in T . One natural cost model
+is to use the normalized cost for each of the vertex
+
+substitutions in M :
+1
+VertexCost(M ) =
+Z
+
+establish
+(VBD)
+
+Subj (Agent)
+
+Obj (Patient)
+
+w(v)VertexSub(v, M (v))
+
+(2)
+Here, w(v) represents the weight or relative importance for vertex v, and Z =
+v∈HV w(v) is
+a normalization constant. In our implementation,
+the weight of each vertex was based on the part-ofspeech tag of the word or the type of named entity,
+if applicable. However, there are several other possibilities including using TF-IDF weights for words
+and phrases.
+Notice that when Cost(M ) takes the form of
+(2), computing MatchCost(H, T ) is equivalent to
+ﬁnding the minimal cost bipartite graph-matching,
+which can be efﬁciently computed using linear programming.
+We would like our cost-model to incorporate
+some measure of how relationships in H are preserved in T under M . Ideally, a matching should
+preserve all local relationships; i.e, if v → v ′ ∈ HE ,
+then M (v) → M (v ′ ) ∈ TE . When this condition
+holds for all edges in H, H is isomorphic to a subgraph of T .
+What we would like is an approximate notion of
+isomorphism, where we penalize the distortion of
+each edge relation in H. Consider an edge e =
+(v, v ′ ) ∈ HE , and let φM (e) be the path from M (v)
+to M (v ′ ) in T .
+Again,
+suppose
+we have a model,
+PathSub(e, φM (e)) for assessing the “cost” of
+substituting a direct relation e ∈ HE for its counterpart, φM (e), under the matching. This leads to
+a formulation similar to (2), where we consider the
+normalized cost of substituting each edge relation
+in H with a path in T :
+
+Synonym
+Match
+Cost: 0.4
+
+Bezos
+(person)
+
+v∈HV
+Exact
+Match
+Cost: 0.0
+
+Subj (Agent)
+
+found
+(VBD)
+
+Company
+(organization)
+
+Obj (Patient)
+
+Hyponym
+Match
+Cost: 0.0
+
+In (Temporal)
+Jeff Bezos
+(person)
+
+1991
+(date)
+
+Amazon.com
+(organization)
+
+Vertex Cost: (0.0 + 0.2 + 0.4)/3 = 0.2
+Relation Cost: 0 (Graphs Isomorphic)
+Match Cost: 0.55 (0.2) + (.45) 0.0 = 0.11
+
+Figure 2: Example graph matching (α = 0.55) for
+example pair. Dashed lines represent optimal matching.
+the vertex and relational match costs: Cost(M ) =
+αVertexCost(M ) + (1 − α)RelationCost(M ).
+Notice that minimizing Cost(M ) is computationally hard since if our PathSub model assigns zero cost only for preserving edges, then
+RelationCost(M ) = 0 if and only if H is isomorphic
+to a subgraph of T . Since subgraph isomophism is
+an NP-complete problem, we cannot hope to have an
+efﬁcient exact procedure for minimizing the graph
+matching cost. As an approximation, we can efﬁciently ﬁnd the matching M ∗ which minimizes
+VertexCost(·); we then perform local greedy hillclimbing search, beginning from M ∗ , to approximate the minimal matching. The allowed operations
+are change the assignment of any hypothesis vertex
+to a text one, and, to avoid ridges, allow swapping
+two hypothesis assignments
+
+5 Node and Edge Substitution Models
+
+In the previous section we described our graph
+matching model in terms of our VertexSub model,
+1
+w(e)PathSub(e, φM (e)) which gives a cost for substituting one graph vertex
+RelationCost(M ) =
+Z e∈H
+for another, and PathSub, which gives a cost for subE
+(3) stituting the path relationship between two paths in
+one graph for that in another. We now outline these
+where Z =
+e∈HE w(e) is a normalization constant. As in the vertex case, we have weights models.
+for each hypothesis edge, w(e), based upon the
+edge’s label; typically subject and object relations 5.1 Vertex substitution cost model
+are more important to match than others. Our ﬁ- Our VertexSub(v, M (v)) model is based upon a
+nal matching cost is given by a convex mixture of sliding scale, where progressively higher costs are
+
+given based upon the following conditions:
+• Exact Match: v and M (v) are identical words/
+phrases.
+• Stem Match: v and M (v)’s stems match or one
+is a derivational form of the other; e.g., matching
+coaches to coach.
+• Synonym Match: v and M (v) are synonyms according to WordNet (Fellbaum, 1998). In particular we use the top 3 senses of both words to determine synsets.
+• Hypernym Match: M (v) is a hypernym of v 2 ,
+as determined by WordNet. Note that this feature
+is asymmetric.
+• WordNet Similarity: v and M (v) are similar according to WordNet::Similarity (Pedersen et al., 2004). In particular, we use the measure
+described in (Resnik, 1995). We found it useful
+to only use similarities above a ﬁxed threshold to
+ensure precision.
+• LSA Match: v and M (v) are distributionally
+similar according to a freely available Latent Semantic Indexing package,3 or for verbs similar
+according to VerbOcean (Chklovski and Pantel,
+2004).
+• POS Match: v and M (v) have the same part of
+speech.
+Although the above conditions often produce reasonable matchings between text and hypothesis, we
+found the recall of these lexical resources to be far
+from adequate. More robust lexical resources would
+almost certainly boost performance.
+5.2
+
+Path substitution cost model
+
+Our PathSub(v → v ′ , M (v) → M (v ′ )) model is
+also based upon a sliding scale cost based upon the
+following conditions:
+• Exact Match: M (v) → M (v ′ ) is an en edge in
+T with the same label.
+• Partial Match: M (v) → M (v ′ ) is an en edge in
+T , not necessarily with the same label.
+• Ancestor Match: M (v) is an ancestor of M (v ′ ).
+We use an exponentially increasing cost for longer
+distance relationships.
+2
+3
+
+v is “kind of” M (v)
+Available at http://infomap.stanford.edu
+
+• Kinked Match: M (v) and M (v ′ ) share a common parent or ancestor in T . We use an exponentially increasing cost based on the maximum of
+the node’s distances to their least common ancestor in T .
+These conditions capture many of the common
+ways in which relationships between entities are distorted in semantically related sentences. For instance, in our system, a partial match will occur
+whenever an edge type differs in detail, for instance
+use of the preposition towards in one case and to in
+the other. An ancestor match will occur whenever an
+indirect relation leads to the insertion of an intervening node in the dependency graph, such as matching
+John is studying French farming vs. John is studying
+French farming practices.
+5.3
+
+Learning Weights
+
+Is it possible to learn weights for the relative importance of the conditions in the VertexSub and PathSub
+models? Consider the case where match costs are
+given only by equation (2) and vertices are weighted
+uniformly (w(v) = 1). Suppose that Φ(v, M (v))
+is a vector of features4 indicating the cost according to each of the conditions listed for matching v
+to M (v). Also let w be weights for each element
+of Φ(v, M (v)). First we can model the substitution
+cost for a given matching as:
+VertexSub(v, M (v)) =
+
+exp (wT Φ(v, M (v)))
+1 + exp (wT Φ(v, M (v)))
+
+Letting s(·) be the 1-sigmoid function used in the
+right hand side of the equation above, our ﬁnal
+matching cost as a function of w is given by
+1
+s(wT Φ(v, M (v)))
+M ∈M |HV |
+v∈H
+(4)
+Suppose we have a set of text/hypothesis pairs,
+{(T (1) , H (1) ), . . . , (T (n) , H (n) )}, with labels y (i)
+which are 1 if H (i) is entailed by T (i) and 0 otherwise. Then we would like to choose w to minimize
+costs for entailed examples and maximize it for nonentailed pairs:
+c(H, T ; w) = min
+
+log c(H (i) , T (i) ; w) +
+
+ℓ(w) =
+i:y (i) =1
+4
+
+In the case of our “match” conditions, these features will
+be binary.
+
+log(1 − c(H (i) , T (i) ; w))
+i:y (i) =0
+
+Unfortunately, ℓ(w) is not a convex function. Notice that the cost of each matching, M , implicitly
+depends on the current setting of the weights w. It
+can be shown that since each c(H, T ; w) involves
+minimizing M ∈ M, which depends on w, it is not
+convex. Therefore, we can’t hope to globally optimize our cost functions over w and must settle for
+an approximation.
+One approach is to use coordinate ascent over M
+and w. Suppose that we begin with arbitrary weights
+and given these weights choose M (i) to minimize
+each c(H (i) , T (i) ; w). Then we use a relaxed form of
+the cost function where we use the matchings found
+in the last step:
+c(H (i) , T (i) ; w) =
+ˆ
+
+1
+s(wT Φ(v, M (i) (v)))
+|HV | v∈H
+
+Then we maximize w with respect to ℓ(w) with
+each c(·) replaced with the cost-function c(·). This
+ˆ
+step involves only logistic regression. We repeat this
+procedure until our weights converge.
+To test the effectiveness of the above procedure
+we compared performance against baseline settings
+using a random split on the development set. Picking
+each weight uniformly at random resulted in 53%
+accuracy. Setting all weights identically to an arbitrary value gave 54%. The procedure above, where
+the weights are initialized to the same value, resulted
+in an accuracy of 57%. However, we believe there
+is still room for improvement since carefully-hand
+chosen weights results in comparable performance
+to the learned weights on the ﬁnal test set. We believe this setting of learning under matchings is a
+rather general one and could be beneﬁcial to other
+domains such as Machine Translation. In the future,
+we hope to ﬁnd better approximation techniques for
+this problem.
+
+6 Checks
+One systematic source of error coming from our basic approach is the implicit assumption of upwards
+monotonicity of entailment; i.e., if T entails H then
+adding more words to T should also give us a sentence which entails H. This assumption, also made
+
+by other recent abductive approaches (Moldovan et
+al., 2003), does not hold for several classes of examples. Our formalism does not at present provide a
+general solution to this issue, but we include special
+case handling of the most common types of cases,
+which we outline below.5 These checks are done after graph matching and assume we have stored the
+minimal cost matching.
+Negation Check
+Text: Clinton’s book is not a bestseller
+Hypothesis: Clinton’s book is a bestseller
+
+To catch such examples, we check that each hypothesis verb is not matched to a text word which
+is negated (unless the verb pairs are antonyms) and
+vice versa. In this instance, the is in H, denoted by
+isH , is matched to isT which has a negation modiﬁer,
+notT , absent for isH . So the negation check fails.
+Factive Check
+Text: Clonaid claims to have cloned 13 babies worldwide.
+Hypothesis: Clonaid has cloned 13 babies.
+
+Non-factive verbs (claim, think, charged, etc.) in
+contrast to factive verbs (know, regret, etc.) have
+sentential complements which do not represent true
+propositions. We detect such cases, by checking that
+each verb in H that is matched in T does not have a
+non-factive verb for a parent.
+Superlative Check
+Text: The Osaka World Trade Center is the tallest building in
+Western Japan.
+Hypothesis: The Osaka World Trade Center is the tallest building in Japan.
+
+In general, superlative modiﬁers (most, biggest,
+etc.) invert the typical monotonicity of entailment
+and must be handled as special cases. For any
+noun n with a superlative modiﬁer (part-of-speech
+JJS) in H, we must ensure that all modiﬁer relations
+of M (n) are preserved in H. In this example, buildingH has a superlative modiﬁer tallestH , so we must
+ensure that each modiﬁer relation of JapanT , a noun
+dependent of buildingT , has a WesternT modiﬁer not
+in H. So its fails the superlative check.
+Additionally, during error analysis on the development set, we spotted the following cases where
+5
+
+All the examples are actual, or slightly altered, RTE examples.
+
+Method
+Random
+Bag-Of-Words
+TF-IDF
+GM-General
+GM-ByTask
+
+Accuracy
+50.0%
+49.5%
+51.8%
+56.8%
+56.7%
+
+CWS
+0.500
+0.548
+0.560
+0.614
+0.631
+
+Table 2: Accuracy and conﬁdence weighted score
+(CWS) for test set using various techniques.
+our VertexSub function erroneously labeled vertices
+as similar, and required special case consideration:
+• Antonym Check: We consistently found that the
+WordNet::Similarity modules gave highsimilarity to antonyms.6 We explicitly check
+whether a matching involved antonyms and reject
+unless one of the vertices had a negation modiﬁer.
+• Numeric Mismatch: Since numeric expressions
+typically have the same part-of-speech tag (CD),
+they were typically matched when exact matches
+could not be found. However, mismatching numerical tokens usually indicated that H was not
+entailed, and so pairs with a numerical mismatch
+were rejected.
+
+7 Experiments and Results
+For our experiments we used the devolpement and
+test sets from the Recognizing Textual Entailment
+challenge (Dagan et al., 2005). We give results for
+our system as well as for the following systems:
+• Bag-Of-Words: We tokenize the text and hypothesis and strip the function words, and stem the resulting words. The cost is given by the fraction of
+the hypothesis not matched in the text.
+• TF-IDF: Similar to Bag-Of-Words except that
+there is a tf.idf weight associated with each hypothesis word so that more “important” words are
+higher weight for matching.
+We also present results for two graph matching
+(GM) systems. The GM-General system ﬁts a single global threshold from the development set. The
+GM-ByTask system ﬁts a different threshold for
+each of the tasks.
+6
+
+This isn’t necessarily incorrect, but is simply not suitable
+for textual inference.
+
+Task
+CD
+IE
+IR
+MT
+PP
+QA
+RC
+
+GM-General
+Accuracy CWS
+72.0%
+0.742
+55.9%
+0.583
+52.2%
+0.564
+50.0%
+0.497
+58.0%
+0.741
+53.8%
+0.537
+52.1%
+0.539
+
+GM-ByTask
+Accuracy CWS
+76.0%
+0.771
+55.8%
+0.595
+51.1%
+0.572
+43.3%
+0.489
+58.0%
+0.746
+55.4%
+0.556
+52.9%
+0.523
+
+Table 3: Accuracy and conﬁdence weighted score
+(CWS) split by task on the RTE test set.
+Our results are summarized in Table 2. As the result indicates, the task is particularly hard; all RTE
+participants scored between 50% and 60% in terms
+of overall accuracy (Dagan et al., 2005). Nevevertheless, both GM systems perform better than either
+Bag-Of-Words or TF-IDF. CWS refers to Conﬁdence Weighted Score (also known as average precision). This measure is perhaps a more insightful
+measure, since it allows the inclusion of a ranking
+of answers by conﬁdence and assesses whether you
+are correct on the pairs that you are most conﬁdent
+that you know the answer to. To assess CWS, our
+n answers are sorted in decreasing order by the conﬁdence we return, and then for each i, we calculate
+ai , our accuracy on our i most conﬁdent predictions.
+1
+Then CWS = n n ai .
+i=1
+We also present results on a per-task basis in Table 3. Interestingly, there is a large variation in performance depending on the task.
+
+8 Conclusion
+We have presented a learned graph matching approach to approximating textual entailment which
+outperforms models which only match at the word
+level, and is competitive with recent weighed abduction models (Moldovan et al., 2003). In addition,
+we explore problematic cases of nonmonotonicity in
+entailment, which are not naturally handled by either subgraph matching or the so-called “logic form”
+inference of (Moldovan et al., 2003) and have proposed a way to capture common cases of this phenomenon. We believe that the methods employed
+in this work show much potential for improving the
+state-of-the-art in computational semantic inference.
+
+Text
+A Filipino hostage in Iraq was released.
+The government announced last
+week that it plans to raise oil
+prices.
+Shrek 2 rang up $92 million.
+Sonia Gandhi can be defeated in
+the next elections in India by BJP.
+Fighters loyal to Moqtada alSadr shot down a U.S. helicopter
+Thursday in the holy city of Najaf.
+C and D Technologies announced
+that it has closed the acquisition
+of Datel, Inc.
+
+Hypothesis
+A Filipino hostage
+was freed in Iraq.
+Oil prices drop.
+
+True Answer
+True
+
+Our answer
+True
+
+Conf
+0.84
+
+False
+
+False
+
+0.95
+
+Shrek 2 earned $92
+million.
+Sonia Gandhi is defeated by BJP.
+Fighters loyal to
+Moqtada al-Sadr shot
+down Najaf.
+Datel Acquired C and
+D technologies.
+
+True
+
+False
+
+0.59
+
+False
+
+True
+
+0.77
+
+False
+
+True
+
+0.67
+
+False
+
+True
+
+0.64
+
+Comments
+Verb rewrite is handled. Phrasal
+ordering does not affect cost.
+High cost given for substituting
+word for its antonym.
+Collocation “rang up” is not
+known to be similar to “earned”.
+“can be” does not indicate the
+complement event occurs.
+Should recognize non-Location
+cannot be substituted for Location.
+Failed to penalize switch in semantic role structure enough
+
+Table 4: Analysis of results on some RTE examples along with out guesses and conﬁdence probabilities
+
+9 Acknowledgments
+Many thanks to Rajat Raina, Christopher Cox,
+Kristina Toutanova, Jenny Finkel, Marie-Catherine
+de Marneffe, and Bill MacCartney for providing us
+with linguistic modules and useful discussions. This
+work was supported by the Advanced Research and
+Development Activity (ARDA)’s Advanced Question Answering for Intelligence (AQUAINT) program.
+
+Dan I. Moldovan, Christine Clark, Sanda M. Harabagiu,
+and Steven J. Maiorano. 2003. Cogex: A logic prover
+for question answering. In HLT-NAACL.
+K. Papineni, S. Roukos, T. Ward, and W. Zhu. 2002.
+Bleu: a method for automatic evaluation of machine
+translation. In ACL.
+Ted Pedersen, Siddharth Parwardhan, and Jason Michelizzi. 2004. Wordnet::similarity – measuring the relatedness of concepts. In AAAI.
+
+Timothy Chklovski and Patrick Pantel. 2004. VerbOcean: Mining the web for ﬁne-grained semantic verb
+relations. In EMNLP.
+
+Rajat Raina, Aria Haghighi, Christopher Cox, Jenny
+Finkel, Jeff Michels, Kristina Toutanova, Bill MacCartney, Marie-Catherine de Marneffe, Christopher D.
+Manning, and Andrew Y. Ng. 2005a. Robust textual
+inference using diverse knowledge sources. In Proceedings of the First PASCAL Challenges Workshop.
+Southampton, UK.
+
+Michael Collins. 1999. Head-driven statistical models
+for natural language parsing. Ph.D. thesis, University
+of Pennsylvania.
+
+Rajat Raina, Andrew Y. Ng, and Christopher D. Manning. 2005b. Robust textual inference via learning and
+abductive reasoning. In Proceedings of AAAI 2005.
+AAAI Press.
+
+Ido Dagan, Oren Glickman, and Bernardo Magnini.
+2005. The PASCAL recognizing textual entailment
+challenge. In Proceedings of the PASCAL Challenges
+Workshop Recognizing Textual Entailment.
+
+Philip Resnik. 1995. Using information content to evaluate semantic similarity in a taxonomy. In IJCAI, pages
+448–453.
+
+C. Fellbaum. 1998. WordNet: An Electronic Lexical
+Database. MIT Press.
+
+Kristina Toutanova, Aria Haghighi, and Cristiopher Manning. 2005. Joint learning improves semantic role labeling. In Association of Computational Linguistics
+(ACL).
+
+References
+
+Dan Klein and Christopher D. Manning. 2003. Accurate
+unlexicalized parsing. In ACL, pages 423–430.
+Dekang Lin and Patrick Pantel. 2001. DIRT - discovery
+of inference rules from text. In Knowledge Discovery
+and Data Mining, pages 323–328.
+
+

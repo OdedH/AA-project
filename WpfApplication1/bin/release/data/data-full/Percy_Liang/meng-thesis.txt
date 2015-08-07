@@ -1,0 +1,4349 @@
+Semi-Supervised Learning for Natural Language
+by
+
+Percy Liang
+Submitted to the Department of Electrical Engineering and Computer
+Science
+in partial fulﬁllment of the requirements for the degree of
+Master of Engineering in Electrical Engineering and Computer Science
+at the
+MASSACHUSETTS INSTITUTE OF TECHNOLOGY
+May 2005
+c Massachusetts Institute of Technology 2005. All rights reserved.
+
+Author . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+Department of Electrical Engineering and Computer Science
+May 19, 2005
+
+Certiﬁed by . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+Michael Collins
+Assistant Professor, CSAIL
+Thesis Supervisor
+
+Accepted by . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+Arthur C. Smith
+Chairman, Department Committee on Graduate Students
+
+2
+
+Semi-Supervised Learning for Natural Language
+by
+Percy Liang
+Submitted to the Department of Electrical Engineering and Computer Science
+on May 19, 2005, in partial fulﬁllment of the
+requirements for the degree of
+Master of Engineering in Electrical Engineering and Computer Science
+
+Abstract
+Statistical supervised learning techniques have been successful for many natural language processing tasks, but they require labeled datasets, which can be expensive to
+obtain. On the other hand, unlabeled data (raw text) is often available “for free” in
+large quantities. Unlabeled data has shown promise in improving the performance
+of a number of tasks, e.g. word sense disambiguation, information extraction, and
+natural language parsing.
+In this thesis, we focus on two segmentation tasks, named-entity recognition and
+Chinese word segmentation. The goal of named-entity recognition is to detect and
+classify names of people, organizations, and locations in a sentence. The goal of
+Chinese word segmentation is to ﬁnd the word boundaries in a sentence that has
+been written as a string of characters without spaces.
+Our approach is as follows: In a preprocessing step, we use raw text to cluster
+words and calculate mutual information statistics. The output of this step is then
+used as features in a supervised model, speciﬁcally a global linear model trained using
+the Perceptron algorithm. We also compare Markov and semi-Markov models on the
+two segmentation tasks. Our results show that features derived from unlabeled data
+substantially improves performance, both in terms of reducing the amount of labeled
+data needed to achieve a certain performance level and in terms of reducing the error
+using a ﬁxed amount of labeled data. We ﬁnd that sometimes semi-Markov models
+can also improve performance over Markov models.
+Thesis Supervisor: Michael Collins
+Title: Assistant Professor, CSAIL
+
+3
+
+4
+
+Acknowledgments
+This work was done under the supervision of my advisor, Michael Collins. Since I
+started working on my masters research, I have learned much about machine learning
+and natural language processing from him, and I appreciate his guidance and encouragement. I would also like to thank my parents for their continual support and
+Ashley Kim for editing this manuscript and helping me get through this process.
+
+5
+
+6
+
+Contents
+1 Introduction
+
+13
+
+2 The segmentation tasks
+
+17
+
+2.1
+
+The task . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+17
+
+2.1.2
+
+What is a word? . . . . . . . . . . . . . . . . . . . . . . . . .
+
+18
+
+2.1.3
+
+Datasets . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+19
+
+2.1.4
+
+Challenges . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+20
+
+2.1.5
+
+Existing methods . . . . . . . . . . . . . . . . . . . . . . . . .
+
+21
+
+Named-entity recognition (NER) . . . . . . . . . . . . . . . . . . . .
+
+22
+
+2.2.1
+
+The task . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+22
+
+2.2.2
+
+Datasets . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+23
+
+2.2.3
+
+Challenges . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+23
+
+2.2.4
+2.3
+
+17
+
+2.1.1
+
+2.2
+
+Chinese word segmentation (CWS) . . . . . . . . . . . . . . . . . . .
+
+Existing methods . . . . . . . . . . . . . . . . . . . . . . . . .
+
+24
+
+Evaluation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+26
+
+3 Learning methods
+
+29
+
+3.1
+
+The setup: classiﬁcation . . . . . . . . . . . . . . . . . . . . . . . . .
+
+29
+
+3.2
+
+Global linear models . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+30
+
+3.2.1
+
+Deﬁnition . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+30
+
+3.2.2
+
+Types of models . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+31
+
+3.2.3
+
+Decoding . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+35
+
+3.2.4
+
+Training . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+37
+
+7
+
+3.2.5
+
+38
+
+Semi-supervised techniques . . . . . . . . . . . . . . . . . . . . . . . .
+
+39
+
+3.3.1
+
+Generative maximum-likelihood models . . . . . . . . . . . . .
+
+39
+
+3.3.2
+
+Co-training and bootstrapping . . . . . . . . . . . . . . . . . .
+
+39
+
+3.3.3
+
+Partitioning . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+40
+
+3.3.4
+
+3.3
+
+Other parameter estimation algorithms . . . . . . . . . . . . .
+
+Using features derived from unlabeled data . . . . . . . . . . .
+
+41
+
+4 Extracting features from raw text
+4.1
+
+43
+
+The Brown algorithm . . . . . . . . . . . . . . . . . . . . . . .
+
+44
+
+4.1.2
+
+Extracting word clusters . . . . . . . . . . . . . . . . . . . . .
+
+51
+
+4.1.3
+
+Utility of word clusters . . . . . . . . . . . . . . . . . . . . . .
+
+51
+
+Mutual information . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+52
+
+4.2.1
+
+Extracting mutual information . . . . . . . . . . . . . . . . . .
+
+53
+
+4.2.2
+
+Utility of mutual information . . . . . . . . . . . . . . . . . .
+
+53
+
+Incorporating features from unlabeled data . . . . . . . . . . . . . . .
+
+54
+
+4.3.1
+
+Using word cluster features
+
+. . . . . . . . . . . . . . . . . . .
+
+54
+
+4.3.2
+
+4.3
+
+43
+
+4.1.1
+
+4.2
+
+Word clustering . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+Using mutual information features . . . . . . . . . . . . . . . .
+
+55
+
+5 Experiments
+
+59
+
+5.1
+
+Features . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+59
+
+5.2
+
+Results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+64
+
+5.2.1
+
+Eﬀect of using unlabeled data features . . . . . . . . . . . . .
+
+66
+
+5.2.2
+
+Eﬀect of using semi-Markov models . . . . . . . . . . . . . . .
+
+68
+
+5.2.3
+
+Lexicon-based features . . . . . . . . . . . . . . . . . . . . . .
+
+69
+
+6 Conclusion
+
+73
+
+8
+
+List of Figures
+2-1 The goal of Chinese word segmentation is to ﬁnd the word boundaries
+in a string of Chinese characters. This example is from the Chinese
+Treebank (Section 2.1.3). . . . . . . . . . . . . . . . . . . . . . . . . .
+2-2 The translation of a Chinese sentence.
+
+. . . . . . . . . . . . . . . . .
+
+17
+18
+
+2-3 The goal of named-entity recognition (NER) is to ﬁnd the names of
+various entities. The example is from the English dataset (Section 2.2.2). 23
+3-1 An example of BIO tagging for named-entity recognition. . . . . . . .
+
+32
+
+3-2 The Averaged Perceptron algorithm. . . . . . . . . . . . . . . . . . .
+
+37
+
+4-1 The class-based bigram language model, which deﬁnes the quality of a
+clustering, represented as a Bayesian network. . . . . . . . . . . . . .
+
+44
+
+4-2 Visualizing the Brown algorithm. (a) shows the edges involved in computing L(c, c ) from scratch (solid indicates added, dashed indicates
+subtracted). (b) shows the edges involved in computing ∆L(c, c ), the
+change in L(c, c ) when the two nodes in the shaded box have just been
+merged. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+48
+
+4-3 Examples of English word clusters. . . . . . . . . . . . . . . . . . . .
+
+51
+
+4-4 A histogram showing the distribution of mutual information values
+estimated from unsegmented Chinese text. . . . . . . . . . . . . . . .
+
+56
+
+5-1 Markov model features for CWS. ti is the current tag, xi is the current
+character, and MIz (xi−1 , xi ) is the mutual information z-score of the
+previous and current characters. . . . . . . . . . . . . . . . . . . . . .
+9
+
+62
+
+5-2 Semi-Markov model features for CWS. lj is the current segment label;
+s and e are the starting and ending indices of the current segment,
+respectively. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+62
+
+5-3 Markov model features for NER. C and M are sets of string operations. 63
+5-4 Semi-Markov model features for NER. . . . . . . . . . . . . . . . . .
+
+63
+
+5-5 Test F1 performance on CTB . . . . . . . . . . . . . . . . . . . . . .
+
+67
+
+5-6 Test F1 performance on PK . . . . . . . . . . . . . . . . . . . . . . .
+
+68
+
+5-7 Test F1 performance on HK . . . . . . . . . . . . . . . . . . . . . . .
+
+69
+
+5-8 Test F1 performance on Eng . . . . . . . . . . . . . . . . . . . . . . .
+
+70
+
+5-9 Test F1 performance on Deu . . . . . . . . . . . . . . . . . . . . . . .
+
+71
+
+10
+
+List of Tables
+2.1
+
+Statistics of three Chinese word segmentation datasets (CTB, PK, and
+HK) from the First International Chinese Word Segmentation Bakeoﬀ.
+
+2.2
+
+20
+
+Statistics of the English (Eng) and German (Deu) named-entity recognition datasets from the CoNLL 2003 Shared Task (Sang and Meulder,
+2003). . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+24
+
+4.1
+
+Mutual information values of various Chinese character pairs.
+
+53
+
+4.2
+
+Mutual information across word boundaries is much lower than mutual
+
+. . . .
+
+information within words. The test was done on the PK Train set. . .
+4.3
+
+54
+
+F1 scores obtained by using various ways to transform mutual information values before using them in a Markov model. The experiments
+were done on the HK dataset. 10% of the total available training data
+(29K characters) was used. . . . . . . . . . . . . . . . . . . . . . . . .
+
+5.1
+
+57
+
+For each dataset (CTB, PK, etc.) and each of its three sets of examples
+(Train, Dev, and Test), we show the bound on the segment length as
+computed from the examples in that set, as well as the maximum
+segment length. Note that only the bounds computed from the Train
+set are used in training and testing. . . . . . . . . . . . . . . . . . . .
+
+64
+
+5.2
+
+Results on the CTB (Test) dataset. . . . . . . . . . . . . . . . . . . .
+
+65
+
+5.3
+
+Results on the PK (Test) dataset. . . . . . . . . . . . . . . . . . . . .
+
+65
+
+5.4
+
+Results on the HK (Test) dataset. . . . . . . . . . . . . . . . . . . . .
+
+65
+
+5.5
+
+Results on the Eng (Test) dataset.
+
+. . . . . . . . . . . . . . . . . . .
+
+66
+
+5.6
+
+Results on the Deu (Test) dataset. . . . . . . . . . . . . . . . . . . .
+
+66
+
+11
+
+5.7
+
+Test F1 scores obtained by the M+F and SM+F models on Chinese
+word segmentation. M+F and SM+F are the Markov and semi-Markov
+models using mutual information features; CRF (closed and open)
+refers to (Peng et al., 2004) using closed and open feature sets; and
+CRF+HMMLDA refers to (Li and McCallum, 2005). . . . . . . . . .
+
+5.8
+
+67
+
+Dev and Test F1 scores obtained by the M+F and SM+F models on
+named-entity recognition. M+F and SM+F are the Markov and semiMarkov models using word clustering features; CRF refers to (McCallum and Li, 2003). . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+5.9
+
+68
+
+Experiments on using lexicon-based features for CWS on the CTB
+dataset. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+
+70
+
+1
+
+Improvements on Test F1 due to M → M+F. . . . . . . . . . . . . .
+
+83
+
+2
+
+Reductions on the amount of labeled data due to M → M+F. Test F1
+scores are achieved by M using 100% of the training data. Datasets for
+which M performs better than M+F are marked n/a. . . . . . . . . .
+
+83
+
+3
+
+Improvements on Test F1 due to SM → SM+F. . . . . . . . . . . . .
+
+84
+
+4
+
+Reductions on the amount of labeled data due to SM → SM+F. Test
+F1 scores are achieved by SM using 100% of the training data. Datasets
+for which SM performs better than SM+F are marked n/a. . . . . . .
+
+84
+
+5
+
+Improvements on Test F1 due to M → SM. . . . . . . . . . . . . . . .
+
+85
+
+6
+
+Reductions on the amount of labeled data due to M → SM. Test F1
+scores are achieved by M using 100% of the training data. Datasets for
+which M performs better than SM are marked n/a. . . . . . . . . . .
+
+85
+
+7
+
+Improvements on Test F1 due to M+F → SM+F. . . . . . . . . . . .
+
+86
+
+8
+
+Reductions on the amount of labeled data due to M+F → SM+F.
+Test F1 scores are achieved by M+F using 100% of the training data.
+Datasets for which M+F performs better than SM+F are marked n/a.
+
+12
+
+86
+
+Chapter 1
+Introduction
+In recent years, statistical learning methods have been highly successful for tackling
+natural language tasks. Due to the increase in computational resources over the last
+decade, it has been possible to apply these methods in large-scale natural language
+experiments on real-world data such as newspaper articles. Such domains are challenging because they are complex and noisy, but statistical approaches have proven
+robust in dealing with these issues.
+Most of these successful machine learning algorithms are supervised, which means
+that they require labeled data—examples of potential inputs paired with the corresponding correct outputs. This labeled dataset must often be created by hand, which
+can be time consuming and expensive. Moreover, a new labeled dataset must be created for each new problem domain. For example, a supervised algorithm that learns
+to detect company-location relations in text would require examples of (company,
+location) pairs. The same algorithm could potentially learn to also detect countrycapital relations, but an entirely new dataset of (country, capital) pairs would be
+required.
+While labeled data is expensive to obtain, unlabeled data is essentially free in
+comparison. It exists simply as raw text from sources such as the Internet. Only a
+minimal amount of preprocessing (e.g., inserting spaces between words and punctuation) is necessary to convert the raw text into unlabeled data suitable for use in an
+unsupervised or semi-supervised learning algorithm. Previous work has shown that
+13
+
+using unlabeled data to complement a traditional labeled dataset can improve performance (Miller et al., 2004; Abney, 2004; Riloﬀ and Jones, 1999; Collins and Singer,
+1999; Blum and Mitchell, 1998; Yarowsky, 1995). There are two ways of characterizing performance gains due to using additional unlabeled data: (1) the reduction in
+error using the same amount of labeled data and (2) the reduction in the amount of
+labeled data needed to reach the same error threshold. In Chapter 5, we describe our
+improvements using both criteria.
+We consider using unlabeled data for segmentation tasks. These tasks involve
+learning a mapping from an input sentence to an underlying segmentation. Many
+NLP tasks (e.g., named-entity recognition, noun phrase chunking, and Chinese word
+segmentation) can be cast into this framework. In this thesis, we focus on two
+segmentation tasks: named-entity recognition and Chinese word segmentation. In
+named-entity recognition, the goal is to identify names of the entities (e.g., people,
+organizations, and locations) that occur in a sentence. In terms of segmentation,
+the goal is to partition a sentence into segments, each of which corresponds either a
+named-entity or a single-word non-entity. In addition, each entity segment is labeled
+with its type (e.g., person, location, etc.). In Chinese word segmentation, the goal
+is to partition a sentence, which is a string of characters written without delimiting
+spaces, into words. See Chapter 2 for a full description of these two tasks.
+In the spirit of (Miller et al., 2004), our basic strategy for taking advantage of
+unlabeled data is to ﬁrst derive features from unlabeled data—in our case, word
+clustering or mutual information features—and then use these features in a supervised
+learning algorithm. (Miller et al., 2004) achieved signiﬁcant performance gains in
+named-entity recognition by using word clustering features and active learning. In
+this thesis, we show that another type of unlabeled data feature based on mutual
+information can also signiﬁcantly improve performance.
+The supervised models that we use to incorporate unlabeled data features come
+from the class of global linear models (Section 3.2). Global linear models (GLMs),
+which include Conditional Random Fields (Laﬀerty et al., 2001a) and max-margin
+Markov networks (Taskar et al., 2003), are discriminatively trained models for struc14
+
+tured classiﬁcation. They allow the ﬂexibility of deﬁning arbitrary features over an
+entire sentence and a candidate segmentation. We consider two types of GLMs,
+Markov and semi-Markov models. In a Markov model, the segmentation is represented as a sequence of tags, and features can be deﬁned on a subsequence of tags
+up to some ﬁxed length. Semi-Markov models, arguably more natural for the problem of segmentation, represent the segmentation as a sequence of labeled segments of
+arbitrary lengths, and features can now be deﬁned on entire segments. We train our
+models using the Averaged Perceptron algorithm, which is simple to use and provides
+theoretical guarantees (Collins, 2002a).
+We conducted experiments on three Chinese word segmentation datasets (CTB,
+PK, and HK) from the First International Chinese Segmentation Bakeoﬀ (Sproat and
+Emerson, 2003) and two named-entity recognition datasets (German and English)
+from the 2003 CoNLL Shared Task (Sang and Meulder, 2003). For each dataset, we
+measured the eﬀects of using unlabeled data features and the eﬀects of using semiMarkov versus Markov models. From our experiments, we conclude that unlabeled
+data substantially improves performance on all datasets. Semi-Markov models also
+improve performance, but the eﬀect is smaller and dataset-dependent.
+To summarize, the contributions of this thesis are as follows:
+1. We introduce a new type of unlabeled data feature based on mutual information
+statistics, which improves performance on Chinese word segmentation.
+2. While (Miller et al., 2004) showed that word clustering features improve performance on English named-entity recognition, we show that type of feature also
+helps on German named-entity recognition.
+3. We show that semi-Markov models (Sarawagi and Cohen, 2004) can sometimes
+give improvements over Markov models (independently of using unlabeled data
+features) for both named-entity recognition and Chinese word segmentation.
+
+15
+
+16
+
+Chapter 2
+The segmentation tasks
+In this chapter, we describe the two segmentation tasks, Chinese word segmentation and named-entity recognition. For each task, we discuss some of the challenges
+encountered, present the datasets used, and survey some of the existing methods.
+
+2.1
+2.1.1
+
+Chinese word segmentation (CWS)
+The task
+
+While Western languages such as English are written with spaces to explicitly mark
+word boundaries, many Asian languages—such as Chinese, Japanese, and Thai—are
+written without spaces between words. In Chinese, for example, a sentence consists
+of a sequence of characters, or hanzi (Figure 2-1). The task of Chinese word segmentation (CWS) is to, given a sentence (a sequence of Chinese characters), partition the
+characters into words.
+
+'
+
+%&# !  ¤   ¨ §¦£ ¢ 
+"
+
+ 
+¡ ¥ ¡
+' % # " !       ¨ ¡ ¥ £ ¡
+(&$§ ¤©§¦¤¢ 
+=⇒
+
+Figure 2-1: The goal of Chinese word segmentation is to ﬁnd the word boundaries
+in a string of Chinese characters. This example is from the Chinese Treebank (Section 2.1.3).
+17
+
+The transliteration (pinyin) and translation (English) of the above sentence are
+given in Figure 2-2. Note that some Chinese words do not correspond to a single
+
+
+
+de
+’s
+
+
+
+
+ ©
+¦¨
+
+h´ngzh¯ush`
+a
+o
+ı
+Hangzhou city
+
+sh`
+ı
+residents
+
+
+
+§
+,
+
+h´i
+a
+still
+
+
+
+
+¡ ¤
+¦¥£
+
+¡
+¢ 
+
+sh`ngb`nni´n
+a
+a a
+ﬁrst half
+
+yˇngyu`
+o
+e
+eagerly
+
+!
+
+j¯ an
+ınni´
+this year
+
+ju¯nkuˇn
+a
+a
+donate
+
+Figure 2-2: The translation of a Chinese sentence.
+
+2.1.2
+
+What is a word?
+
+There has been much debate over what constitutes a word in Chinese. Even in
+English, deﬁning a word precisely is not trivial. One can deﬁne an English word
+orthographically based on spaces, but semantically, collocations such as “common
+cold” or “United States” should be treated as single units—the space in the collocation
+is just a surface phenomenon. More ambiguous examples are entities that can either
+appear with or without a space, such as “dataset” and “data set.”1 It is also unclear
+whether a hyphenated entity such as “safety-related” should be treated as one or two
+words. Given the amount of ambiguity in English, which actually has word delimiters,
+one can imagine the level of uncertainty in Chinese. One case in which the correct
+segmentation varies across datasets are names of people. In Chinese, a person’s name
+
+$
+ %#
+
+(e.g.,
+
+) is typically written with the last name (one character) followed by the
+
+ﬁrst name (one or two characters). In the CTB dataset, the correct segmentation is
+
+ $ #
+
+, while in the PK dataset, the correct segmentation is
+
+.
+
+$
+ %#
+
+If words are ill-deﬁned, then we must ask why we care about CWS? CWS is im-
+
+portant because it is a precursor to higher level language processing, which operates
+on words rather than characters (e.g., part-of-speech tagging, parsing, machine translation, information retrieval, and named-entity recognition). If solving those tasks is
+the end goal, then there might not even be a reason to strive for a single segmentation
+1
+
+The word “dataset” appears 4.8 million times on Google, and the phrase “data set” occurs 11.5
+million times, which shows that both are in common use.
+
+18
+
+"
+
+English word, but rather an English phrase.
+
+standard. Rather, the desired segmentation should depend on the task being solved
+(Gao and Li, 2004). CWS is also often performed in conjunction with another other
+task such as named-entity recognition (Gao et al., 2003) or parsing (Wu and Jiang,
+2000). Solving both tasks jointly instead of separately in a pipeline can improve performance. In this thesis, however, we focus exclusively on the segmentation task and
+use the standard speciﬁed by the datasets (Section 2.1.3).
+
+2.1.3
+
+Datasets
+
+The First International Chinese Word Segmentation Bakeoﬀ (Sproat and Shih, 2002)
+provides four datasets. In this thesis, we conduct experiments on three of the four:
+the Chinese Treebank (CTB), the Hong Kong City University Corpus (HK), and the
+Beijing University Corpus (PK). For each dataset, the Bakeoﬀ provides a training set
+and a test set. The CTB training set is from the Xinhua News Corpus and the CTB
+test set is from the Sinorama magazine corpus. The PK and HK datasets are from
+various other newswire corpora. It is important to note that the CTB training and test
+sets come from diﬀerent genres (newspaper and magazine, respectively) and diﬀerent
+regions (mainland China and Taiwan, respectively). The regional discrepancy might
+be signiﬁcant, as the jargon and terminology used by the two areas diﬀer, similar
+to the diﬀerence between British and American English. This phenomenon might
+account for the signiﬁcantly lower performance on the CTB (by every system in the
+Bakeoﬀ competition) compared to the other two datasets.
+We divided each Bakeoﬀ training set into two sets, which we will refer to as Train
+and Dev; we reserved the Bakeoﬀ test set (Test) for ﬁnal evaluation. To split the
+CTB and PK datasets, we simply put the ﬁrst 90% of the sentences in Train and the
+last 10% in Dev. For the HK dataset, which came in 3 groups of 7 ﬁles, we put the
+ﬁrst 5 ﬁles of each group in Train, and the last 2 ﬁles of each group in Dev. Table 2.1
+summarizes the Train, Dev, and Test sets that we created.
+19
+
+CTB Train
+CTB Dev
+CTB Test
+PK Train
+PK Dev
+PK Test
+HK Train
+HK Dev
+HK Test
+
+Sentences
+9K
+1.4K
+1.4K
+17K
+2.5K
+380
+7.2K
+1.2K
+1.2K
+
+Characters
+370K
+57K
+62K
+1.6M
+214K
+28K
+322K
+65K
+57K
+
+Words
+217K
+34K
+40K
+991K
+130K
+17K
+200K
+40K
+35K
+
+Table 2.1: Statistics of three Chinese word segmentation datasets (CTB, PK, and
+HK) from the First International Chinese Word Segmentation Bakeoﬀ.
+
+2.1.4
+
+Challenges
+
+The purpose of this section is to highlight some properties of Chinese characters
+and words in order to provide intuition about the task and the two main challenges
+involved in solving the task: sparsity and ambiguity. We illustrate our points using
+simple statistics on the PK Train and Dev sets.
+First, an overall picture of the PK dataset: Train contains 17K sentences, 1.6M
+characters, and 991K words. Note that these counts are based on occurrences, not
+types. If we ignore duplicate occurrences, we ﬁnd that the number of distinct word
+types is 51.7K and the number of distinct character types is only 4.6K. Though the
+longest word is 22 characters (the URL www.peopledaily.com.cn), 95% of the words
+occurrences are at most three characters.
+From these statistics, we see that the number of character types is relatively small
+and constant, but that the number of word types is large enough that data sparsity
+is an issue. Many errors in Chinese word segmentation are caused by these out-ofvocabulary (OOV) errors, and much work has been devoted to identifying new words
+(Peng et al., 2004). Indeed, whereas only 84 character types out of 4.6K (1.8%) are
+new to Dev (ones that appear in Dev but not in Train), 4.8K word types out of a
+total of 51.7K word types (9.2%) are new to Dev. If we instead count by occurrences
+rather than types, we see that 131/1.6M (0.0082%) of the characters in Dev are new,
+while 4886/991K (0.49%) of the words in Dev are new.
+20
+
+Even a dictionary cannot capture all possible words, since new words are often created by morphological transformations (in not entirely predictable ways) or
+introduced through transliterations and technical jargon. (Sproat and Shih, 2002)
+discusses some Chinese morphological phenomena which produce new words from old
+(-able) or suﬃxes such as
+
+¡
+
+ 
+
+ones. For example, preﬁxes such as
+
+(-ist) can be used
+
+to modify certain existing words in the same way as in English. Compound words can
+
+¦
+§¥
+
+two verbs (
+
+£
+¤¢
+
+also be formed by combining a subject with a predicate (
+
+head-ache), combining
+
+buy-buy), etc. Long names can often be replaced by shorter versions
+
+in a phenomenon called suoxie, which is analogous to an acronym in English. For
+(Industrial Research Center) can be abbreviated as
+
+   ©
+¨
+
+2.1.5
+
+Existing methods
+
+ 
+¨
+
+example,
+
+.
+
+Chinese word segmentation is a well-studied task. The main resources that have
+been used to tackle this task include (roughly ordered from most expensive to least
+expensive) using hand-crafted heuristics, lexicons (dictionaries), labeled data, and
+unlabeled data. Most successful CWS systems use a combination of these resources.
+Our goal is to minimize the resources that require substantial human intervention. In
+fact, we limit ourselves to just using a little labeled data and a lot of unlabeled data
+in a clean machine learning framework.
+As we will see in Section 5.2.3, a lexicon can be extremely helpful in obtaining good
+performance. A very early algorithm for segmenting Chinese using a lexicon, called
+maximum matching, operates by scanning the text from left to right and greedily
+matching the input string with the longest word in the dictionary (Liang, 1986). There
+have been a number of other heuristics for resolving ambiguities. The motivation for
+statistical techniques is to minimize this engineering eﬀort and let the data do the
+work through statistics. But the use of lexicons, statistics, and heuristics are not
+mutually exclusive. (Gao et al., 2003; Peng et al., 2004) incorporate lexicons into
+statistical approaches. (Maosong et al., 1998; Zhang et al., 2000) compute mutual
+information statistics of Chinese text and use these statistics in heuristics.
+(Gao et al., 2003) deﬁnes a generative model to segment words and classify each
+21
+
+word as a lexicon word, morphologically derived word, person name, factoid2 , etc.
+They incorporate lexicons and various features into a complex generative model. A
+disadvantage of generative models is that it can be cumbersome to incorporate external information. In contrast, discriminative models provide a natural framework
+for incorporating arbitrary features. (Xue, 2003) treats CWS as a tagging problem
+and uses a maximum-entropy tagger (Ratnaparkhi et al., 1994) with simple indicator
+features. (Peng et al., 2004) also treats CWS as a tagging problem but uses a Conditional Random Field (Section 3.2.5), which generally outperforms maximum entropy
+models (Laﬀerty et al., 2001a). In addition, they use features from hand-prepared
+lexicons and bootstrapping, where new words are identiﬁed using the current model
+to augment the current lexicon, and the new lexicon is used to train a better model.
+There are also completely unsupervised attempts at CWS. (Peng and Schuurmans,
+2001b; Peng and Schuurmans, 2001a) use EM to iteratively segment the text by ﬁrst
+ﬁnding the best output of the current generative model and then using the resulting
+segmentation to produce a better model. The problem of segmenting characters into
+words is also similar to the problem of segmenting continuous speech into words.
+(de Marcken, 1995) uses an unsupervised method to greedily construct a model to
+hierarchically segment text.
+
+2.2
+2.2.1
+
+Named-entity recognition (NER)
+The task
+
+Named-entities are strings that are names of people, places, etc. Identifying the
+named-entities in a text is an important preliminary step in relation extraction, data
+mining, question answering, etc. These higher-level tasks all use named-entities as
+primitives.
+In this work, we frame named-entity recognition (NER) as the problem of mapping
+a sentence to the set of named-entities it contains. We consider four types of entities:
+2
+
+A factoid is a date, time, number, phone number, etc.
+
+22
+
+people (PER), organizations (ORG), locations (LOC), and miscellaneous (MISC).
+The MISC category contains named-entities that are not people, organizations, or
+locations; examples include “British”, “Toshiba Classic”, “American League”, “Nobel
+Peace Prize”, etc.
+Figure 2-3 gives an example of the mapping we are trying to learn. There are two
+diﬀerences between NER and CWS as segmentation problems. First, NER requires
+labeling of the segments whereas CWS does not. Second, in CWS, each segment (a
+word) is meaningful, whereas in NER, only the segments labeled as named-entities
+are meaningful. By meaningful, we mean that the segment belongs to some coherent
+group of phrases such as words or people names, but not “the set of arbitrary strings
+that are not names.”
+Belgian international Luc Nilis scored twice on Sunday as PSV Eindhoven came
+from behind to beat Groningen 4-1 in Eindhoven .
+=⇒
+MISC(Belgian) international PER(Luc Nilis) scored twice on Sunday as
+ORG(PSV Eindhoven) came from behind to beat ORG(Groningen) 4-1 in
+LOC(Eindhoven) .
+Figure 2-3: The goal of named-entity recognition (NER) is to ﬁnd the names of
+various entities. The example is from the English dataset (Section 2.2.2).
+
+2.2.2
+
+Datasets
+
+We experimented on two datasets from the CoNLL 2003 language-independent namedentity recognition Shared Task (Table 2.2). The English data is from the Reuters
+Corpus, and the German data is from the ECI Multilingual Text Corpus.
+
+2.2.3
+
+Challenges
+
+Named-entity recognition can be thought of as being comprised of two problems:
+extraction (identifying the position of entities in a sentence) and classiﬁcation (determining the type of those entities), both of which contain ambiguity.
+23
+
+Eng.
+Eng.
+Eng.
+Deu.
+Deu.
+Deu.
+
+Train
+Dev
+Test
+Train
+Dev
+Test
+
+Sentences
+14K
+3.3K
+3.5K
+12K
+2.9K
+3K
+
+Characters
+204K
+51K
+46K
+207K
+51K
+52K
+
+Words
+23K
+5.9K
+5.6K
+12K
+4.8K
+3.7K
+
+Table 2.2: Statistics of the English (Eng) and German (Deu) named-entity recognition
+datasets from the CoNLL 2003 Shared Task (Sang and Meulder, 2003).
+
+Extraction in English can be driven to some extent by capitalization: capitalized
+phrases in the middle of a sentence are likely to be named-entities. However, in
+languages such as German, in which all nouns are capitalized, and Chinese, in which
+there is no capitalization, one can not rely on this cue at all to ﬁnd named-entities.
+Many models depend on local information to classify named-entities. This can be
+troublesome when neither the entity string nor its context provide positive evidence
+of the correct entity type. In such cases, the task may be even diﬃcult for a human
+who has no prior knowledge about the entity. Consider the sentence “Phillip Morris
+announced today that. . . ” The verb “announced” is used frequently following both
+people and organizations, so that contextual clue does not help disambiguate the
+entity type. “Phillip Morris” actually looks superﬁcially like a person name, and
+without a gazetteer of names, it would be diﬃcult to know that “Phillip Morris” is
+actually a company.
+Sometimes one entity string can represent several entity types, depending on context. For example, “Boston” is typically a location name, but in a sports article,
+“Boston” refers to the “Boston Red Sox” organization.
+
+2.2.4
+
+Existing methods
+
+The earliest work in named-entity recognition involved using hand-crafted rules based
+on pattern matching (Appelt et al., 1995). For instance, a sequence of capitalized
+words ending in “Inc.” is typically the name of an organization, so one could implement a rule to that eﬀect. However, this approach requires signiﬁcant hand-tuning
+24
+
+to achieve good performance.
+
+Statistical models have proven to be eﬀective with less hand-tuning. Such models
+typically treat named-entity recognition as a sequence tagging problem, where each
+word is roughly tagged with its entity type if it is part of an entity. Generative models
+such as Hidden Markov Models (Bikel et al., 1999; Zhou and Su, 2002) have shown
+excellent performance on the Message Understanding Conference (MUC) datasets
+(Sundheim, 1995; Chinchor, 1998). These models use a variety of lexical features,
+even though the independence assumptions of the generative model are violated.
+
+Discriminative models such as locally-normalized maximum-entropy models (Borthwick, 1999) and Conditional Random Fields (McCallum and Li, 2003) have also been
+explored for named-entity recognition. (Collins, 2002b) uses a baseline HMM tagger
+to generate the best outputs and uses discriminative methods (which take advantage
+of a richer set of features) to rerank these outputs. By using semi-Markov Conditional
+Random Fields, (Cohen and Sarawagi, 2004; Sarawagi and Cohen, 2004) recast the
+named-entity recognition problem as a segmentation problem rather than a tagging
+problem. Semi-Markov models also permit a richer set of features. (Miller et al., 2004)
+uses a regular Markov model but obtains a richer set of features by using unlabeled
+data to derive word clusters.
+
+As mentioned earlier, NER can be viewed as a two-stage problem: (1) ﬁnd the
+named-entities in a sentence, and (2) classify each entity by its type, i.e. person,
+organization, location, etc. (Collins, 2002b) mentions that ﬁrst identifying namedentities without classifying them alleviates some of the data sparsity issues. (Collins
+and Singer, 1999) focuses on the second stage, named-entity classiﬁcation, assuming
+that the named-entities have already been found. They use a bootstrapping approach
+based on the co-training framework (Section 3.3.2) to leverage unlabeled examples.
+(Riloﬀ and Jones, 1999) uses a similar bootstrapping approach for information extraction.
+25
+
+2.3
+
+Evaluation
+
+To evaluate the performance of a method on a segmentation task, we use two standard
+measures, precision and recall. Precision is the fraction of segments that the method
+produces which are consistent with true segmentation (for named-entity recognition,
+the label of the segment must agree with true label as well). Recall is the fraction
+of segments in the true segmentation that are consistent with the segmentation the
+method produces. Formally:
+Precision =
+
+|T ∩ M |
+|M |
+
+Recall =
+
+|T ∩ M |
+|T |
+
+where T is the set of segments in the true segmentation and M is the set of segments
+that the method produces. In Chinese word segmentation, T and M include all
+segments (words), but in named-entity recognition, T and M only contain segments
+corresponding to named-entities.
+In general, there is a trade-oﬀ between precision and recall. Consider namedentity recognition. If the method outputs entities very conservatively—that is, it
+outputs only if it is absolutely certain of the entity—the method can achieve very
+high precision but will probably suﬀer a loss in recall. On the other hand, if the
+method outputs entities more aggressively, then it will obtain a higher recall but lose
+precision. A single number that captures both precision and recall is the F1 score,
+which is the harmonic mean of precision and recall. One can think of the F1 score as
+a smoothed minimum of precision and recall. If both precision and recall are high,
+F1 will be high; if both are low, F1 will be low; if precision is high but recall is low,
+F1 will be only slightly higher than recall. F1 is formally deﬁned as follows:
+
+F1 =
+
+2 × Precision × Recall
+Precision + Recall
+
+Typically, precision and recall are used in the context of binary classiﬁcation. For
+example, in information retrieval, one task is to classify each document in a set as
+relevant or irrelevant and output only the relevant ones. On this task, it is trivial to
+26
+
+get 100% recall by outputting all documents, and it is also relatively easy to get very
+high precision by outputting the single most relevant document. The segmentation
+tasks we consider are diﬀerent—there is less of this see-saw behavior. For instance, in
+named-entity recognition framed as a segmentation problem, a method is not allowed
+to output overlapping entities, so it cannot automatically obtain 100% recall. But at
+the same time, it can obtain very high precision just as in the information retrieval
+case. For Chinese word segmentation, a method cannot output overlapping words as
+before, but more interestingly, it cannot trivially achieve high precision either, since
+it cannot abstain on sentences it is unsure about. Even if the method ﬁnds a word
+it is most conﬁdent about, it must suggest a segmentation for the characters around
+the word and possibly err on those.
+
+27
+
+28
+
+Chapter 3
+Learning methods
+Section 3.1 sets up the general framework of classiﬁcation. Section 3.2 covers two
+types of global linear models (Markov and semi-Markov models), which provide the
+core learning machinery that we use to solve the two segmentation tasks, Chinese
+word segmentation and named-entity recognition. Section 3.3 discusses various semisupervised learning methods, including our approach of using features derived from
+unlabeled data in a supervised model.
+
+3.1
+
+The setup: classiﬁcation
+
+A wide range of natural language problems, including Chinese word segmentation
+(CWS) and named-entity recognition (NER), can be framed as structured classiﬁcation problems. The goal of structured classiﬁcation is to learn a classiﬁer f mapping
+some set X of possible inputs to some set Y of possible outputs using the given training data. In supervised learning, the input data consists of a set of labeled examples
+(x1 , y 1 ), . . . , (xm , y m ), where each (xi , y i ) ∈ X × Y. We are interested in the case of
+semi-supervised learning, where in addition to the labeled examples, we receive m
+unlabeled examples xm+1 , . . . , xm+m .
+29
+
+3.2
+
+Global linear models
+
+In this section, we review a general family of models known as global linear models
+(GLMs). The key ingredients in a GLM are that (1) the classiﬁer computes a score
+for an output which depends linearly on the parameters, and (2) arbitrary global
+features can be deﬁned over the entire input and output.
+
+3.2.1
+
+Deﬁnition
+
+Formally, a global linear model (Collins, 2004) is speciﬁed by the following ﬁve components:
+
+1. An input domain X and an output domain Y. The domains X and Y deﬁne
+the problem to be solved. For example, X could be the set of English sentences
+(word sequences) and Y, the set of part-of-speech tag sequences; or X could
+be the set of Chinese sentences (character sequences) and Y, the set of word
+segmentations.
+2. A representation feature vector Φ : X × Y → Rd . The domains X and Y might
+be symbolic objects, so in order to apply machine learning techniques, we need
+to map these objects into real numbers. The (global) feature vector Φ(x, y)
+summarizes the essential information of (x, y) into a d-dimensional vector. Each
+component of Φ(x, y) is a (global) feature.
+3. A parameter vector θ ∈ Rd . The parameter vector θ assigns a weight to each
+feature in Φ(x, y). Together, the value of Φ(x, y) · θ is the score of (x,y). Higher
+scores should indicate that y is a more plausible as an output for x.
+4. A function GEN : X → 2Y . GEN(x) is the set of possible outputs y for a given
+x. For example, in tagging, GEN(x) is the set of tag sequences of length |x|.
+In a reranking problem (Collins, 2000), GEN(x) is a small set of outputs that
+have been chosen by some baseline algorithm.
+30
+
+5. A decoding algorithm Decode. If we have some parameter vector θ, we can use
+θ to classify new examples as follows:
+Fθ (x) = arg max Φ(x, y) · θ
+
+(3.1)
+
+y∈GEN(x)
+
+Here, Fθ (x) returns the highest scoring output y out of all candidate outputs
+in GEN(x). Decode is an algorithm that either computes Fθ (x) exactly (e.g.,
+using exhaustive search or dynamic programming) or approximately (e.g. using
+beam search).
+If X , Y, Φ, θ, GEN, and Decode are speciﬁed, then we can classify new test
+examples. X and Y are deﬁned by the problem; Φ, GEN, and Decode are constructed so that the representation of the problem is suitable for learning; ﬁnally, θ
+is set through training, which we discuss in Section 3.2.4.
+
+3.2.2
+
+Types of models
+
+So far, we have presented global linear models (GLMs) in an abstract framework. In
+this section, we describe two speciﬁc types of GLMs for segmentation, Markov and
+semi-Markov models, which we use in experiments (Chapter 5).
+
+Markov models
+The ﬁrst type of GLMs that we consider are Markov models (Collins, 2002a; Laﬀerty
+et al., 2001a). In a Markov model, a segmentation can be represented as a sequence
+of BIO tags, one tag for each token in the sentence. If segments are not labeled,
+as in Chinese word segmentation, then the possible tags are B and I; the ﬁrst token
+(character) of a segment (word) is tagged as B and the rest of the tokens in that
+segment are tagged as I. For named-entity recognition, we use B-X and I-X to mark a
+segment (entity) with label X; we tag a token (word) as O if that token is not part of
+an entity. Note that we cannot collapse B-X and I-X into a single tag or else we would
+not be able to diﬀerentiate the case when one X entity immediately follows another
+31
+
+X entity from the case when there is only one X entity spanning the same words.
+Other variants of BIO tagging allocate a new tag for the last word of a segment and
+another tag for single-token segments (Xue, 2003).
+The output of the named-entity recognition example in Figure 2-3 would be represented with the following BIO tags (Figure 3-1):
+Belgian/B-MISC international/O Luc/B-PER Nilis/I-PER scored/O twice/O
+on/O Sunday/O as/O PSV/B-ORG Eindhoven/I-ORG came/O from/O
+behind/O to/O beat/O Groningen/B-ORG 4-1/O in/O Eindhoven/B-LOC
+./O
+Figure 3-1: An example of BIO tagging for named-entity recognition.
+Formally, a Markov model represents a segmentation y of a sentence x as a sequence of tags t1 , . . . , t|x| . In a k-th order Markov model, the global feature vector
+Φ(x, y) = Φ(x, t1 , . . . , t|x| ) decomposes into a sum of local feature vectors φ(·):
+|x|
+
+Φ(x, y) =
+
+φ(x, i, ti , ti−1 , . . . , ti−k )
+
+(3.2)
+
+i=1
+
+This decomposition is suﬃcient for eﬃcient and exact decoding using dynamic
+programming (Section 3.2.3). The local feature vector φ(x, i, ti , ti−1 , . . . , ti−k ) ∈ Rd is
+associated with the i-th tagging decision and may include any features of the input
+sentence x, the current position i, and the subsequence of tags ti . . . ti−k of length k+1.
+The current position i is typically used to index the input x at the relevant positions.
+Furthermore, we assume that the local feature vector φ(·) is actually comprised of d
+separate features φ1 (·), . . . , φd (·). Then, each component of the d-dimensional global
+feature vector can be written as follows:1
+|x|
+
+φp (x, i, ti , ti−1 , . . . , ti−k )
+
+Φp (x, y) =
+
+(3.3)
+
+i=1
+
+Typically in NLP, a feature φp is an indicator function. For example, one of the
+1
+
+Note that we use a subscript, as in φp , to denote a component of a vector and use an arrow or
+boldface to denote a full vector, as in φ or x.
+
+32
+
+features in our 2nd-order Markov model for NER is the following:
+
+φ3 (x, i, ti , ti−1 , ti−2 ) =
+
+
+
+1 if xi = Mr. and ti = B-PER and ti−1 = O
+
+(3.4)
+
+
+0 otherwise.
+
+In this case, Φ3 would just be a count of how many times feature 3 “ﬁred” on the
+sentence. In Section 5.1, we specify the full set of features for NER and CWS by
+deﬁning a small set of feature templates.
+As a technicality, we pad each sentence at the start and at the end with an
+unlimited number of special boundary tags and tokens. This allows φ to be welldeﬁned at all positions i from 1 to |x|. At position i = 1, accessing t−2 would simply
+return the special boundary token.
+By using a k-th order Markov model, a feature cannot depend on two tags that
+are farther than distance k apart. In other words, we are making a kth-order Markov
+assumption, which is that the tag of a token xi depends only on the tags of a constantsize neighborhood t[−k...k] around it. Put it another way, ti is conditionally independent of all tags in the sequence given the tags in the local neighborhood. This is
+a reasonable assumption for part-of-speech tagging, but for segmentation tasks, this
+representation may not be adequate.
+
+Semi-Markov models
+The second type of GLMs that we consider are semi-Markov models (Sarawagi and
+Cohen, 2004). Recall that a feature in a k-th order Markov model can only depend
+on a portion of the output corresponding to a length k + 1 subsequence of the input sentence (namely, a tag subsequence of length k +1). A feature in a k-th order
+semi-Markov model, on the other hand, can be deﬁned on a portion of the output
+corresponding to an arbitrarily long subsequence of the input sentence (namely, a subsequence of k+1 arbitrarily long segments). This is arguably a natural representation
+for segmentation problems.
+More concretely, given a sentence x, a segmentation y consists of m, the number
+33
+
+of segments, the starting indices of each segment 1 = s1 < s2 < · · · < sm ≤ |x|, and
+the label of each segment l1 , . . . lm . The global feature vector decomposes into a sum
+of local feature vectors over each local neighborhood of segments, rather than tags:
+m
+
+φ(x, sj , sj+1 , lj , lj−1 , . . . , lj−k )
+
+Φ(x, y) =
+
+(3.5)
+
+j=1
+
+The information available to each feature φp is the entire input sequence x, the
+starting and ending positions of the current segment (sj , sj+1 −1), and the labels of
+the last k+1 segments, including the current segment. For example, in our 1st-order
+semi-Markov model for named-entity recognition, we deﬁne a local feature as follows:
+
+φ1 (x, sj , sj+1 , lj , lj−1 ) =
+
+
+
+1 if lj = PER and x[s :s −1] = “Mr. Smith”
+j j+1
+
+(3.6)
+
+
+0 otherwise.
+
+Semi-Markov models allow more powerful features to be deﬁned compared to
+Markov models. Since segments can be arbitrarily long, a feature in a k-th order
+Markov BIO tagging model cannot even consider an entire segment if the segment is
+longer than length k. Being able to deﬁne features on entire segments can be useful.
+For example, in CWS, a useful semi-Markov feature might be an indicator function
+of whether the word formed by the characters in the current segment is present in
+a dictionary. Such a feature would be more diﬃcult to incorporate into a Markov
+model, since words vary in length. An important point is that while features in both
+Markov and semi-Markov models can depend on the entire input sequence x, only the
+features in a semi-Markov model “knows” where the starting and ending locations
+of a segment are, namely (sj , sj+1 −1), so that it can use those indices to index the
+portion of the input corresponding to the segment.
+As in a Markov model, we pad the beginning and end of each sentence with an
+unlimited number of length 1 boundary segments, which are labeled with a special
+boundary label. Recall that in NER, there are named-entity segments (PER, LOC,
+ORG, and MISC) and non-entity segments (O). We set all the non-entity segments
+34
+
+to have length 1 in the correct segmentation. For the purposes of decoding, we can
+force non-entity segments to also have length 1.
+
+Other models
+The simplest example of a GLM is found in the standard linear classiﬁcation scenario,
+where Y contains a constant number of possible outputs. In such a model, a feature
+can be deﬁned on the entire input x and output y. The GLM is truly global, but in
+a trivial way.
+We can also generalize k-th order Markov models beyond sequences to trees (order k = 1) and bounded tree-width graphs (order k > 1), where the dependencies
+between tags are not arranged in a linear chain. These general Markov models can
+be applicable in parse reranking problems, where a parse tree is ﬁxed, but some sort
+of labels are desired at each node. A 1st-order Markov model can be used to deﬁne
+features on the edges of the tree (Collins and Koo, 2004).
+Another natural and more complex class of GLMs are hierarchical models (for
+instance, in parsing (Taskar et al., 2004)), where nested labels are assigned over
+subsequences of the input. In such a model, a feature may depend on the label of a
+subsequence, the labels of the nested subsequences that partition that subsequence,
+and the positions of those subsequences.
+
+3.2.3
+
+Decoding
+
+There are two primary reasons for imposing structure in the models we discussed
+in Section 3.2.2, instead of allowing arbitrary features over the entire input x and
+output y. Requiring the global feature vector to decompose into local features limits
+overﬁtting and allows for tractable exact decoding.
+Typically, for structured classiﬁcation, GEN(x) is exponential in size. For example, in tagging, GEN(x) is the set of all tag sequences of length |x|, of which there are
+T |x| , where T is the number of tags. It would be too costly to compute Fθ (Equation
+3.1) na¨
+ıvely by enumerating all possible outputs.
+35
+
+Fortunately, in Markov and semi-Markov models, we have deﬁned Φ(x, y) in a
+decomposable way so that decoding can be done exactly in polynomial time. More
+generally, case-factor diagrams, which include Markov, semi-Markov, and hierarchical
+models, characterize a broad class of models in which Φ(x, y) decomposes in a way
+that allow this eﬃcient computation (McAllester et al., 2004).
+Markov models
+The goal of decoding is to compute the maximum scoring tag sequence t1 , . . . , t|x|
+given an input sequence x. Because the score Φ(x, y) · θ is linear in θ and the global
+feature vector Φ(x, y) decomposes into a sum over local features that only depend
+only on the last k+1 tags, we can solve subproblems of the form “what is the (score of
+the) maximum scoring preﬁx tag subsequence that ends in the k tags ti−k+1 , . . . , ti ?”
+Speciﬁcally, we call that value f (i, ti , ti−1 , . . . , ti−k+1 ) and compute it for each length
+i using the following recurrence:
+f (i, ti , . . . , ti−k+1 ) = max f (i−1, ti−1 , . . . , ti−k ) + φ(x, i, ti , . . . , ti−k ) · θ
+ti−k
+
+(3.7)
+
+The maximum score of a tag sequence is maxti ,...,ti−k+1 f (|x|, ti , . . . , ti−k+1 ), and the
+optimal tag sequence itself can be recovered by keeping track of the tags ti−k that were
+used at each stage to obtain the maximum. This dynamic programming algorithm
+(known as Viterbi decoding) runs in O(|x|T k+1) time, where T is the number of tag
+types and k is the order of the Markov model.
+Semi-Markov models
+The dynamic programming for k-th order semi-Markov models has the same ﬂavor as
+regular Markov models, with the addition that in the recursion, we need to consider
+all possible segment lengths as well as segment labels for the current segment, rather
+than just choosing the tag of the current token. Similar to the Markov case, let
+f (i, lj , . . . , lj−k+1 ) be the maximum score of a segmentation ending at position i whose
+last k segments are labeled lj−k+1 , . . . , lj .
+36
+
+Input: Training examples (x1 , y1 ), . . . , (xm , ym ), number of iterations T
+Output: Parameter vector θavg
+1
+2
+3
+4
+5
+6
+7
+
+θ ← θavg ← 0
+for t ← 1 to T do
+for i ← 1 to m do
+y ← Decode(Φ, xi , θ)
+if y = yi then
+θ ← θ + Φ(xi , yi ) − Φ(xi , y)
+θavg ← θavg + θ
+Figure 3-2: The Averaged Perceptron algorithm.
+
+f (i, lj , . . . , lj−k+1 ) = arg max f (i−n, lj−1 , . . . , lj−k ) + φ(x, i−n+1, i, lj , . . . , lj−k ) · θ
+lj−k ,n>0
+
+(3.8)
+The maximum score of a labeled segmentation is maxlj ,...,lj−k+1 f (|x|, lj , . . . , lj−k+1 ).
+This algorithm runs in O(|x|2 Lk+1 ), where L is the number of label types and k is
+the order of the semi-Markov model.
+
+3.2.4
+
+Training
+
+Now that we know how to perform decoding using a ﬁxed θ to classify new test
+examples, how do we train the parameters θ in the ﬁrst place? There are a number
+of objectives one can optimize with respect to θ and also several types of parameter
+estimation algorithms to perform the optimization. In our experiments, we use the
+Averaged Perceptron algorithm (Collins, 2002a) mainly due to its elegance, simplicity,
+and eﬀectiveness.
+Perceptron
+The Averaged Perceptron algorithm (Figure 3-2) makes T (typically 20–30) passes
+over the training examples (line 2) and tries to predict the output of each training
+example in turn (lines 3–4). For each mistake the algorithm makes, the algorithm
+nudges the parameters via a simple additive update so as to increase the score of
+37
+
+the correct output and decrease the score of the incorrectly proposed output (lines
+5–6). The original Perceptron algorithm simply returns the ﬁnal parameter vector
+θ, but this version suﬀers from convergence and stability issues. Instead, the Averaged Perceptron algorithm returns the average (or equivalently, the sum) θavg of all
+intermediate parameters θ (which is updated in line 7).
+Although the (Averaged) Perceptron algorithm does not seek to explicitly optimize
+an objective, the algorithm itself has theoretical guarantees (Freund and Schapire,
+1998; Collins, 2002a). If each training example xi is contained in a ball of radius R
+and the training set is separable with at least margin δ (∃θ ∀i,y∈GEN(xi )\yi (Φ(xi , yi ) −
+Φ(xi , y)) · θ ≥ δ), then the Perceptron algorithm makes at most R2 /δ 2 mistakes,
+regardless of the input distribution. The Averaged Perceptron algorithm can be seen
+as an approximation to the related Voted Perceptron algorithm, which has generalization bounds in terms of the total number of mistakes made on the training data
+(Freund and Schapire, 1998).
+One of the nice properties about the Perceptron algorithm is that it can be used
+to train any GLM. The algorithm assumes linearity in θ and treats Decode as a
+black box. For other parameter estimation algorithms, more complex optimization
+techniques or computations other than decoding are required.
+
+3.2.5
+
+Other parameter estimation algorithms
+
+We could use the score Φ(x, y) · θ to deﬁne a conditional probability distribution
+P (y|x) =
+amples
+
+eΦ(x,y)·θ
+and maximize the conditional likelihood of the training set exΦ(x,y )·θ
+y e
+m
+i i
+i=1 P (y |x ) (possibly multiplied by a regularization factor). Conditional
+P
+
+Random Fields (CRFs) are Markov models trained according to this criterion (Lafferty et al., 2001a). CRFs have been applied widely in many sequence tasks including
+named-entity recognition (McCallum and Li, 2003), Chinese word segmentation (Peng
+et al., 2004), shallow parsing (Sha and Pereira, 2003), table extraction (Pinto et al.,
+2003), language modeling (Roark et al., 2004), etc. The conditional likelihood can be
+eﬃciently and exactly maximized using gradient-based methods. Finding the gradient involves computing marginal probabilities P (y|x) for arbitrary y, while at testing
+38
+
+time, Viterbi decoding arg maxy P (y|x) is used to ﬁnd the best y.
+Another parameter estimation algorithm is based on maximizing the margin (for
+0–1 loss, the margin is δ = mini,y∈GEN(xi )\yi (Φ(xi , yi ) − Φ(xi , y)) · θ) (Burges, 1998;
+Altun et al., 2003; Taskar et al., 2003; Taskar et al., 2004). Like the Perceptron
+algorithm, max-margin approaches do not require computing marginal probabilities,
+but they do require solving a quadratic program to ﬁnd the maximum margin. Fortunately, the constraints of the quadratic program can decompose according to the
+structure of the model.
+There are a number of variations on basic GLMs. For instance, if there is latent
+structure in the input data not represented by the output, we can introduce hidden
+variables in order to model that structure (Quattoni et al., 2004). We can also use
+kernel methods to allow non-linear classiﬁers (Collins and Duﬀy, 2001; Laﬀerty et al.,
+2001b). Instead of working with a ﬁxed feature vector representation Φ(x, y), we
+can induce the most useful features at training time (Pietra et al., 1997; McCallum,
+2003).
+
+3.3
+3.3.1
+
+Semi-supervised techniques
+Generative maximum-likelihood models
+
+Early research in semi-supervised learning for NLP made use of the EM algorithm
+for parsing (Pereira and Schabes, 1992) and part-of-speech tagging (Merialdo, 1994),
+but these results showed limited success. One problem with this approach and other
+generative models is that it is diﬃcult to incorporate arbitrary, interdependent features that may be useful for solving the task at hand. Still, EM has been successful
+in some domains such as text classiﬁcation (Nigam et al., 2000).
+
+3.3.2
+
+Co-training and bootstrapping
+
+A number of semi-supervised approaches are based on the co-training framework
+(Blum and Mitchell, 1998), which assumes each example in the input domain can be
+39
+
+split into two independent views conditioned on the output class. A natural bootstrapping algorithm that follows from this framework is as follows: train a classiﬁer
+using one view of the labeled examples, use that classiﬁer to label the unlabeled examples it is most conﬁdent about, train a classiﬁer using the other view, use that
+classiﬁer to label additional unlabeled examples, and so on, until all the unlabeled
+examples have been labeled.
+Similar varieties of bootstrapping algorithms have been applied to named-entity
+classiﬁcation (Collins and Singer, 1999; Riloﬀ and Jones, 1999), natural language
+parsing (Steedman et al., 2003), and word-sense disambiguation (Yarowsky, 1995).
+Instead of assuming two independent views of the data, (Goldman and Zhou, 2000)
+uses two independent classiﬁers and one view of the data.
+Both theoretical (Blum and Mitchell, 1998; Dasgupta et al., 2001; Abney, 2002)
+and empirical analysis (Nigam and Ghani, 2000; Pierce and Cardie, 2001) have been
+done on co-training. (Abney, 2004) analyzes variants of Yarowsky’s bootstrapping
+algorithms in terms of optimizing a well-deﬁned objective.
+
+3.3.3
+
+Partitioning
+
+Another class of methods, most natural in the binary case, view classiﬁcation as partitioning examples—both labeled and unlabeled—into two sets. Suppose we deﬁne
+a similarity measure over pairs of examples and interpret the similarity as a penalty
+for classifying the two examples with diﬀerent labels. Then we can ﬁnd a minimum
+cut (Blum and Chawla, 2001) or a normalized cut (Shi and Malik, 2000) that consistently classiﬁes the labeled examples. Other methods based on similarity between
+example pairs include label propagation (Zhu and Ghahramani, 2002), random walks
+(Szummer and Jaakkola, 2001), and spectral methods (Joachims, 2003). Transductive SVMs maximizes the margin of the examples with respect to the separating
+hyperplane (Joachims, 1999).
+40
+
+3.3.4
+
+Using features derived from unlabeled data
+
+Each of the previous approaches we described attempts to label the unlabeled examples, either through EM, bootstrapping, or graph partitioning. A fundamentally
+diﬀerent approach, which has been quite successful (Miller et al., 2004) and is the approach we take, preprocesses the unlabeled data in a step separate from the training
+phase to derive features and then uses these features in a supervised model. In our
+case, we derive word clustering and mutual information features (Chapter 4) from
+unlabeled data and use these features in a Perceptron-trained global linear model
+(Section 3.2.4).
+(Shi and Sarkar, 2005) takes a similar approach for the problem of extracting
+course names from web pages. They ﬁrst solve the easier problem of identifying
+course numbers on web pages and then use features based on course numbers to solve
+the original problem of identifying course names. Using EM, they show that adding
+those features leads to signiﬁcant improvements.
+
+41
+
+42
+
+Chapter 4
+Extracting features from raw text
+In this chapter, we describe two types of features that we derive from raw text:
+word clusters (Section 4.1) and mutual information statistics (Section 4.2). We also
+describe ways of incorporating these features into a global linear model (Section 4.3).
+
+4.1
+
+Word clustering
+
+One of the aims of word clustering is to ﬁght the problem of data sparsity by providing
+a lower-dimensional representation of words. In natural language systems, words
+are typically treated categorically—they are simply elements of a set. Given no
+additional information besides the words themselves, there is no natural and useful
+measure of similarity between words; “cat” is no more similar to “dog” than “run.” In
+contrast, things like real vectors and probability distributions have natural measures
+of similarity.
+How should we deﬁne similarity between words? For the purposes of namedentity recognition, we would like a distributional notion of similarity, meaning that
+two words are similar if they appear in similar contexts or that they are exchangeable
+to some extent. For example, “president” and “chairman” are similar under this
+deﬁnition, whereas “cut” and “knife”, while semantically related, are not. Intuitively,
+in a good clustering, the words in the same cluster should be similar.
+43
+
+4.1.1
+
+The Brown algorithm
+
+In this thesis, we use the bottom-up agglomerative word clustering algorithm of
+(Brown et al., 1992) to derive a hierarchical clustering of words. The input to the
+algorithm is a text, which is a sequence of words w1 , . . . , wn . The output from the
+clustering algorithm is a binary tree, in which the leaves of the tree are the words.
+We interpret each internal node as a cluster containing the words in that subtree.
+Initially, the algorithm starts with each word in its own cluster. As long as there
+are at least two clusters left, the algorithm merges the two clusters that maximizes
+the quality of the resulting clustering (quality will be deﬁned later).1 Note that the
+algorithm generates a hard clustering—each word belongs to exactly one cluster.
+To deﬁne the quality of a clustering, we view the clustering in the context of a classbased bigram language model. Given a clustering C that maps each word to a cluster,
+the class-based language model assigns a probability to the input text w1 , . . . , wn ,
+where the maximum-likelihood estimate of the model parameters (estimated with
+empirical counts) are used. We deﬁne the quality of the clustering C to be the
+logarithm of this probability (see Figure 4-1 and Equation 4.1) normalized by the
+length of the text.
+
+c1
+
+c2
+
+P (ci |ci−1 )
+c3
+ci
+
+...
+
+cn
+ci = C(wi )
+
+P (wi |ci )
+w1
+
+w2
+
+w3
+
+wi
+
+...
+
+wn
+
+Figure 4-1: The class-based bigram language model, which deﬁnes the quality of a
+clustering, represented as a Bayesian network.
+
+1
+
+We use the term clustering to refer to a set of clusters.
+
+44
+
+1
+log P (w1 , . . . , wn )
+n
+1
+log P (w1 , . . . , wn , C(w1 ), . . . , C(wn ))
+=
+n
+n
+1
+=
+log
+P (C(wi )|C(wi−1 ))P (wi |C(wi ))
+n
+i=1
+
+Quality(C) =
+
+(4.1)
+(4.2)
+(4.3)
+
+Equation 4.2 follows from the fact that C is a deterministic mapping. Equation 4.3
+follows from the deﬁnition of the model. As a technicality, we assume that C(w0 ) is
+a special START cluster.
+We now rewrite Equation 4.1 in terms of the mutual information between adjacent
+clusters. First, let us deﬁne some quantities. Let n(w) be the number of times word
+w appears in the text and n(w, w ) be the number of times the bigram (w, w ) occurs
+in the text. Similarly, we deﬁne n(c) =
+
+w∈c
+
+n(w) to be number of times a word
+
+in cluster c appears in the text, and deﬁne n(c, c ) =
+
+w∈c,w ∈c
+
+n(w, w ) analogously.
+
+Also, recall n is simply the length of the text.
+
+1
+Quality(C) =
+n
+
+n
+
+log P (C(wi )|C(wi−1 ))P (wi |C(wi ))
+i=1
+
+=
+w,w
+
+=
+w,w
+
+=
+w,w
+
+=
+c,c
+
+n(w, w )
+log P (C(w )|C(w))P (w |C(w ))
+n
+n(C(w), C(w )) n(w )
+n(w, w )
+log
+n
+n(C(w))
+n(C(w ))
+n(w, w )
+n(C(w), C(w ))n
+log
++
+n
+n(C(w))n(C(w ))
+n(c, c )
+n(c, c )n
+log
++
+n
+n(c)n(c )
+
+w
+
+w,w
+
+n(w, w )
+n(w )
+log
+n
+n
+
+n(w )
+n(w )
+log
+n
+n
+
+We use the counts n(·) to deﬁne empirical distributions over words, clusters, and
+pairs of clusters, so that P (w) =
+
+n(w)
+,
+n
+
+P (c) =
+
+n(c)
+,
+n
+
+quality of a clustering can be rewritten as follows:
+45
+
+and P (c, c ) =
+
+n(c,c )
+.
+n
+
+Then the
+
+Quality(C) =
+
+P (c, c ) log
+c,c
+
+P (c, c )
++
+P (c)P (c )
+
+P (w) log P (w)
+w
+
+= I(C) − H
+The ﬁrst term I(C) is the mutual information between adjacent clusters and the
+second term H is the entropy of the word distribution. Note that the quality of C
+can be computed as a sum of mutual information weights between clusters minus the
+constant H, which does not depend on C. This decomposition allows us to make
+optimizations.
+Optimization by precomputation
+Suppose we want to cluster k diﬀerent word types. A na¨ algorithm would do the
+ıve
+following: for each of O(k) iterations, and for each of the possible O(k 2 ) possible pairs
+of clusters to merge, evaluate the quality of the resulting clustering. This evaluation
+involves a sum over O(k 2 ) terms, so the entire algorithm runs in O(k 5 ) time.
+Since we want to be able to cluster hundreds of thousands of words, the na¨
+ıve
+algorithm is not practical. Fortunately, (Brown et al., 1992) presents an optimization
+that reduces the time from O(k 5 ) to O(k 3 ). The optimized algorithm maintains
+a table containing the change in clustering quality due to each of the O(k 2 ) merges
+(Brown et al., 1992). With the table, picking the best merge takes O(k 2 ) time instead
+of O(k 4 ) time. We will show that the table can be updated after a merge in O(k 2 )
+time.
+Instead of presenting the optimized algorithm algebraically (Brown et al., 1992),
+we present the algorithm graphically, which we hope provides more intuition. Let a
+clustering be represented by an undirected graph with k nodes, where the nodes are
+the clusters and an edge connects any two nodes (clusters) that are ever adjacent to
+each other in either order in the text. Note there might be self-loops in the graph.
+Let the weight of an edge be deﬁned as in Equation 4.4 (see below). One can verify
+that the total graph weight (the sum over all edge weights) is exactly the mutual
+46
+
+information I(C) = Quality(C) + H, which is the value we want to maximize.
+
+w(c, c ) =
+
+
+
+P (c c ) log
+
+P (c c) log
+
+P (c c )
+P (c)P (c )
+
++ P (c c) log P P (c c)
+(c )P (c)
+
+P (c c)
+P (c)P (c)
+
+if c = c
+
+(4.4)
+
+if c = c .
+
+Note that we can keep track of P (c), P (c, c ), w(c, c ) without much diﬃculty. The
+table central to the optimization is L(c, c ). For each pair of nodes (c, c ), L(c, c ) stores
+the change in total graph weight if c and c were merged into a new node. (Our L(c, c )
+has the opposite sign of L in (Brown et al., 1992)). Figure 4-2(a) and Equation 4.5
+detail the computation of L(c, c ). We denote the new node as c ∪ c , the current set of
+nodes as C, and the set of nodes after merging c and c as C = C − {c, c } + {c ∪ c }.
+
+w(c ∪ c , d) −
+
+L(c, c ) =
+
+(w(c, d) + w(c , d))
+
+(4.5)
+
+d∈C
+
+d∈C
+
+For each node c, (Brown et al., 1992) also maintains s(c) =
+
+c
+
+w(c, c ), the sum
+
+of the weights of all edges incident on c. We omit this, as we can achieve the same
+O(k 3 ) running time without it.
+At the beginning of the algorithm, L(c, c ) is computed in O(k) for each pair of
+nodes (c, c ), where k is the number of nodes (Equation 4.5, Figure 4-2(a)). Summing
+over all pairs, the total time of this initialization step is O(k 3 ).
+After initialization, we iteratively merge clusters, choosing the pair of clusters to
+merge with the highest L(c, c ). This takes O(k 2 ) time total (for each pair (c, c ), it
+takes O(1) time to look up the value of L(c, c )). After each merge, we update L(c, c )
+for all the pairs (c, c ) in O(k 2 ) total time as follows: For each (c, c ) where both c and
+c were not merged, ∆L(c, c ) is computed in O(1) time by adding and subtracting
+the appropriate edges in Figure 4-2(b). For the remaining pairs (c, c ) (of which
+there are O(k)), we can aﬀord to compute L(c, c ) from scratch using Equation 4.5
+(Figure 4-2(a)), which takes O(k) time. Thus, all the updates after each merge can
+be performed in O(k 2 ) time total. As O(k) total merges are performed, the total
+running time of the algorithm is O(k 3 ).
+47
+
+O(k) nodes
+...
+
+...
+
+c
+
+c’
+
+the new merged node
+added edge (weight to be added)
+deleted edge (weight to be subtracted)
+
+c
+
+c’
+
+number of nodes = O(k)
+L(c, c ) (O(k) time)
+
+∆L(c, c ) (O(1) time)
+
+(a) Computed from scratch
+
+(b) Computed after each merge
+
+number of edges = O(k 2 )
+
+Figure 4-2: Visualizing the Brown algorithm. (a) shows the edges involved in computing L(c, c ) from scratch (solid indicates added, dashed indicates subtracted). (b)
+shows the edges involved in computing ∆L(c, c ), the change in L(c, c ) when the two
+nodes in the shaded box have just been merged.
+Optimization using a ﬁxed window size
+Even an O(k 3 ) algorithm is impractical for hundreds of thousands of words, so we
+make one further optimization. But unlike the previous optimization, the new one
+does not preserve functionality.
+We ﬁx a window size w and put each of the w most frequent words in its own
+cluster. L(c, c ) is then precomputed for each pair of clusters (c, c ). This initialization
+step takes O(w 3 ) time.
+Then, for each of the remaining k −w words that have not been placed in a cluster,
+we add the word to a new cluster cw+1 . We then need to update two things: (1) the
+edge weights and (2) the L(c, c ) entries involving cw+1 .
+Assume that, as we were initially reading in the text, we computed a hash table
+mapping each word to a list of neighboring words that appear adjacent to it in the
+text. To compute the edge weights between the new cluster cw+1 and the ﬁrst w
+clusters, we loop through the words adjacent to the new word in cw+1 , keeping track
+of the counts of the adjacent words’ corresponding clusters. The edge weights can be
+easily calculated given these counts. The total time required for this operation over
+the course of the entire algorithm is O(T ), where T is the length of the text.
+After the edge weights are computed, L(c, c ) can be updated easily. O(1) time
+is required for each cluster pair that does not include cw+1 ; O(w) time is otherwise
+48
+
+required to do the computation from scratch (Figure 4-2(a)). Thus, the total time
+spent in creating new clusters is O(kw 2 + T ).
+Now we merge the optimal pair of clusters among the resulting w +1 clusters in
+the same way as in the ﬁrst optimized algorithm. That algorithm took O(k 2 ) time
+for each merge because there were k clusters, but since there are only w clusters at a
+time in the new algorithm, the time required is O(kw 2 ) total to introduce the k − w
+words to the current clustering.
+This new algorithm runs in O(kw 2 + T ), where k is the number of words we want
+to cluster and w is the initial window size of frequent words. In practice, k = 250, 000
+and w = 1000. The algorithm is still slow but practical.
+
+Word similarity
+
+Revisiting our motivating notion of word similarity, note that we do not formally
+deﬁne the similarity between two words, even though we would like our algorithm to
+place similar words in the same cluster. Fortunately, the quality of a clustering turns
+out to encourage words with similar contexts to be merged into the same cluster.
+As a simple example, consider two words wa and wb which have similar contexts.
+In fact, assume their left and right adjacent word distributions are identical. For
+simplicity, also assume that they never occur next to each other. We will show that
+the clustering quality stays the same if we merge wa and wb into one cluster. Let w
+be any other word. The clustering quality prior to merging wa and wb includes the
+two terms A = P (w, wa ) log PP (w,wa ) ) and B = P (w, wb) log PP (w,wb )b ) , which sums to
+(w)P (wa
+(w)P (w
+(P (w, wa ) + P (w, wb )) log PP (w,wa)a ) , since
+(w)P (w
+into cluster cab , the A + B is replaced by
+
+P (w,wa )
+P (wa )
+
+P (w,wb )
+. After merging wa and wb
+P (wb )
+)
+P (w, cab ) log P P (w,cabab ) which is identical to
+(w)P (w
+
+=
+
+A + B since P (w, cab ) = P (w, wa ) + P (w, wb). Since the clustering quality is always
+monotonically non-increasing with successive merges, the algorithm will always merge
+two words with the identical contexts if it can.
+49
+
+Variants of the Brown algorithm
+(Martin et al., 1995) extends the Brown algorithm by using an objective function
+based on trigram models instead of bigram models. They also introduce an eﬃcient
+exchange algorithm that tries to improve the objective by moving words from one
+cluster to another. The exchange technique was also used in (Ushioda, 1996).
+
+Relation to HMM learning
+Figure 4-1 bears a striking resemblance to a Hidden Markov Model (HMM), and we
+can view the problem of ﬁnding a good clustering C as the problem of learning an
+HMM. However, note that each observation (token) in an HMM produced by the
+Brown algorithm is emitted by exactly one state (cluster). This is not true for HMMs
+in general.
+The method of merging clusters or states in an HMM like the Brown algorithm has
+also been explored by (Stolcke and Omohundro, 1993) in Bayesian model merging.
+In that work, they start with each occurrence of a word in a diﬀerent state, whereas
+the Brown algorithm starts with each word type in a diﬀerent state. At any point in
+time, the Brown algorithm always assigns a hard clustering to words, but (Stolcke
+and Omohundro, 1993) allows the possibility of a soft clustering, which happens when
+the initial states of two word occurrences are not merged together. Also, (Stolcke and
+Omohundro, 1993) places a Dirichlet prior on the model (the clustering) and decides
+on the best merge with respect to maximizing the posterior P (C|w) ∝ P (w|C)P (C)
+rather than with respect to the likelihood P (w|C). The prior provides a natural stopping point—when the posterior cannot be increased by merging two clusters. Note
+that the likelihood P (w|C) never increases, so it cannot provide a natural stopping
+point. However, committing to a particular stopping point is not necessary, since
+we can use the full hierarchical clustering produced by the Brown algorithm in a
+discriminative model.
+An HMM can also be learned using the Baum-Welch algorithm. However, Bayesian
+model merging yields better models compared to the models produced by the Baum50
+
+1: February December March October November April September January May August ...
+2: Benjamin Rudolph Sammy Al Henry Mark George Paul ...
+3: accusations regulations lawsuits threats allegations sanctions measures legislation laws ...
+4: Afghanistan Spain Canada Europe Asia Italy Ireland Germany Mexico France ...
+...
+
+Figure 4-3: Examples of English word clusters.
+Welch algorithm (Stolcke and Omohundro, 1993). Another way to produce more
+meaningful models is to place an entropic prior on the parameters of the HMM, so
+that there is a bias towards models with more deterministic transition probabilities
+(Brand, 1999).
+
+4.1.2
+
+Extracting word clusters
+
+Using the Brown algorithm, we produced two sets of word clusters, one for English
+and one for German. To prepare the English clusters, we used the 1996 Reuters text
+from the LDC, which is the source of the CoNLL 2003 English named-entity data.
+We stripped out any paragraphs that do not resemble real sentences, i.e., ones that
+are composed of less than 90% lowercase letters a–z. We ran the algorithm on the
+cleaned text (43M words, 280K word types), starting with 1000 initial clusters. The
+clustering took 77 hours on a 2.8 GHz processor. Some examples of word clusters are
+shown in Figure 4-3.
+To prepare the German clusters, we used the 2003 European Parliamentary proceedings (27M words, 283K word types). We did not have access to the ECI Multilingual Text Corpus, which was the source of the German named-entity data. Starting
+with 1000 clusters, the clustering algorithm took 74 hours.
+
+4.1.3
+
+Utility of word clusters
+
+As mentioned earlier, word clustering alleviates the data sparsity problem by allowing
+the learning algorithm to draw analogies between diﬀerent words. In named-entity
+recognition, for example, we might leverage cues such as the nearby occurrence of
+the word “chairman” to signify a person entity. But “chairman” is not unique in this
+51
+
+role. In fact, words that are similar to “chairman”—such as “author” or “founder” or
+“CEO”—could also play the part. Without word clustering, the learning algorithm
+cannot make a connection between these words. With word clustering information,
+the learning algorithm can learn, not just that the word “chairman” is indicative of
+a person entity, but that the entire cluster containing “chairman” is indicative of a
+person entity.
+We now support the intuition with a simple experiment. We collected all the
+single-word names of people in the English NER training set (2316 occurrences, 968
+types). Each person name belongs to one of the 1000 leaf word clusters, and this
+induces a distribution of leaf word clusters over all single-word person names. The
+entropy of this distribution is 2.92 bits. For the control experiment, we collected 2316
+words drawn randomly from the training set text. The entropy of that distribution
+was 8.13 bits. Clearly, the word clusters have managed to capture some distributional
+property that binds together people names. Instead, consider all the words that
+precede a person name (6600 occurrences, 796 types). The entropy of the induced
+distribution is 5.69 bits, whereas the random baseline is 8.37 bits. Here, the signal
+provided by the word clusters is much weaker, which is not surprising given that
+people names can be used in a variety of contexts.
+
+4.2
+
+Mutual information
+
+The second type of feature that we extract from raw text is (pointwise) mutual
+information (MI). MI is a standard measure of the strength of association between
+co-occurring items and has been used successfully in extracting collocations from
+English text (Lin, 1998) and performing Chinese word segmentation (Sproat and
+Shih, 1990; Maosong et al., 1998; Zhang et al., 2000; Peng and Schuurmans, 2001b).
+Fortunately, it is simple to derive estimates of mutual information from unlabeled
+data (raw unsegmented text) alone. Unlike word clustering, MI can be computed
+quickly—in time linear in the text length. The MI of two Chinese characters x1 and
+x2 is computed as follows:
+52
+
+MI(x1 , x2 ) = log
+
+P (x1 x2 )
+P (x1 )P ( x2 )
+
+(4.6)
+
+Here P (x1 x2 ) is an estimate of the probability of seeing x1 followed by x2 ; P (x1 )
+and P ( x2 ) are marginal probabilities.
+
+4.2.1
+
+Extracting mutual information
+
+To estimate MI values, we used the text from the four Bakeoﬀ datasets, combined
+with an amalgamation of the Chinese part of nine diﬀerent parallel corpora from
+the LDC. This parallel corpora includes FBIS, Hong Kong Hansards, UN Corpus,
+Xinhua News Corpus, etc. The entire raw text we use contains 90M characters, 10K
+character types, and 1.9M character bigram types. We used add-one smoothing on
+all the unigram and bigram counts. Table 4.1 presents some examples of MI values.
+We ﬁnd that two characters with high MI tend to belong to the same word, and
+two characters with low MI tend to belong to diﬀerent words. The next section will
+attempt to demonstrate this correlation.
+Character pair
+shˇn x¯ (a province in China)
+a ı
+shˇn gu¯ng (ﬂash)
+a
+a
+yu` s¯n (month 3)
+e a
+a
+e
+¯n wˇn (steady)
+d` gˇu (big dog)
+a o
+y¯ du` (a couple)
+ı ı
+wˇ b` (I sick)
+o ıng
+h´ xi¯ (and some)
+e e
+gu´ yu` (country month)
+o e
+
+Mutual information
+6.78
+5.53
+3.21
+1.59
+0.00
+-1.44
+-3.52
+-5.11
+-5.41
+
+Is a word?
+yes
+yes
+no
+yes
+no
+yes
+no
+no
+no
+
+!
+ 
+
+¢
+
+¥
+©
+§
+¨¦
+¤
+¥£
+
+¡
+¢ 
+¦ "
+
+Table 4.1: Mutual information values of various Chinese character pairs.
+
+4.2.2
+
+Utility of mutual information
+
+MI would be helpful for CWS if word boundaries are more likely to occur between
+two characters with low MI than with high MI. To see if there is a correlation, we
+53
+
+Spans a boundary
+Within a word
+
+Average mutual information Number of character pairs
+0.691
+637,008
+3.982
+991,141
+
+Table 4.2: Mutual information across word boundaries is much lower than mutual
+information within words. The test was done on the PK Train set.
+
+compared the MI of adjacent characters that span a word boundary with the MI of
+adjacent characters within a word (Table 4.2).
+From this simple experiment, we conclude that there is a correlation between
+word boundaries and mutual information. Consider a simple heuristic based purely
+on mutual information: to decide whether two adjacent characters should be part of
+the same word, compare the MI between the two characters against a ﬁxed threshold
+t; place a word boundary if and only if the MI is smaller than t. If we choose t simply
+to be the halfway point between the two average mutual information values 0.691
+and 3.982 (t = 2.34), we can detect word boundaries with 84.9% accuracy. If we had
+known the optimal threshold t = 2.4 a priori, we could have obtained 85% accuracy.
+
+4.3
+
+Incorporating features from unlabeled data
+
+In this section, we discuss how we incorporate the information derived from unlabeled
+data into a global linear model and give examples for a Markov model. The full set
+of features is given in Section 5.1.
+
+4.3.1
+
+Using word cluster features
+
+Recall that each component of the global feature vector of a GLM decomposes into
+a sum of local features. To use our word clusters, we add indicator features that
+ﬁre when a word is in a given cluster. For example, suppose a cluster C25 contains
+the words “Mark”, “Al”, “Paul”, etc. Based on the discussion in Section 4.1.3, we
+would expect the feature in Equation 4.7 to be useful in the Markov model. The
+feature returns 1 if and only if a word belonging to a cluster containing mostly ﬁrst
+names is tagged as the beginning of a person name. Of course we have no way of
+54
+
+knowing the usefulness of such a feature a priori, so we add all features of this same
+form, where C25 and B-PER are replaced by any other cluster and tag, respectively
+(Section 5.1). We have simply highlighted one feature that might be useful and thus
+would be assigned a positive weight during training.
+
+φ38 (x, i, ti , ti−1 , ti−2 ) =
+
+
+
+1 if xi ∈ C25 and ti = B-PER
+
+(4.7)
+
+
+0 otherwise.
+
+Since the Brown algorithm produces hierarchical clusters, from which level in the
+hierarchy should we pick clusters to use in our features? We do not know in advance
+what clustering granularity would be appropriate for NER. Fortunately, GLMs allow arbitrary overlapping features, so we can add clustering features corresponding
+to multiple levels of the hierarchy. The hope is that the learning algorithm will automatically choose the ones that are most useful for the task and assign them high
+weight. Following (Miller et al., 2004), we use a cluster (a node in the tree) in features
+if it has a depth (distance from the root node) that is a multiple of 4 or it is a leaf of
+the tree.
+
+4.3.2
+
+Using mutual information features
+
+Mutual information (MI) values are trickier to incorporate than word clusters because
+they are continuous rather than discrete. As an example of how MI statistics might
+be incorporated into a GLM, we could deﬁne a local feature that either returns the
+MI value or 0:
+
+φ7 (x, i, ti , ti−1 , ti−2 ) =
+
+
+
+MI(xi−1 , xi ) if ti−1 = B and ti = I
+
+0
+
+(4.8)
+
+otherwise
+
+The mutual information values that we obtained in Section 4.2.1 span the range
+from -9.88 to 17.6 (Figure 4-4). Since all other feature values we have discussed take
+on binary values of 0 or 1, there is a “mis-match” between the continuous and binary
+features. As we show later, GLMs can be sensitive to inappropriately scaled feature
+55
+
+values.
+3000
+
+2500
+
+2000
+
+1500
+
+1000
+
+500
+
+0
+-5
+
+0
+
+5
+
+10
+
+15
+
+Figure 4-4: A histogram showing the distribution of mutual information values estimated from unsegmented Chinese text.
+We consider three ways of dealing with this mis-match by transforming the MI
+values into a more amenable form to use in the GLM:
+• Scale and translate the MI values so that they are contained in some ﬁxed range
+[a, b]. The smallest MI value maps to a, and the largest MI value maps to b.
+• Replace the MI values with their z-scores. The z-score of a MI value x is
+
+x−µ
+,
+σ
+
+where µ and σ are the mean and standard deviation of the MI distribution,
+respectively.
+• Convert the continuous MI values into binary values by thresholding at some
+δ. In other words, map a raw MI value x to a if x < δ and b if x ≥ δ. In our
+experiments, we set δ to µ, the mean MI value.
+We experiment with these three approaches on the HK dataset. The features and
+experimental setup we used are described in Chapter 5: we trained a Markov model
+using the Perceptron algorithm on 10% of the available training data for 20 iterations.
+Table 4.3 gives the performance on the Dev set.
+56
+
+Method
+Without MI values
+Raw MI values
+Threshold at mean to {0, 1}
+Threshold at mean to {-1, 1}
+Normalize to [-3, 3]
+Normalize to [-1, 1]
+Normalize to [0, 1]
+Z-score
+Multiply by 10
+
+F1 score on Dev
+77.08
+81.51
+80.83
+80.47
+82.90
+83.19
+83.27
+83.35
+68.89
+
+Table 4.3: F1 scores obtained by using various ways to transform mutual information
+values before using them in a Markov model. The experiments were done on the HK
+dataset. 10% of the total available training data (29K characters) was used.
+
+Although using raw MI values directly in features (Equation 4.8) does improve
+performance over the baseline (from 77.08% to 81.51%), it is helpful to rescale the
+MI values to make them more friendly for the GLM. Thresholding actually performs
+worse than using raw MI values, since we are probably losing too much information.
+By normalizing the MI values in various ways, we can increase the performance as
+compared to using raw MI values. We obtain the highest performance by normalizing
+with z-scores (81.35%). Finally, to demonstrate the brittleness of the model due to
+arbitrary feature scaling, we purposely multiplied the raw MI values by 10 to make
+the features span even a larger range. As a result, performance plummets to 68.89%.
+
+57
+
+58
+
+Chapter 5
+Experiments
+In this section, we present experiments on a total of ﬁve datasets (Eng, Deu, CTB,
+PK, and HK). Eng and Deu are named-entity recognition datasets from the CoNLL
+2003 Shared Task (Section 2.2.2). CTB, PK, and HK are from the 2003 Chinese
+Word Segmentation Bakeoﬀ (Section 2.1.3). For each dataset, we measure (1) the
+eﬀect of using a semi-Markov versus a Markov model and (2) the eﬀect of adding
+features derived from unlabeled data. We are also interested in these eﬀects when we
+are training with a small amount of labeled data. We trained the various models on
+5%, 10%, 20%, 50%, and 100% of the available sentences. Section 5.1 describes the
+features we used in the diﬀerent models, and Section 5.2 presents the results of our
+experiments.
+
+5.1
+
+Features
+
+Recall that in a 2nd-order Markov model, the global feature vector is a sum of local
+feature vectors φ(x, i, ti , ti−1 , ti−2 ), where x is the input sentence, i is the current
+position, and ti , ti−1 , ti−2 are the last three tags (Equation 3.2). In NLP applications,
+a local feature vector typically contains millions of components (features), which are
+described compactly using feature templates. Each feature template represents a set
+of features. For example, the feature template denoted as (ti , xi+1 ) describes the set
+59
+
+of features of the form:
+
+φp (x, i, ti , ti−1 , ti−2 ) =
+
+
+
+1 if ti = ? and xi+1 = ?
+
+0 otherwise,
+
+where the question marks can be ﬁlled in with any strings. In practice, only
+the strings encountered during the training process actually matter; if a string is
+never encountered, the corresponding feature will always have weight 0. In the above
+example, the ﬁrst question mark can be replaced by any of the possible tags (B-PER,
+I-PER, B-ORG, I-ORG, B-LOC, I-LOC, B-MISC, I-MISC, and O), and the second
+question mark can be replaced by any word that appears in the training set. Note
+that if a word is observed in the test set but not in the training set, then that word
+would only trigger features that have weight 0.
+Figures 5-1 to 5-4 list the feature templates used in the Markov and semi-Markov
+models for CWS and NER. We opted for simple and clean features. The NER training
+sets were also annotated with part-of-speech and noun phrase chunking information,
+which we did not use. Preliminary experimentation showed that the additional information does not provide a substantial improvement when we are already using
+unlabeled data features. Each word in the German training set was also annotated
+with its lemmatized form, which we ignored as well.
+Each line in Figures 5-1 to 5-4 describes multiple feature templates. For example,
+consider line 5 in Figure 5-1 ((ti , xi+∆ ) for ∆ ∈ {−2, −1, 0, 1, 2}). The ﬁve feature
+templates described by this line are (ti , xi−2 ), (ti , xi−1 ), (ti , xi ), (ti , xi+1 ), and (ti , xi+2 );
+each feature template in turn deﬁnes a set of features. In general, xi+∆ refers to the
+token at position i + ∆, where i is the current position; ti+∆ refers to the tag at
+position i + ∆.
+For a 1st-order semi-Markov model, each local feature is deﬁned as φp (x, sj , sj+1 , lj , lj−1 ).
+In Figures 5-2 and 5-4, s = sj and e = sj+1−1 are the starting and ending positions of
+the current segment, and (li , li−1 ) are the labels of the current and previous segments.
+60
+
+For example, line 7 in Figure 5-2 (lj , xs...e ) includes features of the following form:
+
+φp (x, sj , sj+1 , lj , lj−1 ) =
+
+
+
+1 if lj = ? and x[s :s −1] = ?
+j j+1
+
+0 otherwise,
+
+In addition to the basic indicator feature templates on tags and tokens, the CWS
+feature templates (Figures 5-1 and 5-2) based on unlabeled data features involve returning the mutual information z-score of two characters MI z (xi , xi+1 ) (Section 4.3.2).
+Some of the NER feature templates (Figures 5-3 and 5-4) involve two sets of string
+operations, C and M, where a string is simply a word or a subsequence of words.
+Each operation maps strings to equivalence classes. If these equivalence classes are
+relevant to NER, then this lower-dimensional representation of strings can be useful
+for generalization. Features can be deﬁned in terms of equivalence classes rather than
+the actual strings.
+• M is a set of 11 orthographic transformations that map a string to another
+string via a simple surface level transformation. The functions m(x) ∈ M
+include the following:
+1 Map x to its uncapitalized form (e.g., “Smith” → “smith”)
+2 Return the type of x, obtained by replacing [a-z] with a, [A-Z] with A, and
+[0-9] with 0 (e.g., “D. E. Shaw” → “A. A. Aaaa”)
+3 Return the type of x, except successive repeated characters are replaced with
+a single occurrence (e.g., “D. E. Shaw” → “A. A. Aa”)
+4–7 Return the ﬁrst n characters of x, where 1 ≤ n ≤ 4 (e.g., “reporter” →
+“re” if n = 2)
+8–11 Return the last n characters of x, where 1 ≤ n ≤ 4 (e.g., “reporter” →
+“ter” if n = 3)
+• Each operation in C maps a word to a cluster identity (Section 4.3.1). One
+operation c(x) ∈ C maps the word x to the leaf cluster containing x. The
+61
+
+other operations c(x) ∈ C map the word x to the clusters at depths 4, 8, 12, . . .
+containing x. If x was not seen while constructing the clusters and thus does
+not belong to any cluster, then it is mapped to a special NULL cluster.
+In each of the 4 ﬁgures (Figures 5-1 to 5-4), the feature templates are divided into
+regular and unlabeled data feature templates. The baseline Markov and semi-Markov
+models, which we denote M and SM, respectively, use only the regular features.
+Markov and semi-Markov models that use both regular and unlabeled data features
+are denoted M+F and SM+F, respectively. Section 5.2 describes experiments using
+all four models.
+
+1
+2
+3
+4
+5
+6
+7
+
+CWS: Markov
+Regular features:
+ti
+ti , ti−1
+ti , ti−1 , ti−2
+ti , ti−1 , xi , xi−1
+ti , xi+∆
+for ∆ ∈ {−2, −1, 0, 1, 2}
+ti , xi+∆ , xi+∆+1
+for ∆ ∈ {−2, −1, 0, 1}
+Features based on mutual information:
+ti , MIz (xi−1 , xi )
+
+Figure 5-1: Markov model features for CWS. ti is the current tag, xi is the current
+character, and MIz (xi−1 , xi ) is the mutual information z-score of the previous and
+current characters.
+
+1
+2
+3
+4
+5
+6
+7
+
+CWS: semi-Markov
+Regular features:
+lj
+lj , lj−1
+lj , xi
+for i ∈ {s−2, s−1, s, e, e+1, e+2}
+lj , xi , xi+1
+for i ∈ {s−2, s−1, e, e+1}
+lj , xs...e
+Features based on mutual information:
+lj , lj−1 , MIz (xs−1 , xs )
+lj , MIz (xs...e )
+
+Figure 5-2: Semi-Markov model features for CWS. lj is the current segment label; s
+and e are the starting and ending indices of the current segment, respectively.
+
+62
+
+NER: Markov
+Regular features:
+ti
+ti , ti−1
+ti , ti−1 , ti−2
+ti , ti−1 , xi , xi−1
+ti , m(xi+∆ )
+for ∆ ∈ {−1, 0, 1}, m ∈ M
+ti , xi+∆ , xi+∆+1
+for ∆ ∈ {−1, 0}
+Features based on word clusters:
+ti , c(xi+∆ )
+for ∆ ∈ {−1, 0, 1}, c ∈ C
+ti , c(xi+∆ ), c(xi+∆+1 ) for ∆ ∈ {−1, 0}, c ∈ C
+ti , ti−1 , c(xi ), c(xi−1 )
+for c ∈ C
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+
+Figure 5-3: Markov model features for NER. C and M are sets of string operations.
+
+1
+2
+3
+4
+5
+6
+7
+8
+
+NER: semi-Markov
+Regular features:
+lj
+lj , lj−1
+lj , m(xi ) for i ∈ {s−1, s, e, e+1}, m ∈ M
+lj , xi+∆ , xi+∆+1
+for ∆ ∈ {s−1, e}
+lj , m(xs...e )
+for m ∈ M
+Features based on word clusters:
+lj , c(xi )
+for i ∈ {s−1, s, e, e+1}, c ∈ C
+lj , c(xi ), c(xi+1 ) for i ∈ {s−1, e}, c ∈ C
+lj , c(xs...e )
+for c ∈ C
+
+Figure 5-4: Semi-Markov model features for NER.
+Limiting the segment length A standard semi-Markov model as deﬁned in Section 3.2.2 does not bound the allowable length of a segment. But for NER and CWS,
+it is not necessary to consider segments that are arbitrarily long. Pruning long segments increases the eﬃciency of the algorithm without noticeably aﬀecting accuracy.
+We modify the decoding algorithm in Section 3.2.3 to only consider segments of up to
+length P . We choose P as small as possible while ensuring that 99.9% of the segments
+in the Train set are no longer than P tokens. The ﬁrst number in the Train column
+of Table 5.1 shows values of P for the diﬀerent datasets. These values of P are used
+in both training and testing on Train, Dev, and Test.
+Making this restriction improves the running time of the Viterbi decoding algorithm (Section 3.2.3) from O(|x|2 L2 ) to O(|x|P L2 ), where |x| is the length of the
+63
+
+CTB
+PK
+HK
+Eng
+Deu
+
+8
+6
+7
+6
+7
+
+Train
+(max 21)
+(max 22)
+(max 14)
+(max 10)
+(max 18)
+
+Dev
+8 (max 10)
+6 (max 13)
+6 (max 9)
+7 (max 10)
+6 (max 8)
+
+Test
+5 (max 9)
+5 (max 13)
+6 (max 14)
+5 (max 6)
+7 (max 9)
+
+Table 5.1: For each dataset (CTB, PK, etc.) and each of its three sets of examples
+(Train, Dev, and Test), we show the bound on the segment length as computed from
+the examples in that set, as well as the maximum segment length. Note that only
+the bounds computed from the Train set are used in training and testing.
+
+input and L is the number of label types. Recall that the running time for decoding
+a 2nd-order Markov model is O(|x|T 3 ), where T is the number of tags. For NER,
+the number of labels L is 5. Since there is a B-X and a I-X tag for each label X
+except O, the number of tags T is 9. From Table 5.1, we can see that P is not only
+much smaller than |x| but also less than T . It seems quite possible that training and
+decoding 1st-order semi-Markov models would be faster than training and decoding
+2nd-order Markov models. Indeed, our experiments show this to be the case: for
+NER, the time required to train semi-Markov models is only a third of the time required for Markov models. For CWS, the time is around 30% less for semi-Markov
+models.
+
+5.2
+
+Results
+
+We conducted experiments on the ﬁve datasets: CTB, PK, HK, Eng, and Deu. On
+each dataset, we tried 4 diﬀerent methods—a Markov model (M), a Markov model
+with unlabeled data features (M+F), a semi-Markov model (SM), and a semi-Markov
+model with unlabeled data features (SM+F). For each dataset and method, we trained
+a model using various fractions of the total available training data: 5%, 10%, 20%,
+50%, and 100%. We chose the sentences randomly and average over 5 trials. In
+each experiment, we trained the model using the Averaged Perceptron algorithm
+(Section 3.2.4) for 20 iterations.
+Tables 5.2 to 5.6 show the precision, recall, and F1 scores on the Test set for each
+64
+
+of the 4 diﬀerent methods for each of the 5 datasets. Each number is accompanied
+with the standard deviation over the 5 trials. The numbers obtained from using 10%
+and 100% of the total training data are reported. Figures 5-5 to 5-9 plot the F1 scores
+of the 4 methods as the amount of labeled training data increases.
+Method, train. frac.
+M
+10%
+M
+100%
+M+F
+10%
+M+F
+100%
+SM
+10%
+SM
+100%
+SM+F
+10%
+SM+F
+100%
+
+Precision
+78.2 ±0.29
+86.0
+81.7 ±0.09
+88.0
+78.1 ±0.44
+85.8
+81.1 ±0.25
+86.9
+
+Recall
+75.0 ±0.74
+83.9
+81.7 ±0.48
+87.8
+75.3 ±0.43
+83.6
+81.8 ±0.21
+86.6
+
+Test F1
+76.6 ±0.51
+84.9
+81.7 ±0.26
+87.9
+76.7 ±0.39
+84.7
+81.4 ±0.20
+86.8
+
+Table 5.2: Results on the CTB (Test) dataset.
+Method, train. frac.
+M
+10%
+M
+100%
+M+F
+10%
+M+F
+100%
+SM
+10%
+SM
+100%
+SM+F
+10%
+SM+F
+100%
+
+Precision
+87.3 ±0.18
+93.4
+89.9 ±0.13
+94.1
+87.8 ±0.24
+93.5
+89.9 ±0.17
+94.0
+
+Recall
+86.0 ±0.15
+92.5
+89.6 ±0.20
+94.1
+87.4 ±0.21
+93.2
+88.8 ±0.22
+93.2
+
+Test F1
+86.6 ±0.15
+92.9
+89.7 ±0.15
+94.1
+87.6 ±0.20
+93.3
+89.4 ±0.18
+93.6
+
+Table 5.3: Results on the PK (Test) dataset.
+Method, train. frac.
+M
+10%
+M
+100%
+M+F
+10%
+M+F
+100%
+SM
+10%
+SM
+100%
+SM+F
+10%
+SM+F
+100%
+
+Precision
+83.0 ±0.43
+92.3
+86.9 ±0.30
+93.6
+84.0 ±0.22
+93.1
+87.3 ±0.22
+93.6
+
+Recall
+82.0 ±0.41
+91.9
+87.2 ±0.31
+93.9
+82.3 ±0.38
+92.0
+87.3 ±0.49
+93.5
+
+Test F1
+82.5 ±0.38
+92.1
+87.0 ±0.25
+93.7
+83.1 ±0.23
+92.5
+87.3 ±0.29
+93.6
+
+Table 5.4: Results on the HK (Test) dataset.
+Tables 5.7 and 5.8 compare our results with related methods based on Conditional
+Random Fields for CWS (Peng et al., 2004; Li and McCallum, 2005) and NER
+(McCallum and Li, 2003). The CRF of (Li and McCallum, 2005) uses word clustering
+features derived from an HMM-LDA model, which is similar to our approach. The two
+65
+
+Method, train. frac.
+M
+10%
+M
+100%
+M+F
+10%
+M+F
+100%
+SM
+10%
+SM
+100%
+SM+F
+10%
+SM+F
+100%
+
+Precision
+72.9 ±0.49
+82.7
+80.0 ±0.64
+87.6
+74.1 ±0.40
+82.4
+81.9 ±0.82
+87.4
+
+Recall
+71.3 ±0.63
+82.1
+78.7 ±0.72
+87.1
+72.4 ±0.60
+81.2
+80.3 ±0.90
+86.8
+
+Test F1
+72.1 ±0.54
+82.4
+79.4 ±0.44
+87.3
+73.2 ±0.15
+81.8
+81.1 ±0.72
+87.1
+
+Table 5.5: Results on the Eng (Test) dataset.
+Method, train. frac.
+M
+10%
+M
+100%
+M+F
+10%
+M+F
+100%
+SM
+10%
+SM
+100%
+SM+F
+10%
+SM+F
+100%
+
+Precision
+66.6 ±2.05
+79.1
+65.8 ±1.72
+78.8
+64.5 ±1.08
+78.4
+65.4 ±0.78
+77.6
+
+Recall
+40.5 ±0.87
+58.0
+45.4 ±0.62
+62.6
+42.0 ±0.40
+60.2
+47.4 ±0.73
+62.6
+
+Test F1
+50.4 ±0.79
+66.9
+53.7 ±0.77
+69.8
+50.9 ±0.57
+68.1
+55.0 ±0.57
+69.3
+
+Table 5.6: Results on the Deu (Test) dataset.
+CRFs for CWS of (Peng et al., 2004) are trained using an open and a closed feature
+set. The open set includes external information such as lexicons from the Internet,
+while the closed set only contains the lexicon induced from the training data. While
+our M+F and SM+F models technically do use external information, this information
+is in the form of raw text and does not require human eﬀort to process. On CWS,
+M+F surpasses CRF with the closed feature set and approaches CRF with the open
+feature set. Note that our models are trained on the Train set we created, which
+excludes the Dev set, whereas the CRF models are trained on both Train and Dev.
+On NER, both M+F and SM+F outperform CRF, which uses external information
+such as gazetteers collected automatically from the Internet.
+
+5.2.1
+
+Eﬀect of using unlabeled data features
+
+Having painted an overall picture of our results, we now examine the speciﬁc contributions of adding unlabeled data features (M → M+F and SM → SM+F). Tables 1 to 4
+in the Appendix show that the error is reduced signiﬁcantly on all datasets, in some
+cases by as much as 30%. The reduction is the greatest when smaller amounts of the
+66
+
+Test F1 performance on CTB
+0.88
+0.86
+0.84
+
+F1 score on test set
+
+0.82
+0.8
+0.78
+0.76
+0.74
+M
+M+F
+SM
+SM+F
+
+0.72
+0.7
+0
+
+50000
+
+100000
+
+150000
+200000
+250000
+Number of training tokens
+
+300000
+
+350000
+
+400000
+
+Figure 5-5: Test F1 performance on CTB
+
+CRF (closed)
+CRF (open)
+CRF+HMMLDA
+M+F
+SM+F
+
+CTB
+84.9
+89.4
+84.6
+87.9
+86.8
+
+PK
+94.1
+94.6
+92.0
+94.1
+93.6
+
+HK
+92.8
+94.6
+93.7
+93.6
+
+Table 5.7: Test F1 scores obtained by the M+F and SM+F models on Chinese
+word segmentation. M+F and SM+F are the Markov and semi-Markov models using
+mutual information features; CRF (closed and open) refers to (Peng et al., 2004) using
+closed and open feature sets; and CRF+HMMLDA refers to (Li and McCallum, 2005).
+
+labeled data are used, and the eﬀect lessens as more labeled data is added. Another
+criterion for evaluating performance gains is by the amount of labeled data required
+to achieve a certain performance level. We set that level to be the Test F1 score obtained by the model trained on 100% of the labeled data but without using unlabeled
+data features (M and SM). We show that the models using unlabeled data features
+(M+F and SM+F) require signiﬁcantly less labeled data—up to 7.8 times less in the
+case of semi-Markov models (SM) for the Eng NER dataset.
+67
+
+Test F1 performance on PK
+0.96
+
+0.94
+
+F1 score on test set
+
+0.92
+
+0.9
+
+0.88
+
+0.86
+
+0.84
+
+M
+M+F
+SM
+SM+F
+
+0.82
+0
+
+200000
+
+400000
+
+600000
+800000
+1e+06
+1.2e+06
+Number of training tokens
+
+1.4e+06
+
+1.6e+06
+
+1.8e+06
+
+Figure 5-6: Test F1 performance on PK
+
+CRF
+M+F
+SM+F
+
+Eng Dev
+89.0
+92.4
+92.1
+
+Eng Test
+84.0
+87.3
+87.1
+
+Deu Dev
+65.5
+67.3
+68.7
+
+Deu Test
+68.1
+69.8
+69.3
+
+Table 5.8: Dev and Test F1 scores obtained by the M+F and SM+F models on namedentity recognition. M+F and SM+F are the Markov and semi-Markov models using
+word clustering features; CRF refers to (McCallum and Li, 2003).
+
+5.2.2
+
+Eﬀect of using semi-Markov models
+
+Now we turn our attention to the eﬀect of using semi-Markov rather than Markov
+models. Our intuition is that semi-Markov models are more natural for segmentation,
+which might lead to better performance. However, our results are mixed (Tables 5 to 8
+in the Appendix). For NER, semi-Markov models generally outperform Markov models. As with adding unlabeled data features, improvements are most deﬁned when we
+train with less labeled data. It is also interesting to note that for NER, the improvements of semi-Markov models over Markov models is enhanced when unlabeled data
+features (word clustering features) are added.
+For CWS, semi-Markov models only outperform Markov models in some cases.
+On the CTB dataset, semi-Markov models degrade performance. On the PK and HK
+68
+
+Test F1 performance on HK
+0.94
+0.92
+0.9
+
+F1 score on test set
+
+0.88
+0.86
+0.84
+0.82
+0.8
+M
+M+F
+SM
+SM+F
+
+0.78
+0.76
+0
+
+50000
+
+100000
+
+150000
+200000
+Number of training tokens
+
+250000
+
+300000
+
+350000
+
+Figure 5-7: Test F1 performance on HK
+datasets, semi-Markov models enhance performance in the absence of unlabeled data
+features (mutual information features), in contrast to NER. When these unlabeled
+data features are added, semi-Markov models degrade performance on the PK dataset
+and give mixed results on the HK dataset.
+
+5.2.3
+
+Lexicon-based features
+
+Section 2.1.5 describes how using a lexicon can potentially improve Chinese word
+segmentation. In this section, we try using lexicon-based features on the CTB dataset.
+We ran experiments using three lexicons. The ﬁrst lexicon (peng) is derived from
+the word lists that were used in (Peng et al., 2004). We simply combined their word
+lists into one lexicon, which has 232,240 word types. The purpose of the second and
+third lexicons is to get an optimistic upper bound on how much a lexicon can help.
+The second lexicon (train+dev) was created by taking all words appearing in the
+Train and Dev sets. The third lexicon (train+dev+test) was created by taking all
+words appearing in the Train, Dev, and Test sets.
+To use a lexicon in a semi-Markov model, we added a single feature that is an
+indicator of whether the current word segment is in the lexicon. Table 5.9 shows the
+69
+
+Test F1 performance on Eng
+0.9
+
+F1 score on test set
+
+0.85
+
+0.8
+
+0.75
+
+0.7
+M
+M+F
+SM
+SM+F
+0.65
+0
+
+20000
+
+40000
+
+60000
+
+80000 100000 120000 140000 160000 180000 200000 220000
+Number of training tokens
+
+Figure 5-8: Test F1 performance on Eng
+performance using the three lexicons, averaged over 10 trials.
+Method
+SM
+SM+F
+SM+lex(peng)
+SM+F+lex(peng)
+SM+lex(train+dev)
+SM+lex(train+dev+test)
+
+10%
+10%
+10%
+10%
+10%
+10%
+
+Dev F1
+87.6 ±0.38
+89.3 ±0.35
+95.6 ±0.19
+95.6 ±0.29
+98.7 ±0.10
+98.6 ±0.09
+
+Test F1
+76.6 ±0.49
+81.5 ±0.45
+85.1 ±0.34
+85.4 ±0.34
+74.7 ±2.07
+97.9 ±0.10
+
+Table 5.9: Experiments on using lexicon-based features for CWS on the CTB dataset.
+We see that using both mutual information (SM+F) and the lexicon-based features
+(SM+lex(peng)) independently improves performance over the baseline model (SM).
+However, using the two sources of information together (SM+F+lex(peng)) oﬀers
+essentially no extra help.
+Using the train+dev lexicon not surprisingly improves performance substantially
+on the Dev set but interestingly hurts performance on the Test set. This is most likely
+due to overﬁtting: the model might have learned to rely on the lexicon feature too
+much, as it was tuned on the training data. As a whimsical experiment, if we cheat
+by using the train+dev+test lexicon, then we obtain very high performance on both
+70
+
+Test F1 performance on Deu
+0.7
+
+0.65
+
+F1 score on test set
+
+0.6
+
+0.55
+
+0.5
+
+0.45
+M
+M+F
+SM
+SM+F
+0.4
+0
+
+20000
+
+40000
+
+60000
+
+80000 100000 120000 140000 160000 180000 200000 220000
+Number of training tokens
+
+Figure 5-9: Test F1 performance on Deu
+the Dev and Test sets.
+
+71
+
+72
+
+Chapter 6
+Conclusion
+NLP tasks have beneﬁted greatly from supervised machine learning techniques. The
+motivation for our work is that a large labeled dataset is often expensive to obtain.
+In this thesis, we address this problem by leveraging unlabeled data. We show that
+our approach of incorporating features derived from unlabeled data into a supervised
+model can provide substantial improvements, both in terms of reducing the error and
+the amount of labeled data required. Our results show that using word clusters and a
+new type of unlabeled data feature, mutual information statistics, can both boost performance. In addition, semi-Markov models can also increase performance modestly
+on the named-entity recognition (NER) task but in some cases hurts performance
+on the Chinese word segmentation (CWS) task. We conducted an extensive set of
+experiments for the two segmentation tasks, on a total of ﬁve datasets, We trained
+four diﬀerent models using various amounts of labeled data and report results for
+each of these experiments.
+Though mutual information statistics improve performance for the CWS task, we
+found that the same is not true for NER. Conversely, character clustering features derived using the Brown algorithm do not improve performance on CWS. One problem
+might be that Chinese characters have many more senses than English words, so a
+hard clustering algorithm such as the Brown algorithm may not be able to deal with
+multiple senses gracefully. Using word clustering features from a soft word clustering
+algorithm, on the other hand, can improve performance (Li and McCallum, 2005).
+73
+
+One of the reasons that we did not see large improvements for semi-Markov models
+might be that we did not exploit the full potential of semi-Markov models. The semiMarkov features we used were simply natural extensions of the Markov features. We
+might be able to obtain greater improvements by deﬁning expressive features over
+segments that would be diﬃcult to incorporate into Markov models. For instance, we
+might generalize mutual information statistics to multi-character sequences or extend
+clustering to both words and multi-word sequences. We have conducted preliminary
+experiments using these two extensions and have obtained only slight improvements
+so far.
+One of the advantages of our semi-supervised learning approach (constructing unlabeled data features in a step separate from training) is that the learning algorithm
+is decoupled from the process of generating features. This decoupling gives us the
+ﬂexibility of using any algorithm to create word clusters, mutual information statistics, or any other features that might be useful. For instance, alternatives to the
+Brown algorithm such as spectral clustering, PCA, ICA, random walks (Toutanova
+et al., 2004), etc. merit investigation.
+Active learning is another class of approaches that aim to reduce the amount of
+training data required by the learning algorithm. (Miller et al., 2004) used active
+learning on NER and obtained substantial reductions. (Hwa, 2004) and (Tang et al.,
+2002) have applied active learning to natural language parsing. Our active learning
+experiments based on (Miller et al., 2004) show large improvements for NER but
+minor improvements for CWS.
+Finally, while the semi-supervised approach we used is eﬀective in practice, it
+is poorly understood theoretically. One possible direction of future research is to
+develop a learning framework for the approach and describe the conditions under
+which unlabeled data features can be useful. We hope that such a theory can reveal
+insights about the approach and motivate new algorithms that can be eﬀective in
+practice.
+
+74
+
+Bibliography
+Abney, S. (2002). Bootstrapping. In Proceedings of ACL 2002.
+Abney, S. (2004). Understanding the Yarowsky Algorithm. Computational Linguistics, 30(3).
+Altun, Y., Tsochantaridis, I., and Hofmann, T. (2003). Hidden Markov Support
+Vector Machines. In Proceedings of ICML 2003.
+Appelt, D., Hobbs, J., Bear, J., Israel, D., Kameyama, M., Kehler, A., Martin, D.,
+Meyers, K., and Tyson, M. (1995). SRI International FASTUS system: MUC-6
+test results and analysis. In In Proceedings of the Sixth Message Understanding
+Conference (MUC-6).
+Bikel, D. M., Schwartz, R., and Weischedel, R. M. (1999). An Algorithm that Learns
+What’s in a Name. Machine Learning, 34(1).
+Blum, A. and Chawla, S. (2001). Learning from Labeled and Unlabeled Data Using
+Graph Mincuts. In Proceedings of ICML 2001.
+Blum, A. and Mitchell, T. (1998). Combining Labeled and Unlabeled Data with Cotraining. In Proceedings of the Workshop on Computational Learning Theory.
+Borthwick, A. (1999). A Maximum Entropy Approach to Named Entity Recognition.
+PhD thesis, New York University.
+Brand, M. (1999). Structure Learning in Conditional Probability Models via an
+Entropic Prior and Parameter Extinction. Neural Computation.
+75
+
+Brown, P. F., Pietra, V. J. D., deSouza, P. V., Lai, J. C., and Mercer, R. L. (1992).
+Class-Based n-gram Models of Natural Language. Computational Linguistics,
+18(4):467–479.
+Burges, C. (1998). A Tutorial on Support Vector Machines for Pattern Recognition.
+In Data Mining and Knowledge Discovery.
+Chinchor, N. A. (1998). Overview of MUC-7/MET-2. In In Proceedings of the Seventh
+Message Understanding Conference (MUC-7).
+Cohen, W. and Sarawagi, S. (2004). Exploiting dictionaries in named entity extraction: Combining semi-markov extraction processes and data integration methods.
+In Proceedings of the 10th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining.
+Collins, M. (2000). Discriminative Reranking for Natural Language Parsing. In
+Proceedings of ICML 2000.
+Collins, M. (2002a). Discriminative Training Methods for Hidden Markov Models:
+Theory and Experiments with Perceptron Algorithms. In Proceedings of EMNLP
+2002.
+Collins, M. (2002b). Ranking Algorithms for Named-Entity Extraction: Boosting
+and the Voted Perceptron. In Proceedings of ACL 2002.
+Collins, M. (2004). Parameter Estimation for Statistical Parsing Models: Theory
+and Practice of Distribution-Free Methods. Book chapter in Harry Bunt, John
+Carroll and Giorgio Satta, editors, New Developments in Parsing Technology,
+Kluwer.
+Collins, M. and Duﬀy, N. (2001). Convolution Kernels for Natural Language. In
+Proceedings of NIPS 2001.
+Collins, M. and Koo, T. (2004). Discriminative Reranking for Natural Language
+Parsing. Computational Linguistics.
+76
+
+Collins, M. and Singer, Y. (1999). Unsupervised models for named entity classiﬁcation. In Proceedings of the Joint SIGDAT Conference on Empirical Methods in
+Natural Language Processing and Very Large Corpora.
+Dasgupta, S., Littman, M. L., and McAllester, D. (2001). PAC Generalization Bounds
+for Co-training. In Proceedings of NIPS 2001.
+de Marcken, C. (1995). The Unsupervised Acquisition of a Lexicon from Continuous
+Speech. Technical report, Massachusetts Institute of Technology.
+Freund, Y. and Schapire, R. E. (1998). Large Margin Classiﬁcation Using the Perceptron Algorithm. In Computational Learning Theory, pages 209–217.
+Gao, J. and Li, M. (2004). Chinese Word Segmentation: A Pragmatic Approach.
+Technical report, Microsoft Research.
+Gao, J., Li, M., and Huang, C.-N. (2003). Improved Source-Channel Models for
+Chinese Word Segmentation. In Proceedings of ACL 2003.
+Goldman, S. and Zhou, Y. (2000). Enhancing Supervised Learning with Unlabeled
+Data. In Proc. 17th International Conf. on Machine Learning, pages 327–334.
+Morgan Kaufmann, San Francisco, CA.
+Hwa, R. (2004). Sample selection for statistical parsing. Computational Linguistics,
+30(3).
+Joachims, T. (1999). Transductive Inference for Text Classiﬁcation using Support
+Vector Machines. In Bratko, I. and Dzeroski, S., editors, Proceedings of ICML99, 16th International Conference on Machine Learning, pages 200–209, Bled,
+SL. Morgan Kaufmann Publishers, San Francisco, US.
+Joachims, T. (2003). Transductive Learning via Spectral Graph Partitioning. In
+Proceedings of ICML 2003.
+77
+
+Laﬀerty, J., McCallum, A., and Pereira, F. (2001a). Conditional Random Fields:
+Probabilistic Models for Segmenting and Labeling Sequence Data. In Proceedings
+of ICML 2001. Morgan Kaufmann, San Francisco, CA.
+Laﬀerty, J., Zhu, X., and Liu, Y. (2001b). Kernel Conditional Random Fields: representation and clique selection. In Proceedings of ICML 2001.
+Li, W. and McCallum, A. (2005). Semi-Supervised Modeling with Syntactic Topic
+Models. In Proceedings of AAAI 2005.
+Liang, N. (1986). Shumian hanyu zidong fenci xitong-CDWS [A written Chinese
+automatic segmentation system-CDWS. Chinese Information Processing, 1(1).
+Lin, D. (1998). Extracting Collocations from Text Corpora. In First Workshop on
+Computational Terminology.
+Maosong, S., Dayang, S., and Tsou, B. K. (1998). Chinese Word Segmentation
+without Using Lexicon and Hand-crafted Training Data. In Proceedings of ACL
+1998.
+Martin, S., Liermann, J., and Ney, H. (1995). Algorithms for Bigram and Trigram
+Word Clustering.
+McAllester, D., Collins, M., and Pereira, F. (2004). Case-Factor Diagrams for Structured Probabilistic Modeling. In Proceedings of UAI 2004.
+McCallum, A. (2003). Eﬃciently inducing features of conditional random ﬁelds. In
+Proceedings of UAI 2003.
+McCallum, A. and Li, W. (2003). Early results for named entity recognition with
+conditional random ﬁelds. In Proceedings of CoNLL 2003.
+Merialdo, B. (1994). Tagging English text with a probabilistic model. Computational
+Linguistics, 20(2).
+78
+
+Miller, S., Guinness, J., and Zamanian, A. (2004). Name Tagging with Word Clusters
+and Discriminative Training. In Proceedings of HLT-NAACL 2004, pages 337–
+342.
+Nigam, K. and Ghani, R. (2000). Analyzing the Eﬀectiveness and Applicability of
+Co-training. In CIKM, pages 86–93.
+Nigam, K., McCallum, A. K., Thrun, S., and Mitchell, T. M. (2000). Text Classiﬁcation from Labeled and Unlabeled Documents using EM. Machine Learning,
+39(2/3):103–134.
+Peng, F., Feng, F., and McCallum, A. (2004). Chinese Segmentation and New Word
+Detection using Conditional Random Fields. In Proceedings of COLING 2004.
+Peng, F. and Schuurmans, D. (2001a). A Hierarchical EM Approach to Word Segmentation. In Natural Language Processing Paciﬁc Rim Symposium 2001.
+Peng, F. and Schuurmans, D. (2001b). Self-supervised Chinese word segmentation. In
+Proceedings of the Fourth International Symposium on Intelligent Data Analysis.
+Pereira, F. and Schabes, Y. (1992). Inside-outside Reestimation from Partially Bracketed Corpora. In Proceedings of ACL 1992.
+Pierce, D. and Cardie, C. (2001). Limitations of Co-Training for Natural Language
+Learning from Large Datasets. In Proceedings of the 2001 Conference on Empirical Methods in Natural Language Processing (EMNLP-2001).
+Pietra, S. D., Pietra, V. J. D., and Laﬀerty, J. D. (1997). Inducing Features of Random Fields. IEEE Transactions on Pattern Analysis and Machine Intelligence,
+19(4):380–393.
+Pinto, D., McCallum, A., Lee, X., and Croft, W. (2003). Table extraction using
+conditional random ﬁelds. In Proceedings of the 26th ACM SIGIR.
+Quattoni, A., Collins, M., and Darrell, T. (2004). Conditional Random Fields for
+Object Recognition. In Proceedings of NIPS 2004.
+79
+
+Ratnaparkhi, A., Roukos, S., and Ward, R. T. (1994). A Maximum Entropy Model
+for Parsing. In Proceedings of the International Conference on Spoken Language
+Processing, pages 803–806.
+Riloﬀ, E. and Jones, R. (1999). Learning Dictionaries for Information Extraction by
+Multi-Level Bootstrapping. In AAAI/IAAI, pages 474–479.
+Roark, B., Saraclar, M., Collins, M., and Johnson, M. (2004). Discriminative Language Modeling with Conditional Random Fields and the Perceptron Algorithm.
+In Proceedings of ACL 2004.
+Sang, E. F. T. K. and Meulder, F. D. (2003). Introduction to the CoNLL-2003
+Shared Task: Language-Independent Named Entity Recognition. In Proceedings
+of CoNLL 2003, pages 142–147.
+Sarawagi, S. and Cohen, W. (2004). Semi-Markov Conditional Random Fields for
+Information Extraction. In Proceedings of NIPS 2004.
+Sha, F. and Pereira, F. (2003). Shallow Parsing with Conditional Random Fields. In
+Proceedings of HLT-NAACL 2003.
+Shi, J. and Malik, J. (2000). Normalized Cuts and Image Segmentation. IEEE
+Transactions on Pattern Analysis and Machine Intelligence, 22(8):888–905.
+Shi, Z. and Sarkar, A. (2005). Intimate Learning: A Novel Approach of Combining
+Labelled and Unlabelled data. In Proceedings of IJCAI 2005.
+Sproat, R. and Emerson, T. (2003). First International Chinese Word Segmentation
+Bakeoﬀ. In Proceedings of Second SIGHAN Workshop on Chinese Language
+Processing.
+Sproat, R. and Shih, C. (1990). A Statistical Method for Finding Word Boundaries
+in Chinese Text. In Computer Processing of Chinese and Oriental Languages,
+volume 4, pages 336–351.
+80
+
+Sproat, R. and Shih, C. (2002). Corpus-based Methods in Chinese Morphology and
+Phonology. In Proceedings of COLING 2002.
+Steedman, M., Hwa, R., Clark, S., Osborne, M., Sarkar, A., Hockenmaier, J., Ruhlen,
+P., Baker, S., and Crim, J. (2003). Example Selection for Bootstrapping Statistical Parsers. In Proceedings of HLT-NAACL 2003.
+Stolcke, A. and Omohundro, S. (1993). Hidden Markov Model Induction by Bayesian
+Model Merging. In Proceedings of NIPS 1993.
+Sundheim, B. M. (1995). Overview of results of the MUC-6 evaluation. In In Proceedings of the Sixth Message Understanding Conference (MUC-6).
+Szummer, M. and Jaakkola, T. (2001). Partially labeled classiﬁcation with Markov
+random walks. In Proceedings of NIPS 2001.
+Tang, M., Luo, X., and Roukos, S. (2002). Active Learning for Statistical Natural
+Language Parsing. In Proceedings of ACL 2002.
+Taskar, B., Guestrin, C., and Koller, D. (2003). Max-Margin Markov Networks. In
+Proceedings of NIPS 2003.
+Taskar, B., Klein, D., Collins, M., Koller, D., and Manning, C. (2004). Max-Margin
+Parsing. In Proceedings of ACL 2004.
+Toutanova, K., Manning, C. D., and Ng, A. Y. (2004). Learning Random Walk
+Models for Inducing Word Dependency Distributions. In Proceedings of ICML
+2004.
+Ushioda, A. (1996). Hierarchical Clustering of Words for NLP Tasks. In Proceedings
+of the Fourth Workshop on Very Large Corpora.
+Wu, A. and Jiang, Z. (2000). Statistically-enhanced new word identiﬁcation in a rulebased Chinese system. In Proceedings of the Second ACL Chinese Processing
+Workshop.
+81
+
+Xue, N. (2003). Chinese Word Segmentation as Character Tagging. International
+Journal of Computational Linguistics and Chinese Language Processing, 8(1).
+Yarowsky, D. (1995). Unsupervised Word Sense Disambiguation Rivaling Supervised
+Methods. In Proceedings of ACL 1995, pages 189–196.
+Zhang, J., Gao, J., and Zhou, M. (2000). Extraction of Chinese compound words:
+An experimental study on a very large corpus. In Proceedings of the Second ACL
+Chinese Processing Workshop.
+Zhou, G. and Su, J. (2002). Named Entity Recognition using an HMM-based Chunk
+Tagger. In Proceedings of ACL 2002.
+Zhu, X. and Ghahramani, Z. (2002). Learning from labeled and unlabeled data with
+label propagation. Technical report, Carnegie Mellon University.
+
+82
+
+Appendix
+Dataset, train. frac.
+CTB
+5%
+CTB
+10%
+CTB
+20%
+CTB
+50%
+CTB
+100%
+PK
+5%
+PK
+10%
+PK
+20%
+PK
+50%
+PK
+100%
+HK
+5%
+HK
+10%
+HK
+20%
+HK
+50%
+HK
+100%
+Eng
+5%
+Eng
+10%
+Eng
+20%
+Eng
+50%
+Eng
+100%
+Deu
+5%
+Deu
+10%
+Deu
+20%
+Deu
+50%
+Deu
+100%
+
+M
+72.4
+76.6
+79.9
+83.1
+84.9
+83.6
+86.6
+88.9
+91.6
+92.9
+77.9
+82.5
+86.3
+89.9
+92.1
+66.3
+72.1
+75.9
+80.1
+82.4
+42.1
+50.4
+56.2
+63.2
+66.9
+
+±0.73
+±0.51
+±0.20
+±0.20
+
+±0.51
+±0.15
+±0.32
+±0.11
+
+±0.70
+±0.38
+±0.20
+±0.15
+
+±1.10
+±0.54
+±0.49
+±0.31
+
+±2.08
+±0.79
+±0.59
+±0.43
+
+M+F
+79.3 ±0.36
+81.7 ±0.26
+83.8 ±0.12
+86.0 ±0.11
+87.9
+87.9 ±0.30
+89.7 ±0.15
+91.3 ±0.13
+93.0 ±0.08
+94.1
+84.4 ±0.28
+87.0 ±0.25
+89.6 ±0.06
+92.1 ±0.13
+93.7
+74.1 ±0.71
+79.4 ±0.44
+82.7 ±0.34
+85.9 ±0.20
+87.3
+47.2 ±1.60
+53.7 ±0.77
+59.6 ±0.77
+65.7 ±0.64
+69.8
+
+Error reduction
+25.0
+21.9
+19.6
+17.6
+19.7
+26.0
+23.2
+21.5
+16.9
+16.4
+29.6
+26.0
+24.0
+21.9
+20.5
+23.3
+26.1
+28.4
+28.8
+28.0
+8.8
+6.7
+7.8
+6.6
+8.7
+
+Table 1: Improvements on Test F1 due to M → M+F.
+Dataset
+CTB
+PK
+HK
+Eng
+Deu
+
+Test F1
+84.9
+92.9
+92.1
+82.4
+66.9
+
+Tokens req. for M
+369554
+1628150
+321906
+203621
+206931
+
+Tokens req. for M+F
+128540
+792196
+161394
+38790
+134914
+
+Labeled data reduction
+2.9x
+2.1x
+2.0x
+5.2x
+1.5x
+
+Table 2: Reductions on the amount of labeled data due to M → M+F. Test F1 scores
+are achieved by M using 100% of the training data. Datasets for which M performs
+better than M+F are marked n/a.
+
+83
+
+Dataset, train. frac.
+CTB
+5%
+CTB
+10%
+CTB
+20%
+CTB
+50%
+CTB
+100%
+PK
+5%
+PK
+10%
+PK
+20%
+PK
+50%
+PK
+100%
+HK
+5%
+HK
+10%
+HK
+20%
+HK
+50%
+HK
+100%
+Eng
+5%
+Eng
+10%
+Eng
+20%
+Eng
+50%
+Eng
+100%
+Deu
+5%
+Deu
+10%
+Deu
+20%
+Deu
+50%
+Deu
+100%
+
+SM
+72.3
+76.7
+79.5
+82.8
+84.7
+84.9
+87.6
+89.7
+92.0
+93.3
+78.4
+83.1
+86.9
+90.5
+92.5
+68.2
+73.2
+76.4
+80.4
+81.8
+43.8
+50.9
+56.9
+63.9
+68.1
+
+±0.68
+±0.39
+±0.17
+±0.13
+
+±0.19
+±0.20
+±0.22
+±0.17
+
+±0.49
+±0.23
+±0.14
+±0.13
+
+±0.23
+±0.15
+±0.38
+±0.35
+
+±1.33
+±0.57
+±0.70
+±0.24
+
+SM+F
+78.8 ±0.32
+81.4 ±0.20
+83.5 ±0.22
+85.6 ±0.12
+86.8
+87.6 ±0.23
+89.4 ±0.18
+91.1 ±0.19
+92.7 ±0.11
+93.6
+84.2 ±0.47
+87.3 ±0.29
+89.9 ±0.30
+92.3 ±0.14
+93.6
+76.6 ±0.54
+81.1 ±0.72
+83.5 ±0.27
+86.4 ±0.42
+87.1
+48.9 ±0.92
+55.0 ±0.57
+60.9 ±0.83
+66.5 ±0.39
+69.3
+
+Error reduction
+23.6
+20.5
+19.5
+15.9
+13.5
+17.7
+14.2
+13.5
+9.1
+3.8
+26.8
+24.8
+22.7
+18.2
+14.0
+26.3
+29.5
+30.2
+31.0
+29.0
+9.1
+8.4
+9.3
+7.2
+3.7
+
+Table 3: Improvements on Test F1 due to SM → SM+F.
+Dataset
+CTB
+PK
+HK
+Eng
+Deu
+
+Test F1
+84.7
+93.3
+92.5
+81.8
+68.1
+
+Tokens req. for SM
+369554
+1628150
+321906
+203621
+206931
+
+Tokens req. for SM+F
+138094
+1393306
+192649
+26043
+162792
+
+Labeled data reduction
+2.7x
+1.2x
+1.7x
+7.8x
+1.3x
+
+Table 4: Reductions on the amount of labeled data due to SM → SM+F. Test F1
+scores are achieved by SM using 100% of the training data. Datasets for which SM
+performs better than SM+F are marked n/a.
+
+84
+
+Dataset, train. frac.
+CTB
+5%
+CTB
+10%
+CTB
+20%
+CTB
+50%
+CTB
+100%
+PK
+5%
+PK
+10%
+PK
+20%
+PK
+50%
+PK
+100%
+HK
+5%
+HK
+10%
+HK
+20%
+HK
+50%
+HK
+100%
+Eng
+5%
+Eng
+10%
+Eng
+20%
+Eng
+50%
+Eng
+100%
+Deu
+5%
+Deu
+10%
+Deu
+20%
+Deu
+50%
+Deu
+100%
+
+M
+72.4
+76.6
+79.9
+83.1
+84.9
+83.6
+86.6
+88.9
+91.6
+92.9
+77.9
+82.5
+86.3
+89.9
+92.1
+66.3
+72.1
+75.9
+80.1
+82.4
+42.1
+50.4
+56.2
+63.2
+66.9
+
+±0.73
+±0.51
+±0.20
+±0.20
+
+±0.51
+±0.15
+±0.32
+±0.11
+
+±0.70
+±0.38
+±0.20
+±0.15
+
+±1.10
+±0.54
+±0.49
+±0.31
+
+±2.08
+±0.79
+±0.59
+±0.43
+
+SM
+72.3
+76.7
+79.5
+82.8
+84.7
+84.9
+87.6
+89.7
+92.0
+93.3
+78.4
+83.1
+86.9
+90.5
+92.5
+68.2
+73.2
+76.4
+80.4
+81.8
+43.8
+50.9
+56.9
+63.9
+68.1
+
+±0.68
+±0.39
+±0.17
+±0.13
+
+±0.19
+±0.20
+±0.22
+±0.17
+
+±0.49
+±0.23
+±0.14
+±0.13
+
+±0.23
+±0.15
+±0.38
+±0.35
+
+±1.33
+±0.57
+±0.70
+±0.24
+
+Error reduction
+-0.3
+0.3
+-1.9
+-1.3
+-1.4
+7.7
+7.2
+7.6
+5.0
+6.0
+2.3
+3.8
+4.2
+6.3
+5.0
+5.7
+4.1
+2.1
+1.1
+-3.5
+2.9
+1.0
+1.6
+1.8
+3.6
+
+Table 5: Improvements on Test F1 due to M → SM.
+Dataset
+CTB
+PK
+HK
+Eng
+Deu
+
+Test F1
+84.9
+92.9
+92.1
+82.4
+66.9
+
+Tokens req. for M
+369554
+1628150
+321906
+203621
+206931
+
+Tokens req. for SM
+n/a
+1372641
+289741
+n/a
+177453
+
+Labeled data reduction
+n/a
+1.2x
+1.1x
+n/a
+1.2x
+
+Table 6: Reductions on the amount of labeled data due to M → SM. Test F1 scores
+are achieved by M using 100% of the training data. Datasets for which M performs
+better than SM are marked n/a.
+
+85
+
+Dataset, train. frac.
+CTB
+5%
+CTB
+10%
+CTB
+20%
+CTB
+50%
+CTB
+100%
+PK
+5%
+PK
+10%
+PK
+20%
+PK
+50%
+PK
+100%
+HK
+5%
+HK
+10%
+HK
+20%
+HK
+50%
+HK
+100%
+Eng
+5%
+Eng
+10%
+Eng
+20%
+Eng
+50%
+Eng
+100%
+Deu
+5%
+Deu
+10%
+Deu
+20%
+Deu
+50%
+Deu
+100%
+
+M+F
+79.3 ±0.36
+81.7 ±0.26
+83.8 ±0.12
+86.0 ±0.11
+87.9
+87.9 ±0.30
+89.7 ±0.15
+91.3 ±0.13
+93.0 ±0.08
+94.1
+84.4 ±0.28
+87.0 ±0.25
+89.6 ±0.06
+92.1 ±0.13
+93.7
+74.1 ±0.71
+79.4 ±0.44
+82.7 ±0.34
+85.9 ±0.20
+87.3
+47.2 ±1.60
+53.7 ±0.77
+59.6 ±0.77
+65.7 ±0.64
+69.8
+
+SM+F
+78.8 ±0.32
+81.4 ±0.20
+83.5 ±0.22
+85.6 ±0.12
+86.8
+87.6 ±0.23
+89.4 ±0.18
+91.1 ±0.19
+92.7 ±0.11
+93.6
+84.2 ±0.47
+87.3 ±0.29
+89.9 ±0.30
+92.3 ±0.14
+93.6
+76.6 ±0.54
+81.1 ±0.72
+83.5 ±0.27
+86.4 ±0.42
+87.1
+48.9 ±0.92
+55.0 ±0.57
+60.9 ±0.83
+66.5 ±0.39
+69.3
+
+Error reduction
+-2.1
+-1.5
+-2.0
+-3.4
+-9.3
+-2.6
+-3.6
+-1.8
+-3.9
+-8.3
+-1.6
+2.1
+2.6
+1.8
+-2.8
+9.4
+8.5
+4.6
+4.2
+-2.1
+3.2
+2.7
+3.2
+2.5
+-1.6
+
+Table 7: Improvements on Test F1 due to M+F → SM+F.
+Dataset
+CTB
+PK
+HK
+Eng
+Deu
+
+Test F1
+87.9
+94.1
+93.7
+87.3
+69.8
+
+Tokens req. for M+F
+369554
+1628150
+321906
+203621
+206931
+
+Tokens req. for SM+F
+n/a
+n/a
+n/a
+n/a
+n/a
+
+Labeled data reduction
+n/a
+n/a
+n/a
+n/a
+n/a
+
+Table 8: Reductions on the amount of labeled data due to M+F → SM+F. Test F1
+scores are achieved by M+F using 100% of the training data. Datasets for which
+M+F performs better than SM+F are marked n/a.
+
+86
+
+

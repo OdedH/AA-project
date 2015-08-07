@@ -1,0 +1,2406 @@
+Discovering Morphological Paradigms from Plain Text
+Using a Dirichlet Process Mixture Model
+Markus Dreyer∗
+Jason Eisner
+SDL Language Weaver
+Computer Science Dept., Johns Hopkins University
+Los Angeles, CA 90045, USA
+Baltimore, MD 21218, USA
+mdreyer@sdl.com
+jason@cs.jhu.edu
+Abstract
+
+All this makes lexical features even sparser than
+they would be otherwise. In machine translation
+or text generation, it is difﬁcult to learn separately
+how to translate, or when to generate, each of these
+many word types. In text analysis, it is difﬁcult to
+learn lexical features (as cues to predict topic, syntax,
+semantics, or the next word), because one must learn
+a separate feature for each word form, rather than
+generalizing across inﬂections.
+Our engineering goal is to address these problems
+by mostly-unsupervised learning of morphology. Our
+linguistic goal is to build a generative probabilistic
+model that directly captures the basic representations
+and relationships assumed by morphologists. This
+model sufﬁces to deﬁne a posterior distribution over
+analyses of any given collection of type and/or token
+data. Thus we obtain scientiﬁc data interpretation as
+probabilistic inference (Jaynes, 2003). Our computational goal is to estimate this posterior distribution.
+
+We present an inference algorithm that organizes observed words (tokens) into structured
+inﬂectional paradigms (types). It also naturally predicts the spelling of unobserved forms
+that are missing from these paradigms, and discovers inﬂectional principles (grammar) that
+generalize to wholly unobserved words.
+Our Bayesian generative model of the data explicitly represents tokens, types, inﬂections,
+paradigms, and locally conditioned string edits.
+It assumes that inﬂected word tokens are generated from an inﬁnite mixture of inﬂectional
+paradigms (string tuples). Each paradigm is
+sampled all at once from a graphical model,
+whose potential functions are weighted ﬁnitestate transducers with language-speciﬁc parameters to be learned. These assumptions naturally lead to an elegant empirical Bayes inference procedure that exploits Monte Carlo EM,
+belief propagation, and dynamic programming.
+Given 50–100 seed paradigms, adding a 10million-word corpus reduces prediction error
+for morphological inﬂections by up to 10%.
+
+1.2
+
+1 Introduction
+1.1 Motivation
+Statistical NLP can be difﬁcult for morphologically
+rich languages. Morphological transformations on
+words increase the size of the observed vocabulary,
+which unfortunately masks important generalizations.
+In Polish, for example, each lexical verb has literally
+100 inﬂected forms (Janecki, 2000). That is, a single
+lexeme may be realized in a corpus as many different
+word types, which are differently inﬂected for person,
+number, gender, tense, mood, etc.
+∗
+
+This research was done at Johns Hopkins University as
+part of the ﬁrst author’s dissertation work. It was supported by
+the Human Language Technology Center of Excellence and by
+the National Science Foundation under Grant No. 0347822.
+
+What is Estimated
+
+Our inference algorithm jointly reconstructs token,
+type, and grammar information about a language’s
+morphology. This has not previously been attempted.
+Tokens: We will tag each word token in a corpus
+with (1) a part-of-speech (POS) tag,1 (2) an inﬂection,
+and (3) a lexeme. A token of broken might be tagged
+as (1) a VERB and more speciﬁcally as (2) the past
+participle inﬂection of (3) the abstract lexeme b&rak.2
+Reconstructing the latent lexemes and inﬂections
+allows the features of other statistical models to consider them. A parser may care that broken is a
+past participle; a search engine or question answering system may care that it is a form of b&rak; and a
+translation system may care about both facts.
+1
+
+POS tagging may be done as part of our Bayesian model or
+beforehand, as a preprocessing step. Our experiments chose the
+latter option, and then analyzed only the verbs (see section 8).
+2
+We use cursive font for abstract lexemes to emphasize that
+they are atomic objects that do not decompose into letters.
+
+616
+Proceedings of the 2011 Conference on Empirical Methods in Natural Language Processing, pages 616–627,
+Edinburgh, Scotland, UK, July 27–31, 2011. c 2011 Association for Computational Linguistics
+
+singular
+present
+
+past
+
+1st-person
+2nd-person
+3rd-person
+1st-person
+2nd-person
+3rd-person
+
+plural
+
+breche
+brichst
+bricht
+brach
+brachst
+brach
+
+brechen
+brecht
+brechen
+brachen
+bracht
+brachen
+
+y via p(y | x), and vice-versa.
+Dreyer et al. (2008) deﬁne such a family via a
+log-linear model with latent alignments,
+p(x, y) =
+a
+
+Table 1: Part of a morphological paradigm in German,
+showing the spellings of some inﬂections of the lexeme
+b&rak (whose lemma is brechen), organized in a grid.
+
+Types: In carrying out the above, we will reconstruct speciﬁc morphological paradigms of the language. A paradigm is a grid of all the inﬂected forms
+of some lexeme, as illustrated in Table 1. Our reconstructed paradigms will include our predictions of
+inﬂected forms that were never observed in the corpus. This tabular information about the types (rather
+than the tokens) of the language may be separately
+useful, for example in translation and other generation tasks, and we will evaluate its accuracy.
+Grammar: We estimate parameters θ that describe general patterns in the language. We learn
+a prior distribution over inﬂectional paradigms by
+learning (e.g.) how a verb’s sufﬁx or stem vowel
+tends to change when it is pluralized. We also learn
+(e.g.) whether singular or plural forms are more common. Our basic strategy is Monte Carlo EM, so these
+parameters tell us how to guess the paradigms (Monte
+Carlo E step), then these reconstructed paradigms tell
+us how to reestimate the parameters (M step), and so
+on iteratively. We use a few supervised paradigms to
+initialize the parameters and help reestimate them.
+
+We begin by sketching the main ideas of our model,
+ﬁrst reviewing components that we introduced in
+earlier papers. Sections 5–7 will give more formal
+details. Full details and more discussion can be found
+in the ﬁrst author’s dissertation (Dreyer, 2011).
+2.1 Modeling Morphological Alternations
+We begin with a family of joint distributions p(x, y)
+over string pairs, parameterized by θ. For example,
+to model just the semi-systematic relation between a
+German lemma and its 3rd-person singular present
+form, one could train θ to maximize the likelihood
+of (x, y) pairs such as (brechen, bricht). Then,
+given a lemma x, one could predict its inﬂected form
+617
+
+a
+
+exp(θ · f (x, y, a))
+
+Here a ranges over monotonic 1-to-1 character alignments between x and y. ∝ means “proportional to” (p
+is normalized to sum to 1). f extracts a vector of local
+features from the aligned pair by examining trigram
+windows. Thus θ can reward or penalize speciﬁc
+features—e.g., insertions, deletions, or substitutions
+in speciﬁc contexts, as well as trigram features of x
+and y separately.3 Inference and training are done by
+dynamic programming on ﬁnite-state transducers.
+2.2
+
+Modeling Morphological Paradigms
+
+A paradigm such as Table 1 describes how some abstract lexeme (b&rak) is expressed in German.4 We
+evaluate whole paradigms as linguistic objects, following word-and-paradigm or realizational morphology (Matthews, 1972; Stump, 2001). That is, we presume that some language-speciﬁc distribution p(π)
+deﬁnes whether a paradigm π is a grammatical—and
+a priori likely—way for a lexeme to express itself
+in the language. Learning p(π) helps us reconstruct
+paradigms, as described at the end of section 1.2.
+Let π = (x1 , x2 , . . .). In Dreyer and Eisner (2009),
+we showed how to model p(π) as a renormalized
+product of many pairwise distributions prs (xr , xs ),
+each having the log-linear form of section 2.1:
+p(π) ∝
+
+2 Overview of the Model
+
+p(x, y, a) ∝
+
+r,s
+
+prs (xr , xs ) ∝ exp(
+
+−
+→
+
+θ·frs (xr , xs , ars ))
+r,s
+
+This is an undirected graphical model (MRF) over
+string-valued random variables xs ; each factor prs
+evaluates the relationship between some pair of
+strings. Note that it is still a log-linear model, and parameters in θ can be reused across different rs pairs.
+To guess at unknown strings in the paradigm,
+Dreyer and Eisner (2009) show how to perform approximate inference on such an MRF by loopy belief
+3
+
+Dreyer et al. (2008) devise additional helpful features based
+on enriching the aligned pair with additional latent information,
+but our present experiments drop those for speed.
+4
+Our present experiments focus on orthographic forms, because we are learning from a written corpus. But it would be
+natural to use phonological forms instead, or to include both in
+the paradigm so as to model their interrelationships.
+
+briche
+breche
+...
+
+? X1sg
+
+brichst
+brechst
+...
+bricht
+
+? X2sg
+X3sg
+
+brichen
+brechen
+...
+
+XLem
+
+? X1pl
+
+brichen
+brechen
+...
+
+3. For each lexeme, choose a distribution over its
+inﬂections.
+
+?
+
+X2pl
+
+bricht
+brecht
+...
+
+X3pl
+
+4. For each lexeme, choose a paradigm that will
+be used to express the lexeme orthographically.
+
+brechen
+
+?
+
+Figure 1: A distribution over paradigms modeled as an
+MRF over 7 strings. Random variables XLem , X1st , etc.,
+are the lemma, the 1st person form, etc. Suppose two
+forms are observed (denoted by the “lock” icon). Given
+these observations, belief propagation estimates the posterior marginals over the other variables (denoted by “?”).
+
+propagation, using ﬁnite-state operations. It is not
+necessary to include all rs pairs. For example, Fig. 1
+illustrates the result of belief propagation on a simple
+MRF whose factors relate all inﬂected forms to a
+common (possibly unobserved) lemma, but not directly to one another.5
+Our method could be used with any p(π). To speed
+up inference (see footnote 7), our present experiments
+actually use the directed graphical model variant of
+Fig. 1—that is, p(π) = p1 (x1 ) · s>1 p1s (xs | x1 ),
+where x1 denotes the lemma.
+2.3 Modeling the Lexicon (types)
+Dreyer and Eisner (2009) learned θ by partially observing some paradigms (type data). That work,
+while rather accurate at predicting inﬂected forms,
+sometimes erred: it predicted spellings that never occurred in text, even for forms that “should” be common. To ﬁx this, we shall incorporate an unlabeled
+or POS-tagged corpus (token data) into learning.
+We therefore need a model for generating tokens—
+a probabilistic lexicon that speciﬁes which inﬂections
+of which lexemes are common, and how they are
+spelled. We do not know our language’s probabilistic
+lexicon, but we assume it was generated as follows:
+1. Choose parameters θ of the MRF. This deﬁnes
+p(π): which paradigms are likely a priori.
+2. Choose a distribution over the abstract lexemes.
+5
+
+This view is adopted by some morphological theorists (Albright, 2002; Chan, 2006), although see Appendix E.2 for a
+caution about syncretism. Note that when the lemma is unobserved, the other forms do still inﬂuence one another indirectly.
+
+618
+
+Details are given later. Brieﬂy, step 1 samples θ
+from a Gaussian prior. Step 2 samples a distribution
+from a Dirichlet process. This chooses a countable
+number of lexemes to have positive probability in the
+language, and decides which ones are most common.
+Step 3 samples a distribution from a Dirichlet. For
+the lexeme think, this might choose to make 1stperson singular more common than for typical verbs.
+Step 4 just samples IID from p(π).
+In our model, each part of speech generates its own
+lexicon: VERBs are inﬂected differently from NOUNs
+(different parameters and number of inﬂections). The
+size and layout of (e.g.) VERB paradigms is languagespeciﬁc; we currently assume it is given by a linguist,
+along with a few supervised VERB paradigms.
+2.4
+
+Modeling the Corpus (tokens)
+
+At present, we use only a very simple exchangeable
+model of the corpus. We assume that each word was
+independently sampled from the lexicon given its
+part of speech, with no other attention to context.
+For example, a token of brechen may have been
+chosen by choosing frequent lexeme b&rak from the
+VERB lexicon; then choosing 1st-person plural given
+b&rak; and ﬁnally looking up that inﬂection’s spelling
+in b&rak’s paradigm. This ﬁnal lookup is deterministic since the lexicon has already been generated.
+
+3
+3.1
+
+A Sketch of Inference and Learning
+Gibbs Sampling Over the Corpus
+
+Our job in inference is to reconstruct the lexicon that
+was used and how each token was generated from it
+(i.e., which lexeme and inﬂection?). We use collapsed
+Gibbs sampling, repeatedly guessing a reanalysis of
+each token in the context of all others. Gradually, similar tokens get “clustered” into paradigms (section 4).
+The state of the sampler is illustrated in Fig. 2.
+The bottom half shows the current analyses of the
+verb tokens. Each is associated with a particular slot
+in some paradigm. We are now trying to reanalyze
+brechen at position . The dashed arrows show
+some possible analyses.
+
+springt as s5 = 2nd-person plural may strengthen
+our estimated probability that 2nd-person spellings
+tend to end in -t. That revision to θ, in turn, will
+
+Lexicon
+singular
+1st
+2nd
+3rd
+
+plural
+
+briche
+breche
+...
+brichst
+brechst
+...
+
+?
+?
+
+bricht
+
+brichen
+brechen
+...
+bricht
+brecht
+...
+
+springe
+sprenge ?
+...
+springst
+sprengst ?
+...
+springt
+sprengt ?
+...
+
+?
+?
+
+brechen
+
+1
+
+3
+
+springen
+sprengen ?
+...
+springt
+
+5
+
+springen
+sprengen ?
+...
+
+...
+
+Corpus
+
+Index i
+
+1
+
+2
+
+POS ti
+
+VERB
+
+PRON
+
+VERB NOUN VERB
+
+3
+
+...
+
+3rd pl.
+2nd pl.
+brechen ... springt
+
+4
+
+5
+
+6
+
+7
+
+PREP
+
+VERB
+
+Lex ￿i
+Inﬂ si
+3rd sg.
+Spell wi bricht
+
+1st pl.
+
+...
+
+3rd pl.
+...
+
+?
+?
+?
+
+brechen
+
+Figure 2: A state of the Gibbs sampler (note that the
+assumed generative process runs roughly top-to-bottom).
+Each corpus token i has been tagged with part of speech ti ,
+lexeme i and inﬂection si . Token  has been tagged as
+b&rak and 3rd sg., which locked the corresponding type
+spelling in the paradigm to the spelling w1 = bricht;
+similarly for  and . Now w7 is about to be reanalyzed.
+
+The key intuition is that the current analyses of the
+other verb tokens imply a posterior distribution over
+the VERB lexicon, shown in the top half of the ﬁgure.
+First, because of the current analyses of  and ,
+the 3rd-person spellings of b&rak are already constrained to match w1 and w3 (the “lock” icon).
+Second, belief propagation as in Fig. 1 tells us
+which other inﬂections of b&rak (the “?” icon) are
+plausibly spelled as brechen, and how likely they
+are to be spelled that way.
+Finally, the fact that other tokens are associated
+with b&rak suggest that this is a popular lexeme, making it a plausible explanation of  as well. (This is
+the “rich get richer” property of the Chinese restaurant process; see section 6.6.) Furthermore, certain
+inﬂections of b&rak appear to be especially popular.
+In short, given the other analyses, we know which
+inﬂected lexemes in the lexicon are likely, and how
+likely each one is to be spelled as brechen. This lets
+us compute the relative probabilities of the possible
+analyses of token , so that the Gibbs sampler can
+accordingly choose one of these analyses at random.
+3.2 Monte Carlo EM Training of θ
+For a given θ, this Gibbs sampler converges to the
+posterior distribution over analyses of the full corpus.
+To improve our θ estimate, we periodically adjust θ
+to maximize or increase the probability of the most
+recent sample(s). For example, having tagged w5 =
+619
+
+inﬂuence future moves of the sampler.
+If the sampler is run long enough between calls to
+the θ optimizer, this is a Monte Carlo EM procedure
+(see end of section 1.2). It uses the data to optimize a
+language-speciﬁc prior p(π) over paradigms—an empirical Bayes approach. (A fully Bayesian approach
+would resample θ as part of the Gibbs sampler.)
+3.3 Collapsed Representation of the Lexicon
+The lexicon is collapsed out of our sampler, in the
+sense that we do not represent a single guess about the
+inﬁnitely many lexeme probabilities and paradigms.
+What we store about the lexicon is information about
+its full posterior distribution: the top half of Fig. 2.
+Fig. 2 names its lexemes as b&rak and jump for expository purposes, but of course the sampler cannot
+reconstruct such labels. Formally, these labels are collapsed out, and we represent lexemes as anonymous
+objects. Tokens  and  are tagged with the same
+anonymous lexeme (which will correspond to sitting
+at the same table in a Chinese restaurant process).
+For each lexeme and inﬂection s, we maintain
+pointers to any tokens currently tagged with the slot
+( , s). We also maintain an approximate marginal
+distribution over the spelling of that slot:6
+1. If ( , s) points to at least one token i, then we
+know ( , s) is spelled as wi (with probability 1).
+2. Otherwise, the spelling of ( , s) is not known.
+But if some spellings in ’s paradigm are known,
+store a truncated distribution that enumerates the
+25 most likely spellings for ( , s), according to
+loopy belief propagation within the paradigm.
+3. Otherwise, we have observed nothing about :
+it is currently unused. All such share the same
+marginal distribution over spellings of ( , s):
+the marginal of the prior p(π). Here a 25-best
+list could not cover all plausible spellings. Instead we store a probabilistic ﬁnite-state language model that approximates this marginal.7
+6
+
+Cases 1 and 2 below must in general be updated whenever
+a slot switches between having 0 and more than 0 tokens. Cases
+2 and 3 must be updated when the parameters θ change.
+7
+This character trigram model is fast to build if p(π) is de-
+
+A hash table based on cases 1 and 2 can now be
+used to rapidly map any word w to a list of slots of
+existing lexemes that might plausibly have generated
+w. To ask whether w might instead be an inﬂection s
+of a novel lexeme, we score w using the probabilistic
+ﬁnite-state automata from case 3, one for each s.
+The Gibbs sampler randomly chooses one of these
+analyses. If it chooses the “novel lexeme” option,
+we create an arbitrary new lexeme object in memory. The number of explicitly represented lexemes is
+always ﬁnite (at most the number of corpus tokens).
+
+4 Interpretation as a Mixture Model
+
+4.1
+
+The Dirichlet Process Mixture Model
+
+Our mixture model uses an inﬁnite number of mixture components. This avoids placing a prior bound
+on the number of lexemes or paradigms in the language. We assume that a natural language has an
+inﬁnite lexicon, although most lexemes have sufﬁciently low probability that they have not been used
+in our training corpus or even in human history (yet).
+Our speciﬁc approach corresponds to a Bayesian
+technique, the Dirichlet process mixture model. Appendix A (supplementary material) explains the
+DPMM and discusses it in our context.
+The DPMM would standardly be presented as generating a distribution over countably many Gaussians
+or paradigms. Our variant in section 2.3 instead broke
+this into two steps: it ﬁrst generated a distribution
+over countably many lexemes (step 2), and then generated a weighted paradigm for each lexeme (steps
+3–4). This construction keeps distinct lexemes separate even if they happen to have identical paradigms
+(polysemy). See Appendix A for a full discussion.
+
+It is common to cluster points in Rn by assuming
+that they were generated from a mixture of Gaussians,
+and trying to reconstruct which points were generated
+from the same Gaussian.
+We are similarly clustering word tokens by assuming that they are generated from a mixture of weighted
+paradigms. After all, each word token was obtained
+by randomly sampling a weighted paradigm (i.e., a
+cluster) and then randomly sampling a word from it.
+Just as each Gaussian in a Gaussian mixture is 5 Formal Notation
+a distribution over all points Rn , each weighted
+paradigm is a distribution over all spellings Σ∗ (but 5.1 Value Types
+assigns probability > 0 to only a ﬁnite subset of Σ∗ ). We now describe our probability model in more forInference under our model clusters words together mal detail. It considers the following types of matheby tagging them with the same lexeme. It tends to matical objects. (We use consistent lowercase letters
+group words that are “similar” in the sense that the for values of these types, and consistent fonts for
+base distribution p(π) predicts that they would tend constants of these types.)
+to co-occur within a paradigm. Suppose a corpus
+A word w, such as broken, is a ﬁnite string of
+contains several unlikely but similar tokens, such
+any length, over some ﬁnite, given alphabet Σ.
+as discombobulated and discombobulating.
+A part-of-speech tag t, such as VERB, is an eleA language might have one probable lexeme from
+ment of a certain ﬁnite set T , which in this paper we
+whose paradigm all these words were sampled. It is
+assume to be given.
+much less likely to have several probable lexemes that
+An inﬂection s,8 such as past participle, is an eleall coincidentally chose spellings that started with
+ment of a ﬁnite set St . A token’s part-of-speech tag
+discombobulat-. Generating discombobulatt ∈ T determines its set St of possible inﬂections.
+only once is cheaper (especially for such a long preFor tags that do not inﬂect, |St | = 1. The sets St
+ﬁx), so the former explanation has higher probability.
+are language-speciﬁc, and we assume in this paper
+This is like explaining nearby points in Rn as samthat they are given by a linguist rather than learned.
+ples from the same Gaussian. Of course, our model
+A linguist also speciﬁes features of the inﬂections:
+is sensitive to more than shared preﬁxes, and it does
+the grid layout in Table 1 shows that 4 of the 12
+not merely cluster words into a paradigm but assigns
+inﬂections in SVERB share the “2nd-person” feature.
+them to particular inﬂectional slots in the paradigm.
+ﬁned as at the end of section 2.2. If not, one could still try belief
+propagation; or one could approximate by estimating a language
+model from the spellings associated with slot s by cases 1 and 2.
+
+620
+
+8
+
+We denote inﬂections by s because they represent “slots” in
+paradigms (or, in the metaphor of section 6.7, “seats” at tables in
+a Chinese restaurant). These slots (or seats) are ﬁlled by words.
+
+A paradigm for t ∈ T is a mapping π : St → Σ∗ ,
+specifying a spelling for each inﬂection in St . Table 1
+shows one VERB paradigm.
+A lexeme is an abstract element of some lexical
+space L. Lexemes have no internal semantic structure: the only question we can ask about a lexeme is
+whether it is equal to some other lexeme. There is no
+upper bound on how many lexemes can be discovered
+in a text corpus; L is inﬁnite.
+5.2 Random Quantities
+Our generative model of the corpus is a joint probability distribution over a collection of random variables.
+We describe them in the same order as section 1.2.
+Tokens: The corpus is represented by token variables. In our setting the sequence of words w =
+w1 , . . . , wn ∈ Σ∗ is observed, along with n. We
+must recover the corresponding part-of-speech tags
+t = t1 , . . . , tn ∈ T , lexemes = 1 , . . . , n ∈ L,
+and inﬂections s = s1 , . . . , sn , where (∀i)si ∈ Sti .
+Types: The lexicon is represented by type
+variables. For each of the inﬁnitely many lexemes
+∈ L, and each t ∈ T , the paradigm
+πt, is a function St → Σ∗ . For example,
+Table 1 shows a possible value πVERB,b&rak .
+The various spellings in the paradigm, such as
+πVERB,b&rak (1st-person sing. pres.)=breche, are
+string-valued random variables that are correlated
+with one another.
+Since the lexicon is to be probabilistic (section 2.3),
+Gt ( ) denotes tag t’s distribution over lexemes ∈
+L, while Ht, (s) denotes the tagged lexeme (t, )’s
+distribution over inﬂections s ∈ St .
+Grammar: Global properties of the language are
+captured by grammar variables that cut across lexical entries: our parameters θ that describe typical
+inﬂectional alternations, plus parameters φt , αt , αt , τ
+(explained below). Their values control the overall
+shape of the probabilistic lexicon that is generated.
+
+6 The Formal Generative Model
+We now fully describe the generative process that
+was sketched in section 2. Step by step, it randomly
+chooses an assignment to all the random variables of
+section 5.2. Thus, a given assignment’s probability—
+which section 3’s algorithms consult in order to resample or improve the current assignment—is the
+621
+
+product of the probabilities of the individual choices,
+as described in the sections below. (Appendix B
+provides a drawing of this as a graphical model.)
+6.1
+
+→
+−
+
+Grammar Variables p(θ), p(φt ), p(αt ), p(αt )
+
+First select the grammar variables from a prior. (We
+will see below how these variables get used.) Our
+experiments used fairly ﬂat priors. Each weight in θ
+→
+−
+or φt is drawn IID from N (0, 10), and each αt or αt
+from a Gamma with mode 10 and variance 1000.
+6.2
+
+Paradigms p(πt, | θ)
+
+For each t ∈ T , let Dt (π) denote the distribution
+over paradigms that was presented in section 2.2
+(where it was called p(π)). Dt is fully speciﬁed by
+our graphical model for paradigms of part of speech
+t, together with its parameters θ as generated above.
+This is the linguistic core of our model. It considers spellings: DVERB describes what verb paradigms
+typically look like in the language (e.g., Table 1).
+Parameters in θ may be shared across parts of
+speech t. These “backoff” parameters capture general phonotactics of the language, such as prohibited
+letter bigrams or plausible vowel changes.
+For each possible tagged lexeme (t, ), we now
+draw a paradigm πt, from Dt . Most of these lexemes
+will end up having probability 0 in the language.
+6.3
+
+Lexical Distributions p(Gt | αt )
+
+We now formalize section 2.3. For each t ∈ T , the
+language has a distribution Gt ( ) over lexemes. We
+draw Gt from a Dirichlet process DP(G, αt ), where
+G is the base distribution over L, and αt > 0 is
+a concentration parameter generated above. If αt
+is small, then Gt will tend to have the property that
+most of its probability mass falls on relatively few
+def
+of the lexemes in Lt = { ∈ L : Gt ( ) > 0}. A
+closed-class tag is one whose αt is especially small.
+For G to be a uniform distribution over an inﬁnite
+lexeme set L, we need L to be uncountable.9 However, it turns out10 that with probability 1, each Lt
+is countably inﬁnite, and all the Lt are disjoint. So
+each lexeme ∈ L is selected by at most one tag t.
+9
+
+def
+
+For example, L = [0, 1], so that b&rak is merely a suggestive nickname for a lexeme such as 0.2538159.
+10
+This can be seen by considering the stick-breaking construction of the Dirichlet process that (Sethuraman, 1994; Teh et al.,
+2006). A separate stick is broken for each Gt . See Appendix A.
+
+→
+−
+
+6.4 Inﬂectional Distributions p(Ht, | φt , αt )
+
+For each tagged lexeme (t, ), the language speciﬁes
+some distribution Ht, over its inﬂections.
+First we construct backoff distributions Ht that are
+independent of . For each tag t ∈ T , let Ht be some
+base distribution over St . As St could be large in
+some languages, we exploit its grid structure (Table 1)
+to reduce the number of parameters of Ht . We take
+→
+−
+Ht to be a log-linear distribution with parameters φt
+that refer to features of inﬂections. E.g., the 2ndperson inﬂections might be systematically rare.
+Now we model each Ht, as an independent draw
+from a ﬁnite-dimensional Dirichlet distribution with
+mean Ht and concentration parameter αt . E.g., think
+might be biased toward 1st-person sing. present.
+6.5 Part-of-Speech Tag Sequence p(t | τ )
+
+In our current experiments, t is given. But in general,
+to discover tags and inﬂections simultaneously, we
+can suppose that the tag sequence t (and its length n)
+are generated by a Markov model, with tag bigram or
+trigram probabilities speciﬁed by some parameters τ .
+6.6 Lexemes p(
+
+i
+
+| Gti )
+
+We turn to section 2.4. A lexeme token depends on
+its tag: draw i from Gti , so p( i | Gti ) = Gti ( i ).
+6.7 Inﬂections p(si | Hti , i )
+
+But computationally, our sampler’s state leaves the
+Gt unspeciﬁed. So its probability is the integral of
+p(assignment) over all possible Gt . As Gt appears
+only in the factors from headings 6.3 and 6.6, we can
+just integrate it out of their product, to get a collapsed
+sub-model that generates p( | t, α) directly:
+n
+
+···
+
+GADJ GVERB
+
+t∈T
+
+p(Gt | αt )
+
+p(
+
+i
+
+i=1
+
+| Gti )
+
+n
+
+= p( | t, α) =
+
+p(
+
+i
+
+i=1
+
+|
+
+1 , . . . i−1
+
+t, α)
+
+where it turns out that the factor that generates i is
+proportional to |{j < i : j = i and tj = ti }| if that
+integer is positive, else proportional to αti G( i ).
+Metaphorically, each tag t is a Chinese restaurant
+whose tables are labeled with lexemes. The tokens
+are hungry customers. Each customer i = 1, 2, . . . , n
+enters restaurant ti in turn, and i denotes the label
+of the table she joins. She picks an occupied table
+with probability proportional to the number of previous customers already there, or with probability
+proportional to αti she starts a new table whose label
+is drawn from G (it is novel with probability 1, since
+G gives inﬁnitesimal probability to each old label).
+Similarly, we integrate out the inﬁnitely many
+lexeme-speciﬁc distributions Ht, from the product of
+6.4 and 6.7, replacing it by the collapsed distribution
+→ →
+− −
+
+→
+−
+[recall that φt determines Ht ]
+n
+→ →
+− −
+=
+p(si | s1 , . . . si−1 , , t, φt , α )
+
+p(s | , t, φt , α )
+
+An inﬂection slot depends on its tagged lexeme: we
+draw si from Hti , i , so p(si | Hti , i ) = Hti , i (si ).
+6.8 Spell-out p(wi | πti , i (si ))
+
+dG
+
+i=1
+
+Finally, we generate the word wi through a deterministic spell-out step.11 Given the tag, lexeme, and inﬂection at position i, we generate the word wi simply
+by looking up its spelling in the appropriate paradigm.
+So p(wi | πti , i (si )) is 1 if wi = πti , i (si ), else 0.
+
+6.9 Collapsing the Assignment
+Again, a full assignment’s probability is the product
+of all the above factors (see drawing in Appendix B).
+11
+
+To account for typographical errors in the corpus, the spellout process could easily be made nondeterministic, with the
+observed word wi derived from the correct spelling πti , i (si )
+by a noisy channel model (e.g., (Toutanova and Moore, 2002))
+represented as a WFST. This would make it possible to analyze
+brkoen as a misspelling of a common or contextually likely
+word, rather than treating it as an unpronounceable, irregularly
+inﬂected neologism, which is presumably less likely.
+
+622
+
+where the factor for si is proportional to |{j < i :
+sj = si and (tj , j ) = (ti , i )}| + αti Hti (si ).
+Metaphorically, each table in Chinese restaurant
+t has a ﬁxed, ﬁnite set of seats corresponding to the
+inﬂections s ∈ St . Each seat is really a bench that
+can hold any number of customers (tokens). When
+customer i chooses to sit at table i , she also chooses
+a seat si at that table (see Fig. 2), choosing either an
+already occupied seat with probability proportional to
+the number of customers already in that seat, or else
+a random seat (sampled from Hti and not necessarily
+empty) with probability proportional to αti .
+
+7
+
+Inference and Learning
+
+As section 3 explained, the learner alternates between
+a Monte Carlo E step that uses Gibbs sampling to
+
+sample from the posterior of (s, , t) given w and the
+grammar variables, and an M step that adjusts the
+grammar variables to maximize the probability of the
+(w, s, , t) samples given those variables.
+7.1 Block Gibbs Sampling
+As in Gibbs sampling for the DPMM, our sampler’s
+basic move is to reanalyze token i (see section 3).
+This corresponds to making customer i invisible and
+then guessing where she is probably sitting—which
+restaurant t, table , and seat s?—given knowledge
+of wi and the locations of all other customers.12
+Concretely, the sampler guesses location (ti , i , si )
+with probability proportional to the product of
+• p(ti | ti−1 , ti+1 , τ ) (from section 6.5)
+• the probability (from section 6.9) that a new customer in restaurant ti chooses table i , given the
+other customers in that restaurant (and αti )13
+• the probability (from section 6.9) that a new
+customer at table i chooses seat si , given the
+−
+→
+other customers at that table (and φti and αti )13
+• the probability (from section 3.3’s belief propagation) that πti , i (si ) = wi (given θ).
+We sample only from the (ti , i , si ) candidates for
+which the last factor is non-negligible. These are
+found with the hash tables and FSAs of section 3.3.
+7.2 Semi-Supervised Sampling
+Our experiments also consider the semi-supervised
+case where a few seed paradigms—type data—are
+fully or partially observed. Our samples should also
+be conditioned on these observations. We assume
+that our supervised list of observed paradigms was
+generated by sampling from Gt .14 We can modify
+our setup for this case: certain tables have a host
+who dictates the spelling of some seats and attracts
+appropriate customers to the table. See Appendix C.
+7.3 Parameter Gradients
+Appendix D gives formulas for the M step gradients.
+12
+
+Actually, to improve mixing time, we choose a currently
+active lexeme uniformly at random, make all customers {i :
+i = } invisible, and sequentially guess where they are sitting.
+13
+This is simple to ﬁnd thanks to the exchangeability of the
+CRP, which lets us pretend that i entered the restaurant last.
+14
+Implying that they are assigned to lexemes with nonnegligible probability. We would learn nothing from a list of
+merely possible paradigms, since Lt is inﬁnite and every conceivable paradigm is assigned to some ∈ Lt (in fact many!).
+
+623
+
+Corpus size
+Accuracy
+Edit dist.
+
+50 seed paradigms
+0
+106
+107
+89.9 90.6 90.9
+0.20 0.19 0.18
+
+100 seed paradigms
+0
+106
+107
+91.5 92.0 92.2
+0.18 0.17 0.17
+
+Table 2: Whole-word accuracy and edit distance of predicted inﬂection forms given the lemma. Edit distance to
+the correct form is measured in characters. Best numbers
+per set of seed paradigms in bold (statistically signiﬁcant on our large test set under a paired permutation test,
+p < 0.05). Appendix E breaks down these results per
+inﬂection and gives an error analysis and other statistics.
+
+8
+
+Experiments
+
+8.1
+
+Experimental Design
+
+We evaluated how well our model learns German
+verbal morphology. As corpus we used the ﬁrst 1
+million or 10 million words from WaCky (Baroni
+et al., 2009). For seed and test paradigms we used
+verbal inﬂectional paradigms from the CELEX morphological database (Baayen et al., 1995). We fully
+observed the seed paradigms. For each test paradigm,
+we observed the lemma type (Appendix C) and evaluated how well the system completed the other 21
+forms (see Appendix E.2) in the paradigm.
+We simpliﬁed inference by ﬁxing the POS tag
+sequence to the automatic tags delivered with the
+WaCky corpus. The result that we evaluated for each
+variable was the value whose probability, averaged
+over the entire Monte Carlo EM run,15 was highest.
+For more details, see (Dreyer, 2011).
+All results are averaged over 10 different training/test splits of the CELEX data. Each split sampled
+100 paradigms as seed data and used the remaining 5,415 paradigms for evaluation.16 From the 100
+paradigms, we also sampled 50 to obtain results with
+smaller seed data.17
+8.2
+
+Results
+
+Type-based Evaluation. Table 2 shows the results
+of predicting verb inﬂections, when running with no
+corpus, versus with an unannotated corpus of size 106
+and 107 words. Just using 50 seed paradigms, but
+15
+
+This includes samples from before θ has converged, somewhat like the voted perceptron (Freund and Schapire, 1999).
+16
+100 further paradigms were held out for future use.
+17
+Since these seed paradigms are sampled uniformly from a
+set of CELEX paradigms, most of them are regular. We actually
+only used 90 and 40 for training, reserving 10 as development
+data for sanity checks and for deciding when to stop.
+
+Bin
+1
+2
+3
+4
+5
+all
+
+Frequency
+0–9
+10–99
+100–999
+1,000–9,999
+10,000–
+any
+
+# Verb Forms
+116,776
+4,623
+1,048
+95
+10
+122,552
+
+Table 3: The inﬂected verb forms from 5,615 inﬂectional
+paradigms, split into 5 token frequency bins. The frequencies are based on the 10-million word corpus.
+
+no corpus, gives an accuracy of 89.9%. By adding
+a corpus of 10 million words we reduce the error
+rate by 10%, corresponding to a one-point increase
+in absolute accuracy to 90.9%. A similar trend can
+be seen when we use more seed paradigms. Simply training on 100 seed paradigms, but not using a
+corpus, results in an accuracy of 91.5%. Adding a
+corpus of 10 million words to these 100 paradigms reduces the error rate by 8.3%, increasing the absolute
+accuracy to 92.2%. Compared to the large corpus,
+the smaller corpus of 1 million words goes more than
+half the way; it results in error reductions of 6.9%
+(50 seed paradigms) and 5.8% (100 seed paradigms).
+Larger unsupervised corpora should help by increasing coverage even more, although Zipf’s law implies
+a diminishing rate of return.18
+We also tested a baseline that simply inﬂects each
+morphological form according to the basic regular
+German inﬂection pattern; this reaches an accuracy
+of only 84.5%.
+Token-based Evaluation. We now split our results
+into different bins: how well do we predict the
+spellings of frequently expressed (lexeme, inﬂection)
+pairs as opposed to rare ones? For example, the third
+person singular indicative of giv (geben) is used
+signiﬁcantly more often than the second person plural
+subjunctive of b$ask (aalen);19 they are in different
+frequency bins (Table 3). The more frequent a form
+is in text, the more likely it is to be irregular (Jurafsky
+et al., 2000, p. 49).
+The results in Table 4 show: Adding a corpus of
+either 1 or 10 million words increases our prediction
+accuracy across all frequency bins, often dramatically. All methods do best on the huge number of
+18
+
+Considering the 63,778 distinct spellings from all of our
+5,615 CELEX paradigms, we ﬁnd that the smaller corpus contains 7,376 spellings and the 10× larger corpus contains 13,572.
+19
+See Appendix F for how this was estimated from text.
+
+624
+
+Bin
+1
+2
+3
+4
+5
+all
+all (e.d.)
+
+50 seed paradigms
+0
+106
+107
+90.5 91.0 91.3
+78.1 84.5 84.4
+71.6 79.3 78.1
+57.4 61.4 61.8
+20.7 25.0 25.0
+52.6 57.5 57.8
+1.18 1.07 1.03
+
+100 seed paradigms
+0
+106
+107
+92.1 92.4 92.6
+80.2 85.5 85.1
+73.3 80.2 79.1
+57.4 62.0 59.9
+20.7 25.0 25.0
+53.4 58.5 57.8
+1.16 1.02 1.01
+
+Table 4: Token-based analysis: Whole-word accuracy results split into different frequency bins. In the last two
+rows, all predictions are included, weighted by the frequency of the form to predict. Last row is edit distance.
+
+rare forms (Bin 1), which are mostly regular, and
+worst on on the 10 most frequent forms of the language (Bin 5). However, adding a corpus helps most
+in ﬁxing the errors in bins with more frequent and
+hence more irregular verbs: in Bins 2–5 we observe
+improvements of up to almost 8% absolute percentage points. In Bin 1, the no-corpus baseline is already
+relatively strong.
+Surprisingly, while we always observe gains from
+using a corpus, the gains from the 10-million-word
+corpus are sometimes smaller than the gains from the
+1-million-word corpus, except in edit distance. Why?
+The larger corpus mostly adds new infrequent types,
+biasing θ toward regular morphology at the expense
+of irregular types. A solution might be to model irregular classes with separate parameters, using the latent
+conjugation-class model of Dreyer et al. (2008).
+Note that, by using a corpus, we even improve
+our prediction accuracy for forms and spellings that
+are not found in the corpus, i.e., novel words. This
+is thanks to improved grammar parameters. In the
+token-based analysis above we have already seen that
+prediction accuracy increases for rare forms (Bin 1).
+We add two more analyses that more explicitly show
+our performance on novel words. (a) We ﬁnd all
+paradigms that consist of novel spellings only, i.e.
+none of the correct spellings can be found in the
+corpus.20 The whole-word prediction accuracies for
+the models that use corpus size 0, 1 million, and
+10 million words are, respectively, 94.0%, 94.2%,
+94.4% using 50 seed paradigms, and 95.1%, 95.3%,
+95.2% using 100 seed paradigms. (b) Another, sim20
+
+This is measured on the largest corpus used in inference, the
+10-million-word corpus, so that we can evaluate all models on
+the same set of paradigms.
+
+pler measure is the prediction accuracy on all forms
+whose correct spelling cannot be found in the 10million-word corpus. Here we measure accuracies
+of 91.6%, 91.8% and 91.8%, respectively, using 50
+seed paradigms. With 100 seed paradigms, we have
+93.0%, 93.4% and 93.1%. The accuracies for the
+models that use a corpus are higher, but do not always steadily increase as we increase the corpus size.
+The token-based analysis we have conducted here
+shows the strength of the corpus-based approach presented in this paper. While the integrated graphical models over strings (Dreyer and Eisner, 2009)
+can learn some basic morphology from the seed
+paradigms, the added corpus plays an important role
+in correcting its mistakes, especially for the more frequent, irregular verb forms. For examples of speciﬁc
+errors that the models make, see Appendix E.3.
+
+9 Related Work
+Our word-and-paradigm model seamlessly handles
+nonconcatenative and concatenative morphology
+alike, whereas most previous work in morphological
+knowledge discovery has modeled concatenative morphology only, assuming that the orthographic form
+of a word can be split neatly into stem and afﬁxes—a
+simplifying asssumption that is convenient but often
+not entirely appropriate (Kay, 1987) (how should one
+segment English stopping, hoping, or knives?).
+In concatenative work, Harris (1955) ﬁnds morpheme boundaries and segments words accordingly,
+an approach that was later reﬁned by Hafer and
+Weiss (1974), Déjean (1998), and many others. The
+unsupervised segmentation task is tackled in the
+annual Morpho Challenge (Kurimo et al., 2010),
+where ParaMor (Monson et al., 2007) and Morfessor
+(Creutz and Lagus, 2005) are inﬂuential contenders.
+The Bayesian methods that Goldwater et al. (2006b,
+et seq.) use to segment between words might also be
+applied to segment within words, but have no notion
+of paradigms. Goldsmith (2001) ﬁnds what he calls
+signatures—sets of afﬁxes that are used with a given
+set of stems, for example (NULL, -er, -ing, -s).
+Chan (2006) learns sets of morphologically related
+words; he calls these sets paradigms but notes that
+they are not substructured entities, in contrast to the
+paradigms we model in this paper. His models are
+restricted to concatenative and regular morphology.
+625
+
+Morphology discovery approaches that handle nonconcatenative and irregular phenomena
+are more closely related to our work; they are
+rarer. Yarowsky and Wicentowski (2000) identify
+inﬂection-root pairs in large corpora without supervision. Using similarity as well as distributional clues,
+they identify even irregular pairs like take/took.
+Schone and Jurafsky (2001) and Baroni et al. (2002)
+extract whole conﬂation sets, like “abuse, abused,
+abuses, abusive, abusively, . . . ,” which may
+also be irregular. We advance this work by not only
+extracting pairs or sets of related observed words,
+but whole structured inﬂectional paradigms, in which
+we can also predict forms that have never been observed. On the other hand, our present model does
+not yet use contextual information; we regard this as
+a future opportunity (see Appendix G). Naradowsky
+and Goldwater (2009) add simple spelling rules to
+the Bayesian model of (Goldwater et al., 2006a), enabling it to handle some systematically nonconcatenative cases. Our ﬁnite-state transducers can handle
+more diverse morphological phenomena.
+
+10 Conclusions and Future Work
+We have formulated a principled framework for simultaneously obtaining morphological annotation,
+an unbounded morphological lexicon that ﬁlls complete structured morphological paradigms with observed and predicted words, and parameters of a nonconcatenative generative morphology model.
+We ran our sampler over a large corpus (10 million
+words), inferring everything jointly and reducing the
+prediction error for morphological inﬂections by up
+to 10%. We observed that adding a corpus increases
+the absolute prediction accuracy on frequently occurring morphological forms by up to almost 8%. Future
+extensions to the model could leverage token context
+for further improvements (Appendix G).
+We believe that a major goal of our ﬁeld should be
+to build full-scale explanatory probabilistic models
+of language. While we focus here on inﬂectional
+morphology and evaluate the results in isolation, we
+regard the present work as a signiﬁcant step toward
+a larger generative model under which Bayesian
+inference would reconstruct other relationships as
+well (e.g., inﬂectional, derivational, and evolutionary) among the words in a family of languages.
+
+References
+A. C. Albright. 2002. The Identiﬁcation of Bases in
+Morphological Paradigms. Ph.D. thesis, University of
+California, Los Angeles.
+D. Aldous. 1985. Exchangeability and related topics.
+École d’été de probabilités de Saint-Flour XIII, pages
+1–198.
+C. E. Antoniak. 1974. Mixtures of Dirichlet processes
+with applications to Bayesian nonparametric problems.
+Annals of Statistics, 2(6):1152–1174.
+R. H Baayen, R. Piepenbrock, and L. Gulikers. 1995. The
+CELEX lexical database (release 2)[cd-rom]. Philadelphia, PA: Linguistic Data Consortium, University of
+Pennsylvania [Distributor].
+M. Baroni, J. Matiasek, and H. Trost. 2002. Unsupervised
+discovery of morphologically related words based on
+orthographic and semantic similarity. In Proc. of the
+ACL-02 Workshop on Morphological and Phonological
+Learning, pages 48–57.
+M. Baroni, S. Bernardini, A. Ferraresi, and E. Zanchetta.
+2009. The WaCky Wide Web: A collection of very
+large linguistically processed web-crawled corpora.
+Language Resources and Evaluation, 43(3):209–226.
+David Blackwell and James B. MacQueen. 1973. Ferguson distributions via Pòlya urn schemes. The Annals of
+Statistics, 1(2):353–355, March.
+David M. Blei and Peter I. Frazier. 2010. Distancedependent Chinese restaurant processes. In Proc. of
+ICML, pages 87–94.
+E. Chan. 2006. Learning probabilistic paradigms for
+morphology in a latent class model. In Proceedings of
+the Eighth Meeting of the ACL Special Interest Group
+on Computational Phonology at HLT-NAACL, pages
+69–78.
+M. Creutz and K. Lagus. 2005. Unsupervised morpheme
+segmentation and morphology induction from text corpora using Morfessor 1.0. Computer and Information
+Science, Report A, 81.
+H. Déjean. 1998. Morphemes as necessary concept
+for structures discovery from untagged corpora. In
+Proc. of the Joint Conferences on New Methods in
+Language Processing and Computational Natural Language Learning, pages 295–298.
+Markus Dreyer and Jason Eisner. 2009. Graphical models
+over multiple strings. In Proc. of EMNLP, Singapore,
+August.
+Markus Dreyer, Jason Smith, and Jason Eisner. 2008.
+Latent-variable modeling of string transductions with
+ﬁnite-state methods. In Proc. of EMNLP, Honolulu,
+Hawaii, October.
+Markus Dreyer. 2011. A Non-Parametric Model for the
+Discovery of Inﬂectional Paradigms from Plain Text
+
+626
+
+Using Graphical Models over Strings. Ph.D. thesis,
+Johns Hopkins University.
+T.S. Ferguson. 1973. A Bayesian analysis of some nonparametric problems. The annals of statistics, 1(2):209–
+230.
+Y. Freund and R. Schapire. 1999. Large margin classiﬁcation using the perceptron algorithm. Machine Learning,
+37(3):277–296.
+J. Goldsmith. 2001. Unsupervised learning of the morphology of a natural language. Computational Linguistics, 27(2):153–198.
+S. Goldwater, T. Grifﬁths, and M. Johnson. 2006a. Interpolating between types and tokens by estimating
+power-law generators. In Proc. of NIPS, volume 18,
+pages 459–466.
+S. Goldwater, T. L. Grifﬁths, and M. Johnson. 2006b.
+Contextual dependencies in unsupervised word segmentation. In Proc. of COLING-ACL.
+P.J. Green. 1995. Reversible jump Markov chain Monte
+Carlo computation and Bayesian model determination.
+Biometrika, 82(4):711.
+M. A Hafer and S. F Weiss. 1974. Word segmentation
+by letter successor varieties. Information Storage and
+Retrieval, 10:371–385.
+Z. S. Harris. 1955. From phoneme to morpheme. Language, 31(2):190–222.
+G.E. Hinton. 2002. Training products of experts by minimizing contrastive divergence. Neural Computation,
+14(8):1771–1800.
+Klara Janecki. 2000. 300 Polish Verbs. Barron’s Educational Series.
+E. T. Jaynes. 2003. Probability Theory: The Logic of
+Science. Cambridge Univ Press. Edited by Larry Bretthorst.
+D. Jurafsky, J. H. Martin, A. Kehler, K. Vander Linden,
+and N. Ward. 2000. Speech and Language Processing:
+An Introduction to Natural Language Processing, Computational Linguistics, and Speech Recognition. MIT
+Press.
+M. Kay. 1987. Nonconcatenative ﬁnite-state morphology.
+In Proc. of EACL, pages 2–10.
+M. Kurimo, S. Virpioja, V. Turunen, and K. Lagus. 2010.
+Morpho Challenge competition 2005–2010: Evaluations and results. In Proc. of ACL SIGMORPHON,
+pages 87–95.
+P. H. Matthews. 1972. Inﬂectional Morphology: A Theoretical Study Based on Aspects of Latin Verb Conjugation. Cambridge University Press.
+Christian Monson, Jaime Carbonell, Alon Lavie, and Lori
+Levin. 2007. ParaMor: Minimally supervised induction of paradigm structure and morphological analysis.
+In Proc. of ACL SIGMORPHON, pages 117–125, June.
+
+J. Naradowsky and S. Goldwater. 2009. Improving morphology induction by learning spelling rules. In Proc.
+of IJCAI, pages 1531–1536.
+J. Pitman and M. Yor. 1997. The two-parameter PoissonDirichlet distribution derived from a stable subordinator.
+Annals of Probability, 25:855–900.
+P. Schone and D. Jurafsky. 2001. Knowledge-free induction of inﬂectional morphologies. In Proc. of NAACL,
+volume 183, pages 183–191.
+J. Sethuraman. 1994. A constructive deﬁnition of Dirichlet priors. Statistica Sinica, 4(2):639–650.
+N. A. Smith, D. A. Smith, and R. W. Tromble. 2005.
+Context-based morphological disambiguation with random ﬁelds. In Proceedings of HLT-EMNLP, pages
+475–482, October.
+G. T. Stump. 2001. Inﬂectional Morphology: A Theory of
+Paradigm Structure. Cambridge University Press.
+Y.W. Teh, M.I. Jordan, M.J. Beal, and D.M. Blei. 2006.
+Hierarchical Dirichlet processes. Journal of the American Statistical Association, 101(476):1566–1581.
+Yee Whye Teh. 2006. A hierarchical Bayesian language
+model based on Pitman-Yor processes. In Proc. of
+ACL.
+K. Toutanova and R.C. Moore. 2002. Pronunciation
+modeling for improved spelling correction. In Proc. of
+ACL, pages 144–151.
+D. Yarowsky and R. Wicentowski. 2000. Minimally supervised morphological analysis by multimodal alignment. In Proc. of ACL, pages 207–216, October.
+
+627
+
+This supplementary material consists of several
+appendices. The main paper can be understood without them; but for the curious reader, the appendices
+provide additional background, details, results, analysis, and discussion (see also (Dreyer, 2011)). Each
+appendix is independent of the others, since different
+appendices may be of interest to different readers.
+
+A
+
+Dirichlet Process Mixture Models
+
+Section 4 noted that morphology induction is rather
+like the clustering that is performed by inference
+under a Dirichlet process mixture model (Antoniak,
+1974). The DPMM is trivially obtained from the
+Dirichlet process (Ferguson, 1973), on which there
+are many good tutorials. Our purpose in this appendix
+is
+• to brieﬂy present the DPMM in the concrete
+setting of morphology, for the interested reader;
+• to clarify why and how we introduce abstract
+lexemes, obtaining a minor technical variant of
+the DPMM (section A.5).
+The DPMM provides a Bayesian approach to nonparametric clustering. It is Bayesian because it speciﬁes a prior over the mixture model that might have
+generated the data. It is non-parametric because that
+mixture model uses an inﬁnite number of mixture
+components (in our setting, an inﬁnite lexicon).
+Generating a larger data sample tends to select
+more of these inﬁnitely many components to generate
+actual data points. Thus, inference tends to use more
+clusters to explain how a larger sample was generated.
+In our setting, the more tokens in our corpus, the
+more paradigms we will organize them into.
+A.1 Parameters of a DPMM
+Assume that we are given a (usually inﬁnite) set L
+of possible mixture components. That is, each element of L is a distribution (w) over some space of
+observable objects w. Commonly (w) is a Gaussian
+distribution over points w ∈ Rn . In our setting, (w)
+is a weighted paradigm, which is a distribution (one
+with ﬁnite support) over strings w ∈ Σ∗ .
+Notice that we are temporarily changing our notation. In the main paper, denotes an abstract lexeme that is associated with a spelling πt, (s) and a
+probability Ht, (s) for each slot s ∈ St . For the
+
+moment, however, in order to present the DPMM,
+we are instead using to denote an actual mixture
+component—the distribution over words obtained
+from these spellings and probabilities. In section A.5
+we will motivate the alternative construction used in
+the main paper, in which is just an index into the
+set of possible mixture components.
+A DPMM is parameterized by a concentration
+parameter α > 0 together with a base distribution
+G over the mixture components L. Thus, G states
+what typical Gaussians or weighted paradigms ought
+to look like.21 (What variances σ 2 and means µ are
+likely? What afﬁxes and stem changes are likely?) In
+our setting, this is a global property of the language
+and is determined by the grammar parameters θ.
+A.2 Sampling a Speciﬁc Mixture Model
+To draw a speciﬁc mixture model from the DPMM
+prior, we can use a stick-breaking process. The idea
+is to generate an inﬁnite sequence of mixture components (1) , (2) , . . . as IID samples from G. In our
+setting, this is a sequence of weighted paradigms.
+We then associate a probability βk > 0 with each
+component, where ∞ βk = 1. These βk probabilk=1
+ities serve as the mixture weights. They are chosen
+sequentially, in a way that tends to decrease. Thus,
+the paradigms that fall early in the (k) sequence tend
+to be the high-frequency paradigms of the language.
+These values do not necessarily have high prior
+probability under G. However, a paradigm that is
+very unlikely under G will probably not be chosen
+anywhere early in the (k) sequence, and so will end
+up with a low probability.
+Speciﬁcally: having already chosen β1 , . . . , βk−1 ,
+we set βk to be the remaining probability mass
+1 − k−1 βi times a random fraction in (0,1) that is
+i=1
+drawn IID from Beta(1, α).22 Metaphorically, having already broken k − 1 segments off a stick of
+length 1, representing the total probability mass, we
+now break off a random fraction of what is left of the
+stick. We label the new stick segment with (k) .
+This distribution β over the integers yields a distribution Gt over mixture components: Gt ( ) =
+21
+The traditional name for the base distribution is G0 . We
+depart from this notation since we want to use the subscript
+position instead to distinguish draws from the DPMM, e.g., Gt .
+22
+Equivalently, letting βk be the random fraction, we can
+deﬁne βk = βk · k−1 (1 − βi ).
+i=1
+
+Supplementary material for: Markus Dreyer & Jason Eisner (2011),
+“Discovering morphological paradigms from plain text using a Dirichlet process mixture model,”
+Proceedings of the Conference on Empirical Methods in Natural Language Processing (EMNLP)
+
+k: (k) = βk , the probability of selecting a stick segment labeled with . Clearly, this probability is positive if and only if is in { (1) , (2) , . . .}, a countable
+subset of L that is countably inﬁnite provided that G
+has inﬁnite support.
+As Sethuraman (1994) shows, this Gt is distributed
+according to the Dirichlet process DP(G, α). Gt is
+a discrete distribution and tends to place its mass
+on mixture components that have high probability
+under G. In fact, the average value of Gt is exactly
+G. However, Gt is not identical to G, and different
+samples Gt will differ considerably from one another
+if α is small.23 In short, G is the mean of the Dirichlet
+process while α is inversely related to its variance.
+
+A.3 α for a Natural Language Lexicon
+We expect α to be relatively small in our model,
+since a lexicon is idiosyncratic: Gt does not look
+too much like G. Many verb paradigms that would
+be a priori reasonable in the language (large G( ))
+are in fact missing from the dictionary and are only
+available as neologisms (small Gt ( )). Conversely,
+irregular paradigms (small G( )) are often selected
+for frequent use in the language (large Gt ( )).
+On the other hand, small α implies that we will
+break off large stick segments and most of the probability mass will rapidly be used up on a small number
+of paradigms. This is not true: the distribution over
+words in a language has a long tail (Zipf’s Law).
+In fact, regardless of α, Dirichlet processes never
+capture the heavy-tailed, power-law behavior that is
+typical of linguistic distributions. The standard solution is to switch to the Pitman-Yor process (Pitman
+and Yor, 1997; Teh, 2006), a variant on the Dirichlet
+process that has an extra parameter to control the
+heaviness of the tail. We have not yet implemented
+this simple improvement.
+A.4 Sampling from the Mixture Model
+The distribution over paradigms, Gt , gives rise to
+a distribution over words, pt (w) =
+Gt ( ) c(w).
+To sample a word w from this distribution, one can
+sample a mixture component ∼ Gt and then a point
+w ∼ . This is what sections 6.6–6.8 do. To generate
+a whole corpus of n words, one must repeat these
+two steps n times.
+23
+
+As α → 0, the expected divergence KL(Gt ||G) → H(G).
+As α → ∞, on the other hand, the expected KL(Gt ||G) → 0.
+
+For simplicity of notation, let us assume that t is
+ﬁxed, so that all words are generated from the same
+Gt (i.e., they have the same part-of-speech tag).24
+Thus, we need to sample a sequence
+, 2 , . . . , n ∼ Gt . Is there a way to do this
+1
+without explicitly representing the particular inﬁnite
+mixture model Gt ∼ DP(G, α)? It does not matter
+here that each i is a mixture component. What
+matters is that it is a sample from a sample Gt
+from a Dirichlet process. Hence we can use standard
+techniques for working with Dirichlet processes.
+The solution is the scheme known as a Chinese
+restaurant process (Blackwell and MacQueen, 1973;
+Aldous, 1985), as employed in section 6.9. Our n IID
+draws from Gt are conditionally independent given
+Gt (by deﬁnition), but they become interdependent
+if Gt is not observed. This is because 1 , . . . , i−1
+provide evidence about what Gt must have been. The
+next sample i must then be drawn from the mean of
+this posterior over Gt (which becomes sharper and
+sharper as i increases and we gain knowledge of Gt ).
+It turns out that the posterior mean assigns to each
+∈ L a probability that is proportional to t( ) +
+αG( ), where t( ) is the number of previous samples
+equal to . The Chinese restaurant process samples
+from this distribution by using the scheme described
+in section 6.9.
+For a given , each table in the Chinese restaurant
+labeled with corresponds to some stick segment k
+that is labeled with . However, unlike the stick segment, the table does not record the value of k. It also
+does not represent the segment length βk —although
+the fraction of customers who are sitting at the table
+does provide some information about βk , and the
+posterior distribution over βk gets sharper as more
+customers enter the restaurant. In short, the Chinese
+restaurant representation is more collapsed than the
+stick-breaking representation, since it does not record
+Gt nor a speciﬁc stick-breaking construction of Gt .
+A.5 Lexemes
+We now make lexemes and inﬂections into ﬁrst-class
+variables of the model, which can be inferred (section 7), directly observed (Appendix C), modulated
+by additional factors (Appendix G), or associated
+24
+
+Recall that in reality, we switch among several Gt , one
+for each part-of-speech tag t. In that case, we use Gti when
+sampling the word at position i.
+
+with other linguistic information. The use of ﬁrstclass lexemes also permits polysemy, where two
+lexemes remain distinct despite having the same
+paradigm.
+If we used the DPMM directly, our inference procedure would only assign a paradigm i to each corpus
+token i. Given our goals of doing morphological analysis, this formalization is too weak on two grounds:
+• We have ignored the structure of the paradigm
+by treating it as a mere distribution over strings
+(mixture component). We would like to recover
+not only the paradigm that generated token i
+but also the speciﬁc responsible slot si in that
+paradigm.
+• By tagging only with a paradigm and not with a
+lexical item, we have failed to disambiguate homographs. For example, i says only that drew
+is a form of draw. It does not distinguish between drawing a picture and drawing a sample,
+both of which use the same paradigm.25
+Regarding the second point, one might object that
+the two senses of drew could be identiﬁed with different weighted paradigms, which have the same
+spellings but differ slightly in their weights. However, this escape hatch is not always available. For
+example, suppose we simpliﬁed our model by constraining Ht, to equal Ht . Then the different senses
+of draw would have identical weighted paradigms,
+the weights being imposed by t, and they could no
+longer be distinguished. To avoid such problems,
+we think it is prudent to design notation that refers
+directly to linguistic concepts like abstract lexemes.
+Thus, we now switch to the variant view we presented in the main paper, in which each ∈ L is
+an abstract lexeme rather than a mixture component.
+We still have Gt ∼ DP(G, α), but now G and Gt
+are distributions over abstract lexemes. The particular mixture components are obtained by choosing a
+structured paradigm πt, and weights Ht, for each
+abstract lexeme (sections 6.3–6.4). In principle, se25
+
+Of course, our current model is too weak to make such
+sense distinctions successfully, since it does not yet consider
+context. But we would like it to at least be able to represent
+these distinctions in its tagging. In future work (Appendix G)
+we would hope to consider context, without overhauling the
+framework and notation of the present paper.
+
+mantic and subcategorization information could also
+be associated with the lexeme.
+In our sampler, a newly created Chinese restaurant
+table ought to sample a label ∈ L from G. This is
+straightforward but turns out to be unnecessary, since
+the particular value of does not matter in our model.
+All that matters is the information that we associated
+with above. In effect, is just an arbitrary pointer
+to the lexical entry containing this information. Thus,
+in practice, we collapse out the value and take the
+lexical entry information to be associated directly
+with the Chinese restaurant table instead.26
+We can identify lexemes with Chinese restaurant
+tables in this way provided that G has no atoms (i.e.,
+any particular ∈ L has inﬁnitesimal probability
+under G), as is also true for the standard Gaussian
+DPMM. Then, in the generative processes above, two
+tables (or two stick segments) never happen to choose
+the same lexeme. So there is no possibility that a
+single lexeme’s customers are split among multiple
+tables. As a result, we never have to worry about
+combining customers from multiple tables in order to
+estimate properties of a lexeme (e.g., when estimating
+its paradigm by loopy belief propagation).
+For concreteness, we can take lexeme space L to
+be the uncountable set [0, 1] (see footnote 9), and let
+G be the uniform distribution over [0, 1]. However,
+these speciﬁc choices are not important, provided
+that G has no atoms and the model does not make
+any reference to the structure of L.
+
+B
+
+Graphical Model Diagram
+
+We provide in Fig. 3 a drawing of our graphical
+model, corresponding to section 6.
+The model is simpler than it appears. First, the
+variables Dt , Ht , G, and wi are merely deterministic functions of their parents. Second, several of the
+edges denote only simple “switching variable” dependencies. These are the thin edges connecting corpus
+variables i , si , wi to the corpus variables above them.
+For example, i is simply sampled from one of the
+Gt distributions (section 6.6)—but speciﬁcally from
+Gti , so it also needs ti as a parent (thin edge). In the
+26
+
+So, instead of storing the lexeme vector , which associates
+a speciﬁc lexeme with each token, we only really store a partition
+(clustering) that says which tokens have the same lexeme. The
+lexemes play the role of cluster labels, so the fact that they are
+not identiﬁable and not stored is typical of a clustering problem.
+
+θ
+φt
+
+￿
+αt
+
+Dt
+
+Ht
+base
+
+Ht,￿
+
+πt,l
+
+αt
+
+Gt
+
+￿∈L
+t∈T
+
+Lexicon
+
+G
+
+τ
+
+base
+
+ti−1
+
+ti
+￿i
+si
+wi
+Corpus
+
+i = 1..n
+
+Figure 3: A graphical model drawing of the generative
+model. As in Fig. 2, type variables are above and token
+variables are below. Grammar variables are in blue. Although circles denote random variables, we label them
+with values (such as i ) to avoid introducing new notation
+(such as Li ) for the random variables.
+
+same way, si is sampled from Hti , i , and wi deterministically equals πti , i (s).
+wi is observed, as shown by the shading. However,
+the drawing does not show some observations mentioned in section 8.1. First, πt, is also observed for
+certain seed paradigms (t, ). Second, our present
+experiments also constrain ti (to a value predicted by
+an automatic tagger), and then consider only those i
+for which ti = VERB.
+
+C
+
+Incorporating Known Paradigms
+
+To constrain the inference and training, the method
+is given a small set of known paradigms of the language (for each tag t). This should help us ﬁnd a
+reasonable initial value for θ. It can also be given a
+possibly larger set of incomplete known paradigms
+(section 7.2). In this appendix, we describe how this
+partial supervision is interpreted and how it affects
+inference.
+Each supervised paradigm, whether complete or
+
+incomplete, comes labeled with a lexeme such as
+b&rak. (Ordinarily these lexemes are distinct but that
+is not required.) This labeling will make it possible
+to inspect samples from the posterior and evaluate
+our system on how well it completed the incomplete
+paradigms of known lexemes (section 8.1), or used
+known lexemes to annotate word tokens.
+In our experiments, each incomplete paradigm
+speciﬁes only the spelling of the lemma inﬂection.
+This special inﬂection is assumed not to be generated
+in text (i.e., Ht (lemma) = 0). Our main reason for
+supplying these partial paradigms is to aid evaluation,
+but it does also provides some weak supervision. Additional supervision of this kind could be obtained
+through uninﬂected word lists, which are available
+for many languages.
+Another source of incomplete paradigms would
+be human informants. In an active learning setting,
+we might show humans some of the paradigms that
+we have reconstructed so far, and query them about
+forms to which we currently assign a high entropy or
+a high value-of-information.
+At any rate, we should condition our inference on
+any data that we are given. In the standard semisupervised setting, we would be given a partially
+annotated corpus (token data), and we would run the
+Gibbs sampler with the observed tags constrained to
+their observed values. However, the present setting is
+unusual because we have been given semi-supervised
+type data: a ﬁnite set of (partial) paradigms, which is
+some subset of the inﬁnite lexicon.
+To learn from this subset, we must augument our
+generative story to posit a speciﬁc process for how
+this subset was selected. Suppose the set has kt
+semi-supervised paradigms for tag t. We assume
+that their lexemes were sampled independently (with
+replacement) from the language’s distribution Gt .
+This assumption is fairly reasonable for the CELEX
+database that serves as our source of data. It implies
+that these lexemes tend to have reasonably high probability within the inﬁnite lexicon. Without some such
+assumption, the subset would provide no information,
+as footnote 14 explains.27
+27
+
+The generative story also ought to say how kt was chosen,
+and how it was determined which inﬂectional slots would be observed for each lexeme. However, we assume that these choices
+are independent of the variables that we are trying to recover,
+in which case they do not affect our inference. In particular,
+
+It is easy to modify the generative process of section 6 to account for these additional observed samples from Gt . Once we have generated all tokens in
+the corpus, our posterior estimate of the distribution
+Gt over lexemes is implicit in the state of the Chinese
+restaurant t. To sample kt additional lexemes from
+Gt , which will be used for the supervised data, we
+simply see where the next kt customers would sit.
+The exchangeability of the Chinese restaurant process means that these additional kt customers can
+be treated as the ﬁrst customers rather than the last
+ones. We call each of these special customers a
+host because it is at a table without actually taking any particular inﬂectional seat. It just stands
+by the table—reserving it, requiring its label to be
+a particular lexeme such as b&rak,28 and welcoming any future customer that is consistent with the
+complete or incomplete supervised paradigm at this
+table. In other words, just as an ordinary customer
+in a seat constrains a single spelling in the table’s
+paradigm, a host standing at the table constrains the
+table’s paradigm to be consistent with the complete
+or incomplete paradigm that was observed in semisupervised data.
+To modify our Gibbs sampler, we ensure that
+the state of a restaurant t includes a reserved table for each of the distinct lexemes (such as b&rak)
+in the semi-supervised data. Each reserved table
+has (at least) one host who stands there permanently,
+thus permanently constraining some strings in its
+paradigm. Crucially, the host is included when counting customers at the table. Notice that without the
+host, ordinary customers would have only an inﬁnitesimal chance of choosing this speciﬁc table (lexeme)
+from all of L, so we would be unlikely to complete
+this semi-supervised paradigm with corpus words.
+The M step is essentially unchanged from the version in Appendix D. Notice that θ will have to account for the partial paradigms at the reserved tables
+even if only hosts are there (see footnote 30). The
+hosts are counted in nt in Equation (D) when estimating αt . However, as they are not associated with any
+we assume that the inﬂectional slots are missing completely at
+random (MCAR), just as annotations are assumed to be MCAR
+in the standard semi-supervised setting.
+28
+Other tables created during Gibbs sampling will not have
+their label constrained in this way. In fact, their labels are collapsed out (Appendix A.5).
+
+inﬂectional seat, they have no effect on estimating αt
+or φ. In particular, within Equation (2), interpret nt,
+as s nt, ,s , which excludes hosts.
+
+D
+
+Optimizing the Grammar Parameters
+
+Our model has only a ﬁnite number of grammar parameters that deﬁne global properties of the language
+(section 6.1). We can therefore maximize their posterior probability
+log p(observations | parameters)+log p(parameters)
+(1)
+as deﬁned by section 6. This is a case of MAP estimation or empirical Bayes.
+The log probability (1) uses the marginal probability of the observations, which requires summing
+over the possible values of missing variables. But in
+the case of complete data (no missing variables), (1)
+takes a simple form: a sum of log probabilities for the
+different factors in our model. It still takes a simple
+product form even if the data are complete only with
+respect to the collapsed model of section 6.9, which
+does not include variables Gt and Ht, . This product
+uses the Chinese restaurant process.
+When the observations are incomplete, the Monte
+Carlo EM method can still be used to seek a local
+maximum by alternating between
+• E step: imputing more complete observations (w, s, , t) by sampling from the posterior
+p(s, , t | w, θ, . . .)
+• M step: optimizing θ to locally maximize the
+average log-probability (1) of these samples.
+
+Since the M step is working with complete samples,
+it is maximizing the log of a product. This decomposes into a set of separate supervised maximization
+problems, as follows.
+It is straightforward to train the tag sequence
+model τ from samples of T (section 6.5).
+For the collapsed model of lexeme sequences (section 6.9), we train the αt values. From the probability
+of obtaining the lexeme sequence given t under the
+Chinese restaurant process, it is easy to show that
+nt −1
+
+log p( | t, αt ) = rt log αt −
+29
+
+log(i+αt )+const29
+
+i=0
+
+The constant accounts for probability mass that does not
+depend on αt .
+
+where rt is the number of tables in restaurant t and
+nt is the number of customers in restaurant t. This
+quantity (and, if desired, its derivative with respect to
+αt ) may be easily found from t and ˆ for each of our
+samples. Maximizing its average over our samples is
+a simple one-dimensional optimization problem.
+For the collapsed model of inﬂection sequences
+(section 6.9), we similarly train αt for each t, and
+also φ. We see from the Chinese restaurant process
+in section 6.9 that
+log p(s | ˆ, t, φ, αt )
+
+
+nt,
+
+=
+
+
+
+s∈St
+
+−
+
+,s −1
+
+log(i + αt Ht (s))
+
+i=0
+
+nt, −1
+i=0
+
+
+
+log(i + αt ) + const (2)
+
+where ranges over the rt tables in restaurant t,
+and nt, is the number of customers at table , of
+which nt, ,s are in seat s. The summation over s
+may be restricted to s such that nt, ,s > 0. Recall
+that Ht is the base distribution over seats: Ht (s) ∝
+exp(φ · f (s)). For a given value of φ and hence Ht ,
+we can easily compute quantity (2) and its gradient
+with respect to αt . Its gradient with respect to φ is
+αt s∈St (cs − cHt (s))f (s), for c = s ∈St cs and
+nt,
+
+cs = Ht (s)
+
+,s −1
+
+i=0
+
+1
+i + αt Ht (s)
+
+Finally, we estimate the parameters θ of our prior
+distribution Dt over paradigms of the language (section 6.2), to maximize the total log-probability of the
+partially observed paradigms at the tables in restaurant t (averaged over samples). This can be done with
+belief propagation, as explained by Dreyer and Eisner
+(2009). Crucially, each table represents a single partially observed sample of Dt , regardless of how many
+customers chose to sit there.30 The training formulas
+consider our posterior distributions over the spellings
+30
+
+In other words, θ generates types, not tokens. Each of the
+uncountably many lexemes prefers to generate a paradigm that is
+likely under θ (section 6.2), so the observation of any lexeme’s
+paradigm provides information about θ. The fact that some
+tables have higher probability is irrelevant, since (at least in our
+model) a lexeme’s probability is uncorrelated with its paradigm.
+
+at the empty seats. In general, however, a table with
+many empty seats will have less inﬂuence on θ, and a
+completely empty table contributes 0 to our total-logprobability objective. This is because the probability
+of a partially observed paradigm marginalizes over
+its unseen spellings.
+
+E
+E.1
+
+More Detailed Experimental Results
+Statistics About the Inference Process
+
+Here we brieﬂy list some statistics that give a feel for
+what is going on during inference. We have 5,415
+reserved tables corresponding to the test paradigms
+(see Appendix C), as well as inﬁnitely many additional tables for lexemes that may have appeared in
+the corpus but did not appear in test data.
+We consider a single sample from inference over
+10 million words, and a single sample from inference
+over 1 million words. The average reserved table had
+88 customers in the former case and 11 customers in
+the latter. Many reserved tables remained completely
+empty (except for the host lemma)—1,516 tables and
+2,978 tables respectively. Furthermore, most inﬂectional seats remained empty—respectively 96,758
+seats and 107,040 seats, among the 113,715 total
+seats at the reserved tables (21 per table).
+E.2
+
+Results by Inﬂection
+
+Tables 5 and 6 are additions to Table 2. They respectively report whole-word accuracy and edit distance,
+split by the different forms that were to be predicted.
+There is an important remark to make about the inventory of forms. Notice that in cases of syncretism,
+where two forms are always identical in German
+(e.g., the 1st- and 3rd-person plural indicative past),
+CELEX uses only a single paradigm slot (e.g., 13PIA)
+for this shared form. This convention provides additional linguistic knowledge. It means that our θ
+model does not have to learn that these forms are
+syncretic: when one form is irregular, then the other
+is forced to be irregular in exactly the same way.
+Without this convention, our results would have
+suffered more from the simpliﬁed star-shaped graphical model given at the end of section 2.2. That model
+assumes that forms are conditionally independent
+given the lemma. So among other things, it cannot capture the fact that if a particular verb lemma
+has a surprising 1PIA form, then its 3PIA form will
+
+Form
+13PIA
+13PIE
+13PKA
+13PKE
+13SIA
+13SKA
+13SKE
+1SIE
+2PIA
+2PIE
+2PKA
+2PKE
+2SIA
+2SIE
+2SKA
+2SKE
+3SIE
+pA
+pE
+rP
+rS
+
+all
+
+50 seed paradigms
+0
+106
+107
+74.8
+78.3
+81.5
+100.0
+99.9
+99.8
+74.7
+77.8
+82.0
+99.9
+99.9
+99.7
+84.2
+84.8
+84.6
+83.5
+87.7
+88.0
+99.8
+98.11 98.7
+99.6
+99.3
+98.2
+84.0
+81.8
+82.0
+98.1
+99.2
+99.2
+83.0
+79.6
+77.2
+99.9
+99.9
+99.8
+83.8
+83.3
+82.5
+91.1
+91.6
+91.9
+82.2
+82.4
+82.7
+99.9
+99.9
+99.9
+93.9
+95.8
+95.9
+59.8
+67.8
+70.8
+99.4
+99.4
+99.4
+97.8
+98.6
+98.3
+98.7
+98.4
+97.9
+89.9
+90.6
+90.9
+
+100 seed paradigms
+0
+106
+107
+81.4
+82.0 84.7
+100.0 99.9 99.8
+81.2
+81.6 83.6
+99.9
+99.8 99.7
+85.8
+85.7 83.5
+86.2
+87.5 88.2
+99.7
+99.7 99.4
+99.5
+99.5 98.6
+85.9
+84.9 85.3
+98.1
+99.3 99.3
+85.2
+85.4 84.4
+99.9
+99.9 99.9
+85.8
+86.0 86.0
+94.2
+94.5 94.6
+85.0
+85.3 85.1
+99.9
+99.9 99.9
+94.4
+95.8 95.9
+63.4
+69.1 70.8
+99.4
+99.4 99.4
+98.1
+99.1 99.1
+98.7
+99.0 98.9
+91.5
+92.0 92.2
+
+Table 5: Whole-word accuracy on recovering various inﬂections. Abbreviations are from CELEX (Baayen et
+al., 1995); for example, 13PIA means 1st or 3rd Plural
+Indicative pAst. The numbers 0, 106 and 107 denote the
+size of the corpus used. We boldface the best result from
+each 3-way comparison, as well as those that are not signiﬁcantly worse (paired permutation test, p < 0.05).
+
+be surprising in exactly the same way. Capturing
+syncretism and other correlations among inﬂected
+forms would require a more sophisticated MRF topology as studied by (Dreyer and Eisner, 2009; Dreyer,
+2011). Syncretism in particular is pervasive in morphology. For example, an English verb’s past-tense
+forms are all identical, even for irregulars (except for
+was/were); and the fact that English does not make
+certain morphological distinctions at all (e.g., gender)
+could be regarded as massive syncretism of English
+on some universal grid for inﬂectional paradigms.
+E.3
+
+Error Analysis
+
+In section 8.2, we saw that adding a corpus helps, but
+the model still makes some prediction errors, even for
+some regular verbs, which occur often in the corpus.
+To explain this, we look at some of these errors.
+Table 7 shows some typical errors that are made
+in the zero-corpus model and corrected by using a
+corpus. The listed errors are on novel words. Most er-
+
+Form
+13PIA
+13PIE
+13PKA
+13PKE
+13SIA
+13SKA
+13SKE
+1SIE
+2PIA
+2PIE
+2PKA
+2PKE
+2SIA
+2SIE
+2SKA
+2SKE
+3SIE
+pA
+pE
+rP
+rS
+
+all
+
+50 seed paradigms
+0
+106
+107
+0.42 0.36 0.32
+0.00 0.00 0.00
+0.43 0.37 0.32
+0.00 0.00 0.00
+0.43 0.41 0.39
+0.34 0.28 0.27
+0.00 0.01 0.01
+0.01 0.01 0.02
+0.39 0.42 0.44
+0.02 0.00 0.00
+0.33 0.38 0.43
+0.00 0.00 0.00
+0.39 0.39 0.42
+0.10 0.09 0.09
+0.34 0.34 0.34
+0.00 0.00 0.00
+0.07 0.05 0.05
+0.91 0.74 0.68
+0.01 0.00 0.00
+0.02 0.01 0.01
+0.02 0.02 0.03
+0.20 0.19 0.18
+
+100 seed paradigms
+0
+106
+107
+0.34 0.32 0.29
+0.00 0.00 0.00
+0.35 0.34 0.31
+0.00 0.00 0.00
+0.40 0.39 0.40
+0.30 0.27 0.27
+0.00 0.00 0.00
+0.01 0.00 0.01
+0.36 0.38 0.37
+0.02 0.00 0.00
+0.31 0.30 0.34
+0.00 0.00 0.00
+0.36 0.36 0.37
+0.07 0.06 0.06
+0.31 0.30 0.31
+0.00 0.00 0.00
+0.07 0.05 0.05
+0.84 0.71 0.69
+0.01 0.00 0.00
+0.02 0.00 0.00
+0.02 0.01 0.01
+0.18 0.17 0.17
+
+Table 6: Average edit distance of the predicted morphological forms to the truth. The format is the same as in
+Table 5.
+
+rors are due to an incorrect application of an irregular
+rule that was learned from the seed paradigms. The
+models trained on a corpus learn not to apply these
+rules in many cases. The seed paradigms are not
+very representative since they are drawn uniformly
+at random from all types in CELEX.31 But from a
+corpus the model can learn that some phenomena are
+more frequent than others.
+The converse pattern also exists. Even though
+adding a corpus to to the seed paradigms results in a
+higher prediction accuracy overall, it can introduce
+some errors, as shown in Table 8. Here, often a form
+that is found in the corpus is used instead of the
+correct one.
+For example, the past participle form of bitzeln was
+predicted to be besselt. The correct form would be
+gebitzelt, but that does not occur in the corpus, while
+besselt does occur. The pair (bitzeln, besselt) is also
+morphologically somewhat plausible considering the
+correct pair (sitzen, gesessen) in German.32 Simi31
+
+In the future, we might want to experiment with more representative seed paradigms.
+32
+In both pairs, we have the changes i→ e and tz→ ss.
+
+Form
+aalen, 2PIA
+ﬂügeln, pA
+welken, pA
+prüfen, 2SIA
+
+Error (no corpus)
+aieltest
+ﬂügelt
+gewolken
+prüfst
+
+Correct
+aaltest
+geﬂügelt
+gewelkt
+prüftest
+
+Explanation
+ie as in (halten, hieltest)
+no ge- as in (erinnern, erinnert)
+wrong analogy to (melken, gemolken)
+no -te- as in (rufen, riefst)
+
+Table 7: Novel words and typical errors that a no-corpus model makes. These errors are corrected in the model that has
+learned from a corpus. Most errors come from an incorrect application of some irregular rule picked up from the seed
+paradigms (see the Explanation column).
+
+Form
+bitzeln, pA
+ringeln, 13SIE
+silieren, 13PIA
+bearbeiten, 2SIA
+
+Error (corpus)
+besselt
+riegle
+salierten
+bearbeitest
+
+Correct
+gebitzelt
+ring(e)le
+silierten
+bearbeitetest
+
+Explanation
+wrong analogy (see text)
+unclear; incorrect rule
+salierten is observed
+bearbeitest is frequent
+
+Table 8: Novel words and typical errors that a corpus model makes. These errors are not made by the no-corpus baseline
+model. Often, a spelling that can be found in the corpus was preferred instead of the correct spelling.
+
+larly, salierten was predicted as a past-tense form of
+silieren. The correct form silierten does not occur in
+the corpus, while salierten does. Salierten is somewhat plausible due to the common i→ a change, as
+in (bitten, baten), so the morphological grammar did
+not give a very strong signal to prevent salierten from
+being (mis-)placed in the silieren paradigm.
+Overall, the errors in Table 8 help explain why the
+edit distance results in Table 2 improve by only small
+fractions while the corresponding whole-word accuracy improvements are greater: The corpus models
+make fewer errors, but the errors they do make can be
+more severe. In some cases, the corpus component
+may force a corpus token into a paradigm slot where
+the ﬁnite-state parameters otherwise would have generated a spelling that is closer to the truth. On the
+other hand, we have seen that the corpus is often helpful in providing evidence on how highly to weight
+certain irregular constructions in the morphological
+grammar.
+
+F
+
+Evaluation Details
+
+In this section we explain how the token-based evaluation of section 8.2 was conducted. For each (lexeme,
+inﬂection) pair ( , s), we needed to estimate the frequency of ( , s) in our 10-million-word corpus to
+determine which bin it fell into. Since our corpus
+tokens were not morphologically tagged with ( , s)
+analyses, we guessed the correct tags with the help
+
+of additional supervised type data.33
+Let w denote the 10-million-word corpus. For each
+word wi , we wish to guess ( i , si ). We exploited all
+of the 5,615 CELEX paradigms, many more than we
+used when training. For 99.5% of the spellings in
+these paradigms, the paradigm is uniquely determined. Therefore, we simpliﬁed by only learning a
+model to get the distribution over the slot s.
+Each verb position in the corpus has a spelling wi
+that is consistent with a typically small number of
+different inﬂections, Si , as observed in the CELEX
+paradigms. For many of the spellings (37.9%), s is
+uniquely determined, |Si | = 1. On average |Si | =
+2.0.
+We picked a simple model, since the task is almost
+entirely supervised and we do not need to predict the
+exact tags, only an estimate of how often each tag
+occurs.
+Deﬁne a log-linear distribution over the slots,
+pλ (s) ∝ exp(λ · g(s)), where the features extracted
+by g are the obvious properties of the different inﬂections and combinations thereof, e.g., (3rd-person);
+(singular); (3rd-person singular); etc. The full in33
+
+As described above, the morphological paradigms that we
+predict are taken from the CELEX morphological database.
+These forms in those paradigms do have frequency counts attached, but they are not useful for our purposes since they are
+just spelling frequencies. If various morphological forms have
+the same spelling they all get the same count.
+
+ﬂection form (e.g., 3rd-person singular indicative) is
+always a feature as well.
+We assumed that the correct slot sequence {si }
+was generated from this unigram model. The corpus
+{wi } together with CELEX gives us partial information about this correct slot sequence, namely that
+each si ∈ Si . We therefore ﬁt the parameters λ by
+maximizing the regularized log-likelihood of these
+partial observations:
+argmax
+λ
+
+log
+i
+
+si ∈Si
+
+pλ (si ) −
+
+1
+||λ||2
+2σ 2
+
+We arbitrarily ﬁxed σ 2 = 10 and ran 100 iterations
+of stochastic gradient descent.34 This can be implemented in less than 50 lines of Perl code.
+After training λ, we computed for each i the posterior distribution over the possible inﬂections, namely
+p(si = s | si ∈ Si ) ∝ pλ (s) for s ∈ Si , and otherwise is 0. We used these posteriors together with
+i to estimate the expected counts of each ( , s) in
+the corpus. For the very few words whose possible
+morphological analyses allow more than one lexeme,
+we assumed a uniform posterior over i .
+
+G
+
+Future Work: Considering Context
+
+We believe our basic model (see section 6) is a solid
+starting point for a principled generative account of
+inﬂectional (and derivational) morphology. This appendix sketches one important direction for future
+work.
+Context is important for morphological disambiguation (Smith et al., 2005). It is particularly
+important for unsupervised learning of morphology,
+since there may be several types of external (“syntagmatic”) as well as internal (“paradigmatic”) clues
+to the correct analysis of a word, and these can
+effectively bootstrap one another during learning
+(Yarowsky and Wicentowski, 2000).
+In particular, inﬂections can be predicted to some
+extent from surrounding inﬂections, lexemes, and
+tags. In English, for example, verbs tend to agree
+with their preceding nouns. We see that broken is a
+past participle because like other past participles, it
+is often preceded by the lexeme hav (or simply by
+the particular word has, a surface pattern that might
+34
+
+We also tried σ 2 = 5 and found it did not signiﬁcantly affect
+the outcome.
+
+be easier to detect in earlier stages of learning). Immediate context is also helpful in predicting lexemes;
+for example, certain verb lexemes are associated with
+particular prepositions.
+Lexemes are also inﬂuenced by wide context.
+singed is not a plausible past tense for sing, because it is associated with the same topics as singe,
+not sing (Yarowsky and Wicentowski, 2000).
+How can we model context? It is easy enough to
+modulate the probability of the sampler state using
+a ﬁnite number of new contextual features whose
+weights can be learned. These features might consider inﬂections, tags, and common words. For example, we might learn to lower the probability of
+sampler states where a verb does not agree in number
+with the immediately preceding noun. This is simply a matter of multiplying some additional factors
+into our model (section 6) and renormalizing. This
+yields a Markov random ﬁeld (MRF), some of whose
+factors happen to be distributions over lexemes. The
+sampler is essentially unchanged, although training
+in a globally normalized model is more difﬁcult; we
+expect to use contrastive divergence for training (Hinton, 2002).
+It is more difﬁcult to incorporate lexeme-speciﬁc
+features. These would lead to inﬁnitely many feature weights in our non-parametric model, leading to
+overﬁtting problems that cannot be solved by regularization. Such feature weights must be integrated
+out. Three basic techniques seem to be available.
+We can use richer nonparametric processes that still
+allow collapsed sampling—e.g., we can use a Hierarchical Dirichlet Process (Teh et al., 2006) to make
+lexeme probabilities depend on a latent topic, or a
+Distance-Dependent CRP (Blei and Frazier, 2010)
+to make lexeme probabilities depend on an arbitrary
+notion of context. We can multiply together several
+simple nonparametric processes, thus generating the
+lexemes by a product of experts. As a last resort,
+we can always do uncollapsed sampling, which integrates over arbitrary lexeme-speciﬁc parameters by
+including their values explicitly in the state of our
+MCMC sampler. The sampler state only needs to
+represent the parameters for its ﬁnitely many nonempty tables, but reversible-jump MCMC techniques
+(Green, 1995) must be used to correctly evaluate the
+probability of moves that create or destroy tables.
+
+

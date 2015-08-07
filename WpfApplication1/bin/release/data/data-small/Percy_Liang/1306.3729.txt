@@ -1,0 +1,2898 @@
+Spectral Experts for Estimating Mixtures of Linear Regressions
+
+Arun Tejasvi Chaganty
+Percy Liang
+Stanford University, Stanford, CA 94305 USA
+
+arXiv:1306.3729v1 [cs.LG] 17 Jun 2013
+
+Abstract
+Discriminative latent-variable models are
+typically learned using EM or gradient-based
+optimization, which suﬀer from local optima.
+In this paper, we develop a new computationally eﬃcient and provably consistent estimator for a mixture of linear regressions,
+a simple instance of a discriminative latentvariable model. Our approach relies on a lowrank linear regression to recover a symmetric
+tensor, which can be factorized into the parameters using a tensor power method. We
+prove rates of convergence for our estimator
+and provide an empirical evaluation illustrating its strengths relative to local optimization
+(EM).
+Last Modiﬁed: June 18, 2013
+
+1. Introduction
+Discriminative latent-variable models, which combine
+the high accuracy of discriminative models with the
+compact expressiveness of latent-variable models, have
+been widely applied to many tasks, including object recognition (Quattoni et al., 2004), human action recognition (Wang & Mori, 2009), syntactic parsing (Petrov & Klein, 2008), and machine translation
+(Liang et al., 2006). However, parameter estimation in
+these models is diﬃcult; past approaches rely on local
+optimization (EM, gradient descent) and are vulnerable to local optima.
+Our broad goal is to develop eﬃcient provably consistent estimators for discriminative latent-variable models. In this paper, we provide a ﬁrst step in this direction by proposing a new algorithm for a simple model,
+a mixture of linear regressions (Viele & Tong, 2002).
+Recently, method of moments estimators have been
+Proceedings of the 30 th International Conference on Machine Learning, Atlanta, Georgia, USA, 2013. JMLR:
+W&CP volume 28. Copyright 2013 by the author(s).
+
+chaganty@cs.stanford.edu
+pliang@cs.stanford.edu
+
+developed for generative latent-variable models, including mixture models, HMMs (Anandkumar et al.,
+2012b), Latent Dirichlet Allocation (Anandkumar
+et al., 2012a), and parsing models (Hsu et al., 2012).
+The basic idea of these methods is to express the unknown model parameters as a tensor factorization of
+the third-order moments of the model distribution, a
+quantity which can be estimated from data. The moments have a special symmetric structure which permits the factorization to be computed eﬃciently using
+the robust tensor power method (Anandkumar et al.,
+2012c).
+In a mixture of linear regressions, using third-order
+moments does not directly reveal the tensor structure
+of the problem, so we cannot simply apply the above
+tensor factorization techniques. Our approach is to
+employ low-rank linear regression (Negahban & Wainwright, 2009; Tomioka et al., 2011) to predict the second and third powers of the response. The solution
+to these regression problems provide the appropriate
+symmetric tensors, on which we can then apply the
+tensor power method to retrieve the ﬁnal parameters.
+The result is a simple and eﬃcient two-stage algorithm, which we call Spectral Experts. We prove that
+our algorithm yields consistent parameter estimates
+under certain identiﬁability conditions. We also conduct an empirical evaluation of our technique to understand its statistical properties (Section 5). While
+Spectral Experts generally does not outperform EM,
+presumably due to its weaker statistical eﬃciency, it
+serves as an eﬀective initialization for EM, signiﬁcantly
+outperforming EM with random initialization.
+1.1. Notation
+Let [n] = {1, . . . , n} denote the ﬁrst n positive integers.
+We use O(f (n)) to denote a function g(n) such that
+limn→∞ g(n)/f (n) < ∞.
+We use x⊗p to represent the p-th order tensor formed
+by taking the tensor product of x ∈ Rd ; i.e. x⊗p p =
+i1 ...i
+xi1 · · · xip . We will use ·, · to denote the gener-
+
+Spectral Experts
+
+alized dot product between two p-th order tensors:
+X, Y = i1 ,...ip Xi1 ,...ip Yi1 ,...ip . A tensor X is symmetric if for all i, j ∈ [d]p which are permutations
+of each other, Xi1 ···ip = Xj1 ···jp (all tensors in this
+paper will be symmetric). For a p-th order tensor
+X ∈ (Rd )⊗p , the mode-i unfolding of X is a matrix
+p−1
+X(i) ∈ Rd×d , whose j-th row contains all the elements of X whose i-th index is equal to j.
+
+The parameters of the model are θ = (π, B), where
+π ∈ Rd are the mixture proportions and B = [β1 |
+· · · | βk ] ∈ Rd×k are the regression coeﬃcients. Note
+that the choice of mixture component h and the
+observation noise are independent. The learning
+problem is stated as follows: given n i.i.d. samples
+(x(1) , y (1) ), . . . , (x(n) , y (n) ) drawn from the model with
+some unknown parameters θ∗ , return an estimate of
+ˆ
+the parameters θ.
+
+For a vector X, let X op denote the 2-norm. For a
+matrix X, let X ∗ denote the nuclear (trace) norm
+(sum of singular values), X F denote the Frobenius
+norm (square root of sum of squares of singular values), X max denote the max norm (elementwise maximum), X op denote the operator norm (largest singular value), and σk (X) be the k-th largest singular
+value of X. For a p-th order tensor X, let X ∗ =
+p
+1
+i=1 X(i) ∗ denote the average nuclear norm over
+p
+p
+1
+all p unfoldings, and let X op = p i=1 X(i) op denote the average operator norm over all p unfoldings.
+
+The mixture of linear regressions model has been applied in the statistics literature for modelling music
+perception, where x is the actual tone and y is the
+tone perceived by a musician (Viele & Tong, 2002).
+The model is an instance of the hierarchical mixture
+of experts (Jacobs et al., 1991), in which the mixture
+proportions are allowed to depend on x, known as a
+gating function. This dependence allow the experts to
+be localized in input space, providing more ﬂexibility,
+but we do not consider this dependence in our model.
+
+Let vec(X) be the vectorization of a p-th order
+tensor. For example, if X ∈ (R2 )⊗3 , vec(X) =
+(X111 , X112 , · · · , X222 ). For a tensor X ∈ (Rd )⊗p ,
+let cvec(X) ∈ RN (d,p) , N (d, p) = d+p−1 be the colp
+lapsed vectorization of X. For example, if X ∈ Rd×d ,
+X +X
+cvec(X) = (Xii : i ∈ [d]; ij√2 ji : i, j ∈ [d], i <
+j). In general, each component of cvec(X) is indexed by a vector of counts (c1 , . . . , cd ) with total
+sum
+The value of that component is
+i ci = p.
+√ 1
+Xk1 ···kp , where K(c) = {k ∈ [d]p :
+k∈K(c)
+
+The estimation problem for a mixture of linear regressions is diﬃcult because the mixture components h
+are unobserved, resulting in a non-convex log marginal
+likelihood. The parameters are typically learned using expectation maximization (EM) or Gibbs sampling
+(Viele & Tong, 2002), which suﬀers from local optima.
+In the next section, we present a new algorithm that
+sidesteps the local optima problem entirely.
+
+3. Spectral Experts algorithm
+
+|K(c)|
+
+∀i ∈ [d], ci = |{j ∈ [p] : kj = i}|} are the set of
+index vectors k whose count proﬁle is c. We note
+that for a symmetric tensor X and any tensor Y ,
+X, Y = cvec(X), cvec(Y ) ; this property is not true
+in general though. Later, we’ll see that vectorization
+allow us to perform regression on tensors, and collapsing simpliﬁes our identiﬁability condition.
+
+2. Model
+The mixture of linear regressions model (Viele & Tong,
+2002) deﬁnes a conditional distribution over a response
+y ∈ R given covariates x ∈ Rd . Let k be the number
+of mixture components. The generation of y given x
+involves three steps: (i) draw a mixture component h ∈
+[k] according to mixture proportions π = (π1 , . . . , πk );
+(ii) draw observation noise from a known zero-mean
+noise distribution E, and (iii) set y deterministically
+based on h and . More compactly:
+h ∼ Multinomial(π),
+∼
+y
+
+E,
+
+T
+= βh x + .
+
+(1)
+(2)
+(3)
+
+In this section, we describe our Spectral Experts algorithm for estimating model parameters θ = (π, B).
+The algorithm consists of two steps: (i) low-rank regression to estimate certain symmetric tensors; and (ii)
+tensor factorization to recover the parameters. The
+two steps can be performed eﬃciently using convex
+optimization and tensor power method, respectively.
+To warm up, let us consider linear regression on the response y given x. From the model deﬁnition, we have
+y = βh x + . The challenge is that the regression coefﬁcients βh depend on the random h. The ﬁrst key step
+is to average over this randomness by deﬁning average
+def
+k
+regression coeﬃcients M1 = h=1 πh βh . Now we can
+express y as a linear function of x with non-random
+coeﬃcients M1 plus a noise term η1 (x):
+y = M 1 , x + ( βh − M 1 , x + ) .
+
+(4)
+
+def
+
+= η1 (x)
+
+The noise η1 (x) is the sum of two terms: (i) the mixing
+noise M1 −βh , x due to the random choice of the mixture component h, and (ii) the observation noise ∼ E.
+Although the noise depends on x, it still has zero mean
+
+Spectral Experts
+
+conditioned on x. We will later show that we can perform linear regression on the data {x(i) , y (i) }n to proi=1
+duce a consistent estimate of M1 . But clearly, knowing
+M1 is insuﬃcient for identifying all the parameters θ,
+as M1 only contains d degrees of freedom whereas θ
+contains O(kd).
+Intuitively, performing regression on y given x provides
+only ﬁrst-order information. The second key insight is
+that we can perform regression on higher-order powers to obtain more information about the parameters.
+Speciﬁcally, for an integer p ≥ 1, let us deﬁne the
+average p-th order tensor power of the parameters as
+follows:
+
+Algorithm 1 Spectral Experts
+input Datasets Dp = {(x(1) , y (1) ), · · · , (x(n) , y (n) )}
+(2)
+(3)
+for p = 1, 2, 3; regularization strengths λn , λn ;
+2
+3
+observation noise moments E[ ], E[ ].
+ˆ
+ˆ
+output Parameters θ = (ˆ , [β1 | · · · | βk ]).
+π ˆ
+1: Estimate compound parameters M2 , M3 using
+low-rank regression:
+ˆ
+M1 = arg min
+1
+2n
+
+( M1 , x − y)2 ,
+(x,y)∈D1
+
+ˆ
+M2 = arg min
+M2
+
+k
+def
+
+⊗p
+πh βh .
+
+Mp =
+
+(5)
+
+h=1
+
+Now consider performing regression on y 2 given x⊗2 .
+Expanding y 2 = ( βh , x + )2 , using the fact that
+⊗p
+βh , x p = βh , x⊗p , we have:
+
+(8)
+
+M1
+
+1
+2n
+
+∗+
+
+(9)
+
+( M2 , x⊗2 + E[ 2 ] − y 2 )2 ,
+(x,y)∈D2
+
+ˆ
+M3 = arg min
+M3
+
+1
+2n
+
+λ(2) M2
+n
+
+λ(3) M3
+n
+
+∗+
+
+(10)
+
+ˆ
+( M3 , x⊗3 + 3 E[ 2 ] M1 , x + E[ 3 ] − y 3 )2 .
+
+(x,y)∈D3
+
+y 2 = M2 , x⊗2 + E[ 2 ] + η2 (x),
+⊗2
+η2 (x) = βh − M2 , x⊗2 + 2 βh , x + (
+
+(6)
+2
+
+− E[ 2 ]).
+
+2
+
+Again, we have expressed y has a linear function of
+x⊗2 with regression coeﬃcients M2 , plus a known bias
+E[ 2 ] and noise.1 Importantly, the noise has mean zero;
+in fact each of the three terms has zero mean by deﬁnition of M2 and independence of and h.
+Performing regression yields a consistent estimate of
+M2 , but still does not identify all the parameters θ.
+In particular, B is only identiﬁed up to rotation: if
+B = [β1 | · · · | βk ] satisﬁes B diag(π)B = M2 and π
+is uniform, then (BQ) diag(π)(Q B ) = M2 for any
+orthogonal matrix Q.
+Let us now look to the third moment for additional
+information. We can write y 3 as a linear function of
+ˆ
+x⊗3 with coeﬃcients M3 , a known bias 3 E[ 2 ] M1 , x +
+3
+E[ ] and some noise η3 (x):
+ˆ
+y 3 = M3 , x⊗3 + 3 E[ 2 ] M1 , x + E[ 3 ] + η3 (x),
+η3 (x) =
+
+⊗3
+βh
+
++ 3(
+
+⊗3
+
+− M3 , x
+2
+
++3
+
+⊗2
+βh , x⊗2
+
+ˆ
+βh , x − E[ 2 ] M1 , x ) + (
+
+(7)
+3
+
+− E[ 3 ]).
+
+The only wrinkle here is that η3 (x) does not quite have
+ˆ
+zero mean. It would if M1 were replaced with M1 ,
+ˆ
+but M1 is not available to us. Nonetheless, as M1
+concentrates around M1 , the noise bias will go to zero.
+1
+If E[ 2 ] were not known, we could treat it as another
+coeﬃcient to be estimated. The coeﬃcients M2 and E[ 2 ]
+can be estimated jointly provided that x does not already
+contain a bias (xj must be non-constant for every j ∈ [d]).
+
+2: Estimate parameters θ = (π, B) using tensor fac-
+
+torization:
+ˆ
+(a) Compute whitening matrix W ∈ Rd×k (such
+ˆ ˆ
+ˆ M2 W = I) using SVD.
+that W
+(b) Compute eigenvalues {ˆh }k
+a h=1 and eigenvectors {ˆh }k
+v h=1 of the whitened tensor
+ˆ ˆ ˆ ˆ
+M3 (W , W , W ) ∈ Rk×k×k by using the robust
+tensor power method.
+(c) Return parameter estimates πh = a−2 and
+ˆ
+ˆh
+ˆ
+ˆ
+βh = (W )† (ˆh vh ).
+a ˆ
+
+Performing this regression yields an estimate of M3 .
+We will see shortly that knowledge of M2 and M3 are
+suﬃcient to recover all the parameters.
+Now we are ready to state our full algorithm, which we
+call Spectral Experts (Algorithm 1). First, we perform
+three regressions to recover the compound parameters
+M1 (4), M2 (6), and M3 (7). Since M2 and M3 both
+only have rank k, we can use nuclear norm regularization (Tomioka et al., 2011; Negahban & Wainwright,
+2009) to exploit this low-rank structure and improve
+our compound parameter estimates. In the algorithm,
+(2)
+(3)
+c
+the regularization strengths λn and λn are set to √n
+for some constant c.
+Having estimated the compound parameters M1 , M2
+and M3 , it remains to recover the original parame-
+
+Spectral Experts
+
+ters θ. Anandkumar et al. (2012c) showed that for
+M2 and M3 of the forms in (5), it is possible to efﬁciently accomplish this. Speciﬁcally, we ﬁrst compute a whitening matrix W based on the SVD of M2
+and use that to construct a tensor T = M3 (W, W, W )
+whose factors are orthogonal. We can use the robust
+tensor power method to compute all the eigenvalues
+and eigenvectors of T , from which it is easy to recover
+the parameters π and {βh }.
+
+Related work In recent years, there has a been a
+surge of interest in “spectral” methods for learning
+latent-variable models. One line of work has focused
+on observable operator models (Hsu et al., 2009; Song
+et al., 2010; Parikh et al., 2012; Cohen et al., 2012;
+Balle et al., 2011; Balle & Mohri, 2012) in which a
+re-parametrization of the true parameters are recovered, which suﬃces for prediction and density estimation. Another line of work is based on the method
+of moments and uses eigendecomposition of a certain
+tensor to recover the parameters (Anandkumar et al.,
+2012b;a; Hsu et al., 2012; Hsu & Kakade, 2013). Our
+work extends this second line of work to models that
+require regression to obtain the desired tensor.
+In spirit, Spectral Experts bears some resemblance to
+the unmixing algorithm for estimation of restricted
+PCFGs (Hsu et al., 2012). In that work, the observations (moments) provided a linear combination over
+the compound parameters. “Unmixing” involves solving for the compound parameters by inverting a mixing
+matrix. In this work, each data point (appropriately
+transformed) provides a diﬀerent noisy projection of
+the compound parameters.
+Other work has focused on learning discriminative
+models, notably Balle et al. (2011) for ﬁnite state
+transducers (functions from strings to strings), and
+Balle & Mohri (2012) for weighted ﬁnite state automata (functions from strings to real numbers). Similar to Spectral Experts, Balle & Mohri (2012) used
+a two-step approach, where convex optimization is
+ﬁrst used to estimate moments (the Hankel matrix in
+their case), after which these moments are subjected
+to spectral decomposition. However, these methods
+are developed in the observable operator framework,
+whereas we consider parameter estimation.
+The idea of performing low-rank regression on y 2 has
+been explored in the context of signal recovery from
+magnitude measurements (Candes et al., 2011; Ohlsson et al., 2012). There, the actual observed response
+was y 2 , whereas in our case, we deliberately construct
+powers y, y 2 , y 3 to identify the underlying parameters.
+
+4. Theoretical results
+In this section, we provide theoretical guarantees for
+the Spectral Experts algorithm. Our main result
+ˆ
+shows that the parameter estimates θ converge to θ at
+1
+√ rate that depends polynomially on the bounds on
+a n
+the parameters, covariates, and noise, as well the k-th
+smallest singular values of the compound parameters
+and various covariance matrices.
+Theorem 1 (Convergence of Spectral Experts). Assume each dataset Dp (for p = 1, 2, 3) consists of n
+i.i.d. points independently drawn from a mixture of linear regressions model with parameter θ∗ .2 Further, as∗
+sume x 2 ≤ R, βh 2 ≤ L for all h ∈ [k], | | ≤ S and
+def
+
+B is rank k. Let Σp = E[cvec(x⊗p )⊗2 ], and assume
+1
+Σp 0 for each p ∈ {1, 2, 3}. Let < 2 . Suppose the
+number of samples is n = max(n1 , n2 ) where
+n1 = Ω
+
+R12 log(1/δ)
+minp∈[3] σmin (Σp )2
+1/2
+
+n2 = Ω
+
+−2
+
+2
+k 2 πmax M2 op M3 2 L6 S 6 R12
+op
+log(1/δ) .
+σk (M2 )5 σmin (Σ1 )2
+(p)
+
+If each regularization strength λn is set to
+Θ
+
+Lp S p R2p
+σmin (Σ1 )2
+
+log(1/δ)
+n
+
+,
+
+ˆ
+for p ∈ 2, 3, then the parameter estimates θ = (ˆ , B)
+π ˆ
+returned by Algorithm 1 (with the columns appropriately permuted) satisﬁes
+π−π
+ˆ
+
+∞
+
+≤
+
+ˆ
+βh − βh
+
+2
+
+≤
+
+for all h ∈ [k].
+While the dependence on some of the norms
+(L6 , S 6 , R12 ) looks formidable, it is in some sense
+unavoidable, since we need to perform regression on
+third-order moments. Classically, the number of samples required is squared norm of the covariance matrix,
+which itself is bounded by the squared norm of the
+data, R3 . This third-order dependence also shows up
+in the regularization strengths; the cubic terms bound
+3
+each of 3 , βh and (x⊗3 )⊗2 F with high probability.
+The proof of the theorem has two parts. First, we
+bound the error in the compound parameters estimates
+ˆ ˆ
+M2 , M3 using results from Tomioka et al. (2011). Then
+we use results from Anandkumar et al. (2012c) to convert this error into a bound on the actual parameter
+ˆ
+estimates θ = (ˆ , B) derived from the robust tensor
+π ˆ
+power method. But ﬁrst, let us study a more basic
+property: identiﬁability.
+2
+
+sis.
+
+Having three independent copies simpliﬁes the analy-
+
+Spectral Experts
+
+4.1. Identiﬁability from moments
+In ordinary linear regression, the regression coeﬃcients
+β ∈ Rd are identiﬁable if and only if the data has
+full rank: E[x⊗2 ] 0, and furthermore, identifying β
+requires only moments E[xy] and E[x⊗2 ] (by observing
+the optimality conditions for (4)). However, in mixture
+of linear regressions, these two moments only allow
+us to recover M1 . Theorem 1 shows that if we have
+the higher order analogues, E[x⊗p y ⊗p ] and E[x⊗2p ] for
+p ∈ {1, 2, 3}, we can then identify the parameters θ =
+(π, B), provided the following identiﬁability condition
+holds: E[cvec(x⊗p )⊗2 ] 0 for p ∈ {1, 2, 3}.
+This identiﬁability condition warrants a little care, as
+we can run into trouble when components of x are dependent on each other in a particular algebraic way.
+For example, suppose x = (1, t, t2 ), the common polynomial basis expansion, so that all the coordinates are
+deterministically related. While E[x⊗2 ]
+0 might
+be satisﬁed (suﬃcient for ordinary linear regression),
+E[cvec(x⊗2 )⊗2 ] is singular for any data distribution.
+To see this, note that cvec(x⊗2 ) = [1 · 1, t · t, 2(1 ·
+t2 ), 2(t·t2 ), (t2 ·t2 )] contains components t·t and 2(1·t2 ),
+which are linearly dependent. Therefore, Spectral Experts would not be able to identify the parameters of a
+mixture of linear regressions for this data distribution.
+We can show that some amount of unidentiﬁability is
+intrinsic to estimation from low-order moments, not
+just an artefact of our estimation procedure. Suppose x = (t, . . . , td ). Even if we observed all moments
+E[x⊗p y ⊗p ] and E[x⊗2p ] for p ∈ [r] for some r, all the
+resulting coordinates would be monomials of t up to
+only degree 2dr, and thus the moments live in a 2drdimensional subspace. On the other hand, the parameters θ live in a subspace of at least dimension dk.
+Therefore, at least r ≥ k/2 moments are required for
+identiﬁability of any algorithm for this monomial example.
+4.2. Analysis of low-rank regression
+In this section, we will bound the error of the compound parameter estimates ∆2 2 and ∆3 2 , where
+F
+F
+def ˆ
+def ˆ
+∆2 = M2 − M2 and ∆3 = M3 − M3 . Our analysis is based on the low-rank regression framework of
+Tomioka et al. (2011) for tensors, which builds on Negahban & Wainwright (2009) for matrices. The main
+calculation involved is controlling the noise ηp (x),
+which involves various polynomial combinations of the
+mixing noise and observation noise.
+Let us ﬁrst establish some notation that uniﬁes the
+three regressions ((8), (9), and (10)). Deﬁne the obser⊗p
+vation operator Xp (Mp ) : Rd → Rn mapping com-
+
+pound parameters Mp :
+def
+
+Xp (Mp ; D)i = Mp , x⊗p ,
+i
+
+(xi , yi ) ∈ D.
+
+(11)
+
+Let κ(Xp ) be the restricted strong convexity constant,
+and let X∗ (ηp ; D) = (x,y)∈D ηp (x)x⊗p be the adjoint.
+p
+Lemma 1 (Tomioka et al. (2011), Theorem 1). Suppose there exists a restricted strong convexity constant
+κ(Xp ) such that
+1
+Xp (∆)
+n
+
+2
+2
+
+≥ κ(Xp ) ∆
+
+2
+F
+
+λ(p) ≥
+n
+
+and
+
+2 X∗ (ηp )
+p
+n
+
+op
+
+ˆ
+Then the error of Mp is bounded as follows:
+(p) √
+ˆ p − Mp F ≤ 32λn k .
+M
+κ(Xp )
+Going forward, we need to lower bound the restricted
+strong convexity constant κ(Xp ) and upper bound the
+operator norm of the adjoint operator X∗ (ηp ) op .
+p
+The proofs of the following lemmas follow from standard concentration inequalities and are detailed in Appendix A.
+Lemma 2 (lower bound on restricted strong convexity
+constant). If
+n = Ω max
+p∈[3]
+
+R4p (p!)2 log(1/δ)
+σmin (Σp )2
+
+,
+
+then with probability at least 1 − δ:
+κ(Xp ) ≥
+
+σmin (Σp )
+,
+2
+
+for each p ∈ [3].
+Lemma 3 (upper bound on adjoint operator). If
+
+
+L2p S 2p R4p log(1/δ) 
+
+n = Ω max
+2 ,
+p∈[3]
+(p)
+σmin (Σ1 )2 λn
+then with probability at least 1 − δ:
+λ(p) ≥
+n
+
+1
+X∗ (ηp )
+p
+n
+
+op ,
+
+for each p ∈ [3].
+4.3. Analysis of the tensor factorization
+Having bounded the error of the compound parameter
+ˆ
+ˆ
+estimates M2 and M3 , we will now study how this error propagates through the tensor factorization step
+of Algorithm 1, which includes whitening, applying
+the robust tensor power method (Anandkumar et al.,
+2012c), and unwhitening.
+
+.
+
+Spectral Experts
+k
+⊗3
+ˆ
+Lemma 4. Let M3 = h=1 πh βh . Let M2 − M2
+ˆ 3 − M3 op both be less than
+and M
+
+σk (M2 )5/2
+kπmax M2
+
+1/2
+op
+
+M3
+
+op
+
+100.0%
+
+EM
+Spectral
+Spectral+EM
+
+80.0%
+
+,
+op
+
+for some < 1 . Then, there exists a permutation of
+2
+indices such that the parameter estimates found in step
+2 of Algorithm 1 satisfy the following with probability
+at least 1 − δ:
+
+60.0%
+40.0%
+20.0%
+
+π−π ∞ ≤
+ˆ
+ˆh − βh 2 ≤ .
+β
+
+0.0%0
+
+for all h ∈ [k].
+The proof follows by applying standard matrix perturbation results for the whitening and unwhitening
+operators and can be found in Appendix B.
+
+1
+
+2
+
+4
+5
+3
+Parameter Error
+
+6
+
+7
+
+Figure 1. Histogram over recovery errors between the three
+algorithms when b = 1, d = 4, k = 3, n = 500, 000.
+
+4.4. Synthesis
+Together, these lemmas allow us to control the compound parameter error and the recovery error. We
+now apply them in the proof of Theorem 1:
+Proof of Theorem 1 (sketch). By Lemma 1, Lemma 2
+and Lemma 3, we can control the Frobenius norm of
+the error in the moments, which directly upper bounds
+the operator norm: If n ≥ max{n1 , n2 }, then
+ˆ
+Mp − Mp
+
+op
+
+√
+= O λ(p) kσmin (Σp )−1 .
+n
+
+(12)
+
+We complete the proof by applying Lemma 4 with the
+ˆ
+above bound on Mp − Mp op .
+
+5. Empirical evaluation
+In the previous section, we showed that Spectral Experts provides a consistent estimator. In this section,
+we explore the empirical properties of our algorithm
+on simulated data. Our main ﬁnding is that Spectral
+Experts alone attains higher parameter error than EM,
+but this is not the complete story. If we initialize EM
+with the estimates returned by Spectral Experts, then
+we end up with much better estimates than EM from
+a random initialization.
+5.1. Experimental setup
+Algorithms We experimented with three algorithms. The ﬁrst algorithm (Spectral) is simply the
+Spectral Experts. We set the regularization strengths
+
+(2)
+
+(3)
+
+λn = 1051√n and λn = 1031√n ; the algorithm was
+not very sensitive to these choices. We solved the
+low-rank regression to estimate M2 and M3 using an
+oﬀ-the-shelf convex optimizer, CVX (Grant & Boyd,
+2012). The second algorithm (EM) is EM where the
+β’s are initialized from a standard normal and π was
+set to the uniform distribution plus some small perturbations. We ran EM for 1000 iterations. In the ﬁnal
+algorithm (Spectral+EM), we initialized EM with the
+output of Spectral Experts.
+
+Data We generated synthetic data as follows: First,
+we generated a vector t sampled uniformly over the
+b-dimensional unit hypercube [−1, 1]b . Then, to get
+the actual covariates x, we applied a non-linear function of t that conformed to the identiﬁability criteria
+discussed in Section 3. The true regression coeﬃcients
+{βh } were drawn from a standard normal and π is set
+to the uniform distribution. The observation noise
+is drawn from a normal with variance σ 2 . Results are
+presented below for σ 2 = 0.1, but we did not observe
+any qualitatively diﬀerent behavior for choices of σ 2 in
+the range [0.01, 0.4].
+As an example, one feature map we considered in the
+one-dimensional setting (b = 1) was x = (1, t, t4 , t7 ).
+The data and the curves ﬁt using Spectral Experts,
+EM with random initialization and EM initialized
+with the parameters recovered using Spectral Experts
+are shown in Figure 2. We note that even on wellseparated data such as this, EM converged to the correct basin of attraction only 13% of the time.
+
+Spectral Experts
+
+Spectral
+Spectral+EM
+y
+
+y
+
+5
+4
+3
+2
+1
+0
+1
+2
+31.0
+
+0.5
+
+0.0
+t
+
+0.5
+
+1.0
+
+5
+4
+3
+2
+1
+0
+1
+2
+31.0
+
+EM
+
+0.0
+t
+
+0.5
+
+(a) Spectral, Spectral+EM
+
+0.5
+
+1.0
+
+(b) EM
+
+Figure 2. Visualization of the parameters estimated by Spectral Experts versus EM. (a) The dashed lines denote the
+solution recovered by Spectral Experts. While not a perfect ﬁt, it provides an good initialization for EM to further
+improve the solution (solid lines). (b) The dotted lines show diﬀerent local optima found by EM.
+
+ˆ
+Table 1. Parameter error θ∗ − θ F (n = 500, 000) as the number of base variables b, number of features d and the number
+of components k increases. While Spectral by itself does not produce good parameter estimates, Spectral+EM improves
+over EM signiﬁcantly.
+Features (d)
+
+Components (k)
+
+1
+2
+2
+2
+
+4
+5
+5
+6
+
+2
+2
+3
+2
+
+EM
+Spectral
+Spectral+EM
+
+Parameter Error
+
+8
+7
+6
+5
+4
+3
+2
+1
+0
+
+Spectral
+2.45
+1.38
+2.92
+2.33
+
+±
+±
+±
+±
+
+EM
+
+3.68
+0.84
+1.71
+0.67
+
+0.28
+0.00
+0.43
+0.63
+
+±
+±
+±
+±
+
+Spectral + EM
+
+0.82
+0.00
+1.07
+1.29
+
+5
+
+0.17
+0.00
+0.31
+0.01
+
+±
+±
+±
+±
+
+0.57
+0.00
+1.02
+0.01
+
+EM
+Spectral
+Spectral+EM
+
+4
+Parameter Error
+
+Variables (b)
+
+3
+2
+1
+
+103
+
+104
+
+105
+n
+
+(a) Well-speciﬁed data
+
+106
+
+107
+
+0
+102
+
+103
+
+104
+
+n
+
+105
+
+106
+
+(b) Misspeciﬁed data
+
+Figure 3. Learning curves: parameter error as a function of the number of samples n (b = 1, d = 5, k = 3).
+
+Spectral Experts
+ˆ
+Table 2. Parameter error θ∗ − θ
+still outperforms EM overall.
+
+F
+
+when the data is misspeciﬁed (n = 500, 000). Spectral+EM degrades slightly, but
+
+Variables (b)
+
+Features (d)
+
+Components (k)
+
+1
+2
+2
+2
+
+4
+5
+6
+8
+
+2
+3
+5
+7
+
+Spectral
+1.70 ± 0.85
+1.37 ± 0.85
+9.89 ± 4.46
+23.07 ± 7.10
+
+EM
+0.29
+0.44
+2.53
+9.62
+
+±
+±
+±
+±
+
+0.85
+1.12
+1.77
+1.03
+
+Spectral + EM
+0.03
+0.00
+2.69
+8.16
+
+±
+±
+±
+±
+
+0.09
+0.00
+1.83
+2.31
+
+5.2. Results
+
+6. Conclusion
+
+Table 1 presents the Frobenius norm of the diﬀerence
+between true and estimated parameters for the model,
+averaged over 20 diﬀerent random instances for each
+feature set and 10 attempts for each instance. The
+experiments were run using n = 500, 000 samples.
+
+In this paper, we developed a computationally eﬃcient
+and statistically consistent estimator for mixture of
+linear regressions. Our algorithm, Spectral Experts,
+regresses on higher-order powers of the data with a regularizer that encourages low rank structure, followed
+by tensor factorization to recover the actual parameters. Empirically, we found Spectral Experts to be an
+excellent initializer for EM.
+
+One of the main reasons for the high variance is the
+variation across random instances; some are easy for
+EM to ﬁnd the global minima and others more diﬃcult. In general, while Spectral Experts did not recover
+parameters by itself extremely well, it provided a good
+initialization for EM.
+To study the stability of the solutions returned by
+Spectral Experts, consider the histogram in Figure 1,
+which shows the recovery errors of the algorithms over
+170 attempts on a dataset with b = 1, d = 4, k = 3.
+Typically, Spectral Experts returned a stable solution.
+When these parameters were close enough to the true
+parameters, we found that EM almost always converged to the global optima. Randomly initialized EM
+only ﬁnds the true parameters a little over 10% of the
+time and shows considerably higher variance.
+Eﬀect of number of data points In Figure 3, we
+show how the recovery error varies as we get more
+data. Each data point shows the mean error over 10
+attempts, with error bars. We note that the recovery performance of EM does not particularly improve;
+this suggests that EM continues to get stuck in a local
+optima. The spectral algorithm’s error decays slowly,
+and as it gets closer to zero, EM initialized at the spectral parameters ﬁnds the true parameters more often
+as well. This behavior highlights the trade-oﬀ between
+statistical and computational error.
+Misspeciﬁed data To evaluate how robust the algorithm was to model mis-speciﬁcation, we removed
+large contiguous sections from x ∈ [−0.5, −0.25] ∪
+[0.25, 0.5] and ran the algorithms again. Table 2 reports recovery errors in this scenario. The error in the
+estimates grows larger for higher d.
+
+Acknowledgements We would like to thank Lester
+Mackey for his fruitful suggestions and the anonymous
+reviewers for their helpful comments.
+
+References
+Anandkumar, A., Foster, D. P., Hsu, D., Kakade,
+S. M., and Liu, Y. Two SVDs suﬃce: Spectral decompositions for probabilistic topic modeling and latent Dirichlet allocation. In Advances in Neural Information Processing Systems (NIPS), Cambridge,
+MA, 2012a. MIT Press.
+Anandkumar, A., Hsu, D., and Kakade, S. M. A
+method of moments for mixture models and hidden
+Markov models. In Conference on Learning Theory
+(COLT), 2012b.
+Anandkumar, Anima, Ge, Rong, Hsu, Daniel, Kakade,
+Sham M., and Telgarsky, Matus. Tensor decompositions for learning latent variable models. CoRR,
+abs/1210.7559, 2012c.
+Balle, B. and Mohri, M. Spectral learning of general
+weighted automata via constrained matrix completion. In Advances in Neural Information Processing
+Systems (NIPS), Cambridge, MA, 2012. MIT Press.
+Balle, B., Quattoni, A., and Carreras, X. A spectral learning algorithm for ﬁnite state transducers.
+In European Conference on Machine Learning and
+Principles and Practice of Knowledge Discovery in
+Databases, 2011.
+
+Spectral Experts
+
+Candes, E. J., Strohmer, T., and Voroninski, V.
+Phaselift: Exact and stable signal recovery from
+magnitude measurements via convex programming.
+Technical report, ArXiv, 2011.
+
+Parikh, A., Song, L., Ishteva, M., Teodoru, G., and
+Xing, E. A spectral algorithm for latent junction trees. In Uncertainty in Artiﬁcial Intelligence
+(UAI), 2012.
+
+Chaganty, A. and Liang, P. Spectral experts for estimating mixtures of linear regressions. International
+Conference on Machine Learning, 2013.
+
+Petrov, S. and Klein, D. Discriminative log-linear
+grammars with latent variables. In Advances in Neural Information Processing Systems (NIPS), Cambridge, MA, 2008. MIT Press.
+
+Cohen, S. B., Stratos, K., Collins, M., Foster, D. P.,
+and Ungar, L. Spectral learning of latent-variable
+PCFGs. In Association for Computational Linguistics (ACL). Association for Computational Linguistics, 2012.
+
+Quattoni, A., Collins, M., and Darrell, T. Conditional
+random ﬁelds for object recognition. In Advances
+in Neural Information Processing Systems (NIPS),
+Cambridge, MA, 2004. MIT Press.
+
+Grant, Michael and Boyd, Stephen. CVX: Matlab software for disciplined convex programming, version
+2.0 beta. http://cvxr.com/cvx, September 2012.
+
+Song, L., Boots, B., Siddiqi, S., Gordon, G., and
+Smola, A. Hilbert space embeddings of hidden
+Markov models. In International Conference on Machine Learning (ICML), Haifa, Israel, 2010. Omnipress.
+
+Hsu, D. and Kakade, S. M. Learning mixtures of spherical gaussians: Moment methods and spectral decompositions. In Innovations in Theoretical Computer Science (ITCS), 2013.
+Hsu, D., Kakade, S. M., and Zhang, T. A spectral
+algorithm for learning hidden Markov models. In
+Conference on Learning Theory (COLT), 2009.
+Hsu, D., Kakade, S. M., and Liang, P. Identiﬁability
+and unmixing of latent parse trees. In Advances
+in Neural Information Processing Systems (NIPS),
+Cambridge, MA, 2012. MIT Press.
+Jacobs, R. A., Jordan, M. I., Nowlan, S. J., and Hinton, G. E. Adaptive mixtures of local experts. Neural Computation, 3:79–87, 1991.
+Liang, P., Bouchard-Cˆt´, A., Klein, D., and Taskar,
+oe
+B. An end-to-end discriminative approach to machine translation.
+In International Conference
+on Computational Linguistics and Association for
+Computational Linguistics (COLING/ACL), Sydney, Australia, 2006. Association for Computational
+Linguistics.
+Negahban, S. and Wainwright, M. J. Estimation
+of (near) low-rank matrices with noise and highdimensional scaling. ArXiv e-prints, December
+2009.
+Ohlsson, H., Yang, A., Dong, R., and Sastry, S. CPRL
+– an extension of compressive sensing to the phase
+retrieval problem. In Advances in Neural Information Processing Systems (NIPS), Cambridge, MA,
+2012. MIT Press.
+
+Tomioka, R., Suzuki, T., Hayashi, K., and Kashima,
+H. Statistical performance of convex tensor decomposition. Advances in Neural Information Processing Systems (NIPS), pp. 137, 2011.
+Viele, Kert and Tong, Barbara. Modeling with mixtures of linear regressions. Statistics and Computing, 12:315–330, 2002. ISSN 0960-3174. doi:
+10.1023/A:1020779827503. URL http://dx.doi.
+org/10.1023/A%3A1020779827503.
+Wang, Y. and Mori, G. Max-margin hidden conditional random ﬁelds for human action recognition. In Computer Vision and Pattern Recognition
+(CVPR), 2009.
+
+Spectral Experts
+
+A. Proofs: Regression
+Let us review the regression problem set up in Section 3. We assume we are given data (xi , yi ) ∈ Dp generated
+by the following process,
+yi = Mp , x⊗p + bp + ηp (xi ),
+i
+⊗p
+⊗p
+where Mp = h=1 πh βh , the expected value of βh , bp is an estimable bias and ηp (x) is zero mean noise. In
+particular, for p ∈ {1, 2, 3}, we showed that bp and ηp (x) were,
+k
+
+b1 = 0
+b2 = E[ 2 ]
+ˆ
+b3 = 2 E[ ] M1 , x + E[ 3 ]
+η1 (x) = βh − M1 , x +
+η2 (x) =
+η3 (x) =
+
+⊗2
+βh
+⊗3
+βh
+
+(13)
+
+⊗2
+
+− M2 , x
+
+⊗3
+
+− M3 , x
+
+2
+
++ 2 βh , x + (
++3
+
+⊗2
+βh , x⊗2
+
+2
+
+− E[ ])
+
++ 3(
+⊗p
+
+We then deﬁned the observation operator Xp (Mp ) : Rd
+
+2
+
+(14)
+2
+
+βh , x − E[ ] M1 , x ) + (
+
+3
+
+3
+
+− E[ ]).
+
+(15)
+
+→ Rn ,
+
+def
+
+Xp (Mp ; Dp )i = Mp , x⊗p ,
+i
+for (xi , yi ) ∈ Dp . This let us succinctly represent the low-rank regression problem for p = 2, 3 as follows,
+ˆ
+Mp = arg
+
+min
+Mp ∈R
+
+d⊗p
+
+1
+y − bp − Xp (Mp ; Dp )
+2n
+
+2
+2
+
++ λ p Mp
+
+∗.
+
+p
+
+Let us also recall the adjoint of the observation operator, X∗ : Rn → Rd ,
+p
+X∗ (ηp ; Dp ) =
+p
+
+ηp (x)x⊗p ,
+x∈Dp
+
+where we have used ηp to represent the vector [ηp (x)]x∈Dp .
+ˆ
+Tomioka et al. (2011) showed that error in the estimated Mp can be bounded as follows;
+Lemma 1 (Tomioka et al. (2011), Theorem 1). Suppose there exists a restricted strong convexity constant κ(Xp )
+such that
+X∗ (ηp ) op
+1
+p
+Xp (∆) 2 ≥ κ(Xp ) ∆ 2 and λn ≥
+.
+2
+F
+2n
+n
+∗
+ˆ
+ˆ
+Then the error of Mp is bounded as follows: Mp − Mp
+
+F
+
+≤
+
+√
+λn k
+κ(Xp ) .
+
+In this section, we will derive an upper bound on κ(Xp ) and a lower bound on
+Lemma 1 in the particular context of our noise setting.
+def
+
+1
+n
+
+X∗ (ηp )
+p
+
+Lemma 2 (Lower bound on restricted strong convexity). Let Σp = E[cvec(x⊗p )⊗2 ]. If
+n≥
+
+16(p!)2 R4p
+σmin (Σp )2
+
+1+
+
+log(1/δ)
+2
+
+then, with probability at least 1 − δ,
+κ(Xp ) ≥
+
+σmin (Σp )
+.
+2
+
+2
+
+,
+
+op ,
+
+allowing us to apply
+
+Spectral Experts
+
+Proof. Recall that κ(Xp ) is deﬁned to be a constant such that the following inequality holds,
+1
+Xp (∆)
+n
+
+2
+2
+
+2
+F,
+
+≥ κ(Xp ) ∆
+
+where
+Xp (∆)
+
+2
+2
+
+∆, x⊗p 2 .
+
+=
+(x,y)∈Dp
+
+To proceed, we will unfold the tensors ∆ and x⊗p to get a lower bound in terms of ∆
+choose an appropriate value for κ(Xp ) that will hold with high probability.
+
+2
+F.
+
+This will allow us to
+
+First, note that x⊗p is symmetric, and thus ∆, x⊗p = cvec ∆, cvec x⊗p . This allows us to simplify Xp (∆)
+as follows,
+1
+Xp (∆)
+n
+
+2
+2
+
+1
+n
+
+=
+
+1
+=
+n
+1
+=
+n
+
+∆, x⊗p
+
+2
+
+(x,y)∈Dp
+
+cvec(∆), cvec(x⊗p )
+
+2
+
+(x,y)∈Dp
+
+tr(cvec(∆)⊗2 cvec(x⊗p )⊗2 )
+(x,y)∈Dp
+
+
+
+
+
+1
+= tr cvec(∆)⊗2
+n
+ˆ def 1
+Let Σp = n (x,y)∈Dp cvec(x⊗p )⊗2 , so that
+∆ F 3 . Then, we have
+
+2
+2
+
+1
+n
+
+Xp (∆)
+
+1
+Xp (∆)
+n
+
+2
+2
+
+2
+2
+
+cvec(x⊗p )⊗2  .
+(x,y)∈Dp
+
+ˆ
+= tr(cvec(∆)⊗2 Σp ). For symmetric ∆ ,
+
+cvec(∆)
+
+2
+
+=
+
+ˆ
+= tr(cvec(∆)⊗2 Σp )
+ˆ
+≥ σmin (Σp ) ∆
+
+2
+F.
+
+By Weyl’s theorem,
+ˆ
+ˆ
+σmin (Σp ) ≥ σmin (Σp ) − Σp − Σp
+
+op .
+
+ˆ
+ˆ
+Since Σp − Σp op ≤ Σp − Σp F , it suﬃces to show that the empirical covariance concentrates in Frobenius
+norm. Applying Lemma 5, with probability at least 1 − δ,
+ˆ
+Σp − Σp
+Now we seek to control Σp
+
+F.
+
+Since x
+Σp
+
+ˆ
+Finally, Σp − Σp
+
+op
+
+2
+
+F
+
+≤
+
+2 Σp F
+√
+n
+
+log(1/δ)
+2
+
+.
+
+≤ R, we can use the bound
+F
+
+≤ p! vec(x⊗p )⊗2
+
+F
+
+≤ p!R2p .
+
+≤ σmin (Σp )/2 with probability at least 1 − δ if,
+16(p!)2 R4p
+n≥
+σmin (Σp )2
+
+3
+
+1+
+
+1+
+
+log(1/δ)
+2
+
+2
+
+.
+
+ˆ
+The ∆ correspond to residuals Mp − Mp , which can easily be shown to always be symmetric.
+
+Spectral Experts
+
+Lemma 3 (Upper bound on adjoint operator). With probability at least 1 − δ, the following holds,
+1
+X∗ (η1 )
+1
+n
+
+op
+
+≤2
+
+R(2LR + S)
+√
+n
+
+log(3/δ)
+2
+
+1
+X∗ (η2 )
+2
+n
+
+op
+
+≤2
+
+(4L2 R2 + 2SLR + 4S 2 )R2
+√
+n
+
+1
+X∗ (η3 )
+3
+n
+
+op
+
+≤2
+
+(8L3 R3 + 3L2 R2 S + 6LRS 2 + 2S 3 )R3
+√
+n
+
+1+
+
+128R(2LR + S)
+√
+σmin (Σ1 ) n
+
++ 3R4 S 2
+
+log(3/δ)
+2
+
+1+
+
+log(6/δ)
+2
+
+1+
+
+log(6/δ)
+2
+
+1+
+
+.
+
+It follows that, with probability at least 1 − δ,
+1
+X∗ (ηp )
+p
+n
+
+op
+
+log(1/δ)
+n
+
+= O Lp S p R2p σmin (Σ1 )−1
+
+,
+
+for each p ∈ {1, 2, 3}.
+
+ˆ
+Proof. Let Ep [f (x, , h)] denote the empirical expectation over the examples in dataset Dp (recall the Dp ’s are
+independent to simplify the analysis). By deﬁnition,
+1
+X∗ (ηp )
+p
+n
+
+ˆ
+= Ep ηp (x)x⊗p
+
+op
+
+op
+
+ˆ
+for p ∈ {1, 2, 3}. To proceed, we will bound each ηp (x) and use Lemma 5 to bound Ep [ηp (x)x⊗p ]
+Frobenius norm to bounds the operator norm, completing the proof.
+Bounding ηp (x).
+ηp (x),
+
+Using the assumptions that βh
+
+2
+
+≤ L, x
+
+2
+
+x
+
+2
+
+2
+
++| |
+
+≤ 2LR + S
+⊗2
+η2 (x) = βh − M2 , x⊗2 + 2 βh , x + (
+⊗2
+≤ βh − M 2
+
+x⊗2
+
+F
+
+F
+
+2
+
+− E[ 2 ])
+
+2
+
+x
+
++(
+
+3
+
++ 2| | βh
+
+2
+
++|
+
+2
+
+− E[ 2 ]|
+
+≤ (2L)2 R2 + 2SLR + (2S)2
+⊗3
+⊗2
+η3 (x) = βh − M3 , x⊗3 + 3 βh , x⊗2
+
++3
+
+2
+
+ˆ
+βh , x − E[ 2 ] M1 , x
+
+⊗3
+≤ βh − M 3
+2
+
+x⊗3
+
+F
+
++ 3 | | βh
+
+F
+
+x
+
+F
+F
+
+⊗2
++ 3| | βh
+2
+
++ E[ ]
+
+F
+
+ˆ
+M1
+
+− E[ 3 ])
+x⊗2
+2
+
+x
+
+F
+2
+
++ | 3 | + E[ 3 ]
+
+≤ (2L)3 R3 + 3SL2 R2 + 3(S 2 LR + S 2 LR) + 2S 3 .
+We have used inequality M1 − βh
+
+2
+
+≤ 2L above.
+
+The
+
+≤ R and | | ≤ S, it is easy to bound each
+
+η1 (x) = βh − M1 , x +
+≤ βh − M 1
+
+F.
+
+Spectral Experts
+
+ˆ
+Bounding E[ηp (x)x⊗p ]
+fact that cX
+
+F
+
+≤c X
+
+.
+F
+
+F.
+
+We may now apply the above bounds on ηp (x) to bound ηp (x)x⊗p
+
+F,
+
+using the
+
+By Lemma 5, each of the following holds with probability at least 1 − δ1 ,
+R(2LR + S)
+√
+n
+
+(4L2 R2 + 2SLR + 4S 2 )R2
+√
+n
+
+≤2
+
+ˆ
+E2 [η2 (x)x⊗2 ]
+
+≤2
+≤2
+
+ˆ
+E1 [η1 (x)x]
+
+(8L3 R3 + 3L2 R2 S + 6LRS 2 + 2S 3 )R3
+√
+n
+
+2
+
+F
+
+ˆ
+E3 [η3 (x)x⊗3 ] − E[η3 (x)x⊗3 | x]
+
+F
+
+1+
+
+log(1/δ1 )
+2
+1+
+
+log(1/δ2 )
+2
+log(1/δ3 )
+2
+
+1+
+
+.
+
+Recall that η3 (x) does not have zero mean, so we must bound the bias:
+E[η3 (x)x⊗3 | x]
+
+F
+
+ˆ
+= 3 E[ 2 ] M1 − M1 , x x⊗3 F
+ˆ
+≤ 3 E[ 2 ] M1 − M1 2 x 2 x⊗3
+
+F.
+
+ˆ
+Note that in all of this, both M1 and M1 are treated as constants. Further, by applying Lemma 1 to M1 , we
+ˆ 1 2 ; with probability at least 1 − δ3 ,
+have a bound on M1 − M
+(1)
+
+ˆ
+M1 − M1
+
+2
+
+≤
+
+32λn
+κ(X1 )
+
+≤ 32
+
+2R(2LR + S)
+√
+n
+
+1+
+
+log(1/δ3 )
+2
+
+2
+.
+σmin (Σ1 )
+
+So, with probability at least 1 − δ3 ,
+E[η3 (x)x⊗3 | x]
+
+F
+
+≤ 3R4 S 2
+
+128R(2LR + S)
+√
+σmin (Σ1 ) n
+
+1+
+
+log(1/δ3 )
+2
+
+.
+
+Finally, taking δ1 = δ/3, δ2 = δ/3, δ3 = δ/6, and taking the union bound over the bounds for p ∈ {1, 2, 3}, we
+get our result.
+
+B. Proofs: Tensor Decomposition
+Once we have estimated the moments from the data through regression, we apply the robust tensor eigendecomposition algorithm to recover the parameters, βh and π. However, the algorithm is guaranteed to work
+only for symmetric matrices with (nearly) orthogonal eigenvectors, so, as a ﬁrst step, we will need to whiten the
+third-order moment tensor using the second moments. We then apply the tensor decomposition algorithm to get
+the eigenvalues and eigenvectors. Finally, we will have to undo the transformation by applying an un-whitening
+step. In this section, we present error bounds for each step, and combine them to prove the following lemma,
+Lemma 4 (Tensor Decomposition with Whitening). Let M2 =
+def
+ˆ
+ˆ
+M2 − M2 op and εM3 = M3 − M3 op both be such that,
+
+max{εM2 , εM3 } ≤ min
+
+4
+
+k
+h=1
+
+⊗2
+π h βh , M 3 =
+
+k
+h=1
+
+def
+
+⊗3
+πh βh . Let εM2 =
+
+
+√ −1
+5/2
+M3 op
+σk (M2 )  15kπmax 24 σk (M2 ) + 2 2 
+,
+,
+2
+2σk (M2 )3/2
+3/2 M2
+
+1/2
+−1
+op σk (M2 )
+
++ 8kπmax M2
+
+1/2
+−3/2
+op σk (M2 )
+
+24
+
+√
+M3 op
++2 2
+σk (M2 )
+
+−1
+
+Spectral Experts
+
+for some
+
+<
+
+√1
+2 πmax .
+
+Then, there exists a permutation of indices such that the parameter estimates found in step 2 of Algorithm 1
+satisfy the following with probability at least 1 − δ,
+π−π ∞ ≤
+ˆ
+ˆh − βh 2 ≤ .
+β
+for all h ∈ [k].
+def
+ˆ
+Proof. We will use the general notation, εX = X − X
+operator norm.
+
+op
+
+ˆ
+to represent the error of the estimate, X, of X in the
+
+Through the course of the proof, we will make some assumptions on errors that allow us simplify portions of
+the expressions. At the end of the proof, we will collect these conditions together to state the assumptions on
+above.
+Step 1: Whitening Much of this matter has been presented in Hsu & Kakade (2013, Lemma 11, 12). We
+present our own version for completeness.
+ˆ
+ˆ
+ˆ
+Let W and W be the whitening matrices for M2 and M2 respectively. Also deﬁne W † and W † to be their
+pseudo-inverses.
+We will ﬁrst show that the whitened tensor T = M3 (W, W, W ) is symmetric with orthogonal eigenvectors. Recall
+⊗2
+that M2 = h πh βh , so,
+I = W T M2 W
+⊗2
+π h W T βh W
+
+=
+h
+
+=
+
+√
+( πh W T βh )⊗2 .
+
+h
+
+Thus W βh =
+
+v
+√h ,
+πh
+
+vh
+
+where vh form an orthonormal basis. Applying the same whitening transform to M3 , we get,
+⊗3
+π h βh
+
+M3 =
+h
+
+πh (W T βh )⊗3
+
+M3 (W, W, W ) =
+h
+
+=
+h
+
+1 ⊗3
+√ vh .
+πh
+
+√
+Consequently, T has an orthogonal decomposition with eigenvectors vh and eigenvalues 1/ πh .
+ˆ
+ˆ ˆ ˆ ˆ
+Let us now study how far T = M3 (W , W , W ) diﬀers from T , in terms of the errors of M2 and M3 , following
+ˆ
+Anandkumar et al. (2012c). We note that while T is also symmetric, it may not have an orthogonal decomposition.
+To do so, we use the triangle inequality to break the diﬀerence into a number of simple terms, that diﬀer in
+ˆ
+ˆ
+exactly one element. We will then apply M3 (W, W, W − W ) op ≤ M3 op W op W op W − W op .
+ˆ ˆ ˆ ˆ
+εT = M3 (W, W, W ) − M3 (W , W , W ) op
+ˆ
+ˆ
+ˆ ˆ
+≤ M3 (W, W, W ) − M3 (W, W, W ) op + M3 (W, W, W ) − M3 (W, W , W ) op
+ˆ ˆ
+ˆ ˆ ˆ
+ˆ ˆ ˆ
+ˆ ˆ ˆ ˆ
++ M3 (W, W , W ) − M3 (W , W , W ) op + M3 (W , W , W ) − M3 (W , W , W )
+
+op
+
+ˆ
+≤ M3 (W, W, W − W )
+
+ˆ ˆ
+ˆ ˆ ˆ
+op + M3 (W, W − W , W )|op + M3 (W − W , W , W )|op
+ˆ
+ˆ op
+ˆ
+≤ M3 op W 2 εW + M3 op W op W op εW + M3 op W 2 εW + εM3 W
+op
+ˆ
+ˆ
+ˆ
+≤ M3 op ( W 2 + W op W op + W 2 )εW + εM3 W 3
+op
+op
+op
+
+3
+op
+
+Spectral Experts
+
+ˆ
+We can relate W and εW to εM2 using Lemma 6, for which we need the following condition,
+Condition 1. Let εM2 < σk (M2 )/3.
+Then,
+ˆ
+W
+
+op
+
+σk (M2 )−1/2
+
+≤
+
+1−
+≤
+
+√
+
+ε M2
+σk (M2 )
+
+2σk (M2 )−1/2
+
+εW ≤ 2σk (M2 )−1/2
+
+1
+
+εM 2
+σk (M2 )
+εM 2
+− σk (M2 )
+
+≤ 4σk (M2 )−3/2 εM2 .
+Thus,
+ε T ≤ 6 M3
+≤ 24 M3
+
+2
+−3/2
+)εM2
+op (4σk (M2 )
+
+W
+
+op
+
+√
+
+−5/2
+εM2
+op σk (M2 )
+
+≤ σk (M2 )−3/2 24
+
+M3 op
+σk (M2 )
+
+√
++ εM3 2 2 W
+
+3
+op
+
++ 2 2σk (M2 )−3/2 εM3
+√
++ 2 2 max{εM2 , εM3 }.
+
+Step 2: Decomposition We have constructed T to be a symmetric tensor with orthogonal eigenvectors. We
+can now apply the results of Anandkumar et al. (2012c, Theorem 5.1) to bound the error in the eigenvalues, λW ,
+and eigenvectors, ω, returned by the robust tensor power method;
+ˆ
+λW − λW
+ωh − ωh
+ˆ
+
+∞
+
+2
+
+5kεT
+(λW )min
+8kεT
+,
+≤
+(λW )2
+min
+≤
+
+for all h ∈ [k], where (λW )min is the smallest eigenvalue of T .
+Step 3: Unwhitening Finally, we need to invert the whitening transformation to recover π and βh from λW
+and ωh . Let us complete the proof by studying how this inversion relates the error in π and β to the error in
+λW and ω.
+First, we will bound the error in the βs,
+ˆ
+βh − βh
+
+2
+
+ˆ ˆ
+= W †ω − W †ω
+≤ εW † ωh
+ˆ
+
+2
+
+2
+
++ W†
+
+2
+
+ωh − ωh 2 .
+ˆ
+
+(Triangle inequality)
+
+Once more, we can apply the results of Lemma 6,
+ˆ
+W†
+
+op
+
+≤
+
+σ1 (M2 ) 1 +
+
+εW † ≤ 2
+
+σ1 (M2 )
+
+εM2
+σk (M2 )
+
+εM2
+1+
+σ1 (M2 )
+
+1
+
+εM 2
+σk (M2 )
+ε M2
+− σk (M2 )
+
+Using Condition 1, this simpliﬁes to,
+ˆ
+W†
+
+op
+
+≤
+
+εW † ≤ 4
+
+3/2 M2
+3/2 M2
+
+1/2
+op
+1/2
+−1
+εM2 .
+op σk (M2 )
+
+.
+
+Spectral Experts
+
+Thus,
+ˆ
+βh − βh
+
+≤4
+
+3/2 M2
+
+1/2
+−1
+εM2
+op σk (M2 )
+
+≤4
+
+2
+
+3/2 M2
+
+kεT
+(λW )2
+min
+
+1/2
+−1
+εM2
+op σk (M2 )
+
+1/2
+−3/2
+op kπmax σk (M2 )
+
++ 8 M2
+
+1/2
+op
+
++ 8 M2
+
+24
+
+√
+M3 op
++ 2 2 max{εM2 , εM3 }.
+σk (M2 )
+
+Next, let us bound the error in π,
+1
+
+|ˆh − πh | =
+π
+
+(λW )2
+h
+
+−
+
+1
+ˆ
+(λW )2
+h
+
+ˆ
+(λW )h + (λW )h
+=
+
+ˆ
+(λW )h − (λW )h
+
+ˆ
+(λW )2 (λW )2
+h
+h
+ˆ
+(2(λW )h − λW − λW
+
+≤
+
+∞)
+2
+
+ˆ
+− λW
+
+ˆ
+To simplify the above expression, we would like that λW − λW
+
+∞
+
+ˆ
+λW − λW
+
+∞.
+
+∞
+
+(λW )2
+h
+−1/2
+
+recalling that (λW )h = πh
+Condition 2.
+
+≤
+
+(λW )h + λW
+
+ˆ
+≤ (λW )min /2 or λW − λW
+
+∞
+
+≤
+
+√1
+2 πmax ,
+
+. Thus, we would like to require the following condition to hold on ;
+
+√1
+2 πmax .
+
+Now,
+(3/2)(λW )h
+ˆ
+λW − λW
+(λW )4
+h
+5kεT
+3
+≤
+3 (λ )2
+2(λW )h W min
+
+|ˆh − πh | ≤
+π
+
+∞
+
+3/2
+√
+M3 op
+3πmax
+5kπmax σk (M2 )−3/2 24
++ 2 2 max{εM2 , εM3 }
+2
+σk (M2 )
+√
+M3 op
+15 5/2
+πmax kσk (M2 )−3/2 24
++ 2 2 max{εM2 , εM3 }.
+≤
+2
+σk (M2 )
+
+≤
+
+Finally, we complete the proof by requiring that the bounds εM2 and εM3 imply that π − π
+ˆ
+ˆ
+βh − βh 2 ≤ , i.e.
+max{εM2 , εM3 } ≤
+
+√
+M3 op
+15 5/2
+πmax kσk (M2 )−3/2 24
++2 2
+2
+σk (M2 )
+
+max{εM2 , εM3 } ≤
+
+4 3/2 M2
+
+1/2
+−1
+εM2
+op σk (M2 )
+
++ 8 M2
+
+∞
+
+≤
+
+and
+
+−1
+
+1/2
+−3/2
+op kπmax σk (M2 )
+
+24
+
+√
+M3 op
++2 2
+σk (M2 )
+
+−1
+
+.
+
+C. Basic Lemmas
+In this section, we have included some standard results that we employ for completeness.
+Lemma 5 (Concentration of vector norms). Let X, X1 , · · · , Xn ∈ Rd be i.i.d. samples from some distribution
+with bounded support ( X 2 ≤ M with probability 1). Then with probability at least 1 − δ,
+1
+n
+
+n
+
+Xi − E[X]
+i=1
+
+2
+
+2M
+≤ √
+n
+
+1+
+
+log(1/δ)
+2
+
+.
+
+Spectral Experts
+
+Proof. Deﬁne Zi = Xi − E[X].
+The quantity we want to bound can be expressed as follows:
+1
+n
+
+f (Z1 , Z2 , · · · , Zn ) =
+
+n
+
+.
+
+Zi
+i=1
+
+2
+
+Let us check that f satisﬁes the bounded diﬀerences inequality:
+1
+Zi − Zi 2
+n
+1
+Xi − Xi 2
+=
+n
+2M
+,
+≤
+n
+
+|f (Z1 , · · · , Zi , · · · , Zn ) − f (Z1 , · · · , Zi , · · · , Zn )| ≤
+
+by the bounded assumption of Xi and the triangle inequality.
+By McDiarmid’s inequality, with probability at least 1 − δ, we have:
+−2
+
+Pr[f − E[f ] ≥ ] ≤ exp
+
+2
+
+n
+2
+i=1 (2M/n)
+
+.
+
+Re-arranging:
+1
+n
+
+n
+
+≤E
+
+Zi
+i=1
+
+2
+
+1
+n
+
+n
+
+Zi
+i=1
+
++M
+2
+
+2 log(1/δ)
+.
+n
+
+Now it remains to bound E[f ]. By Jensen’s inequality, E[f ] ≤ E[f 2 ], so it suﬃces to bound E[f 2 ]:
+
+
+
+
+2
+n
+n
+1
+1
+1
+Zi  = E 2
+Zi 2 + E  2
+Zi , Zj 
+E 2
+2
+n i=1
+n i=1
+n
+i=j
+
+2
+
+4M
++ 0,
+n
+where the cross terms are zero by independence of the Zi ’s.
+≤
+
+Putting everything together, we obtain the desired bound:
+1
+n
+
+n
+
+2M
+Zi ≤ √ + M
+n
+i=1
+
+2 log(1/δ)
+.
+n
+
+Remark: The above result can be directly applied to the Frobenius norm of a matrix M because M F =
+vec(M ) 2 .
+ˆ
+Lemma 6 (Perturbation Bounds on Whitening Matrices). Let A be a rank-k d × d matrix, W be a d × k matrix
+T ˆˆ
+T
+T
+−1 T
+ˆ
+ˆ
+ˆ
+ˆ
+ˆ
+that whitens A, i.e. W AW = I. Suppose W AW = U DU , then deﬁne W = W U D 2 U . Note that W is
+εA
+1
+also a d × k matrix that whitens A. If αA = σk (A) < 3 then,
+ˆ
+W
+
+op
+
+ˆ
+W†
+
+op
+
+εW
+εW †
+
+W op
+1 − αA
+√
+≤ W † op 1 + αA
+αA
+≤ W op
+1 − αA
+√
+≤ W † op 1 + αA
+
+≤√
+
+αA
+.
+1 − αA
+
+Spectral Experts
+
+Proof. This lemma has also been proved in Hsu & Kakade (2013, Lemma 10), but we present it diﬀerently here
+1
+1
+for completeness. First, note that for a matrix W that whitens A = V ΣV T , W = V Σ− 2 V T and W † = V Σ 2 V T .
+Thus, by rotational invariance,
+W
+W
+
+†
+
+op
+
+op
+
+=
+
+1
+
+=
+
+σk (A)
+σ1 (A)
+
+ˆ
+ˆ
+This allows us to bound the operator norms of W and W † in terms of W and W † ,
+ˆ
+W
+
+op
+
+1
+
+=
+
+ˆ
+σk (A)
+1
+
+≤
+
+(By Weyl’s Theorem)
+
+σk (A) − εA
+1
+1
+≤
+1 − αA σk (A)
+=√
+ˆ
+W†
+
+op
+
+W op
+1 − αA
+
+=
+
+ˆ
+σ1 (A)
+
+≤
+≤
+=
+
+√
+√
+
+σ1 (A) + εA
+1 + αA
+
+(By Weyl’s Theorem)
+
+σ1 (A)
+
+1 + αA W †
+
+op .
+
+To ﬁnd εW , we will exploit the rotational invariance of the operator norm.
+ˆ
+εW = W − W
+
+op
+
+1
+2
+
+= WUD UT − W
+≤ W
+
+1
+
+ˆ
+(W = W U D − 2 U T )
+
+op
+
+1
+
+op
+
+I − UD 2 UT
+
+.
+
+op
+
+1
+
+(Sub-multiplicativity)
+1
+
+1
+
+We will now bound I − U D 2 U T op . Note that by rotational invariance, I − U D 2 U T op = I − D 2 op . By
+√
+√
+1
+1
+Weyl’s inequality, |1 − Dii | ≤ I − D 2 op ; put diﬀerently, I − D 2 op bounds the amount Dii can diverge
+from 1. Using the property that |(1 + x)−1/2 − 1| ≤ |x| for all |x| ≤ 1/2, we will take an alternate approach and
+1
+bound Dii separately, and use it to bound I − D 2 op .
+I −D
+
+op
+
+= I − U DU T op
+ˆ ˆˆ
+ˆ
+ˆ
+= W T AW − W T AW
+ˆ
+ˆ
+ˆ
+= W T (A − A)W
+ˆ
+≤ W 2 εA
+op
+1
+εA
+≤
+σk (A) 1 − αA
+αA
+≤
+.
+1 − αA
+
+Therefore, if
+
+αA
+1−εA
+
+< 1/2, or εA <
+
+(Rotational invariance)
+(By deﬁnition)
+
+op
+
+op
+
+σk (A)
+3 ,
+
+I − U D1/2 U T
+
+op
+
+≤
+
+αA
+.
+1 − αA
+
+Spectral Experts
+
+We can now complete the proof of the bound on εW ,
+I − U D1/2 U T
+αA
+≤ W op
+.
+1 − αA
+
+εW = W
+
+op
+
+op
+
+(Rotational invariance)
+
+Similarly, we can bound the error on the un-whitening transform, W † ,
+ˆ
+εW † = W † − W †
+
+op
+1
+2
+
+ˆ
+ˆ
+= W − UD UT W†
+†
+
+ˆ
+≤ W†
+≤ W†
+
+1
+
+op
+
+I − U D 2 U T op
+√
+αA
+.
+op 1 + αA
+1 − αA
+op
+
+ˆ
+(W † = U D1/2 U T W † )
+
+

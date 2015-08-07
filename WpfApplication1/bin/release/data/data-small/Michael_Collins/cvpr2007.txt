@@ -1,0 +1,1206 @@
+Learning Visual Representations using Images with Captions
+Ariadna Quattoni
+Michael Collins
+Trevor Darrell
+MIT Computer Science and Artiﬁcial Intelligence Laboratory
+{ariadna,mcollins,trevor}@csail.mit.edu
+
+Abstract
+Current methods for learning visual categories work
+well when a large amount of labeled data is available, but
+can run into severe difﬁculties when the number of labeled
+examples is small. When labeled data is scarce it may be
+beneﬁcial to use unlabeled data to learn an image representation that is low-dimensional, but nevertheless captures the information required to discriminate between image categories. This paper describes a method for learning representations from large quantities of unlabeled images which have associated captions; the goal is to improve
+learning in future image classiﬁcation problems. Experiments show that our method signiﬁcantly outperforms (1)
+a fully-supervised baseline model, (2) a model that ignores
+the captions and learns a visual representation by performing PCA on the unlabeled images alone and (3) a model
+that uses the output of word classiﬁers trained using captions and unlabeled data. Our current work concentrates
+on captions as the source of meta-data, but more generally
+other types of meta-data could be used.
+
+1. Introduction
+Current methods for learning visual categories work well
+when a large amount of labeled data is available, but can
+run into severe difﬁculties when the number of labeled examples is small—for example when a user deﬁnes a new
+category and provides only a few labeled examples. Image
+representations are typically of high dimension, requiring
+relatively large amounts of training data. When labeled data
+is scarce it may be beneﬁcial to use unlabeled data to learn
+an image representation that is low-dimensional, but nevertheless captures the information required to discriminate
+between image categories.
+In some cases unlabeled data may contain useful metadata that can be used to learn a low-dimensional representation that reﬂects the semantic content of an image. As one
+example, large quantities of images with associated natural language captions can be found on the web. This paper
+describes an algorithm that uses images with captions or
+
+other meta-data to derive an image representation that allows signiﬁcantly improved learning in cases where only a
+few labeled examples are available.
+In our approach the meta-data is used to induce a representation that reﬂects an underlying part structure in
+an existing, high-dimensional visual representation. The
+new representation groups together synonymous visual
+features—features that consistently play a similar role
+across different image classiﬁcation tasks.
+Ando and Zhang [1] introduced the structural learning
+framework, which makes use of auxiliary problems in leveraging unlabeled data. In this paper we introduce auxiliary
+problems that are created from images with associated captions. Each auxiliary problem involves taking an image as
+input, and predicting whether or not a particular content
+word (e.g, man, ofﬁcial, or celebrates) is in the caption associated with that image. In structural learning, a separate
+linear classiﬁer is trained for each of the auxiliary problems
+and manifold learning (e.g., SVD) is applied to the resulting
+set of parameter vectors, ﬁnding a low-dimensional space
+which is a good approximation to the space of possible parameter vectors. If features in the high-dimensional space
+correspond to the same semantic part, their associated classiﬁer parameters (weights) across different auxiliary problems may be correlated in such a way that the basis functions learned by the SVD step collapse these two features
+to a single feature in a new, low-dimensional feature-vector
+representation.
+In a ﬁrst set of experiments, we use synthetic data examples to illustrate how the method can uncover latent part
+structures. We then describe experiments on classiﬁcation
+of news images into different topics. We compare a baseline
+model that uses a bag-of-words SIFT representation of image data to our method, which replaces the SIFT representation with a new representation that is learned from 8,000 images with associated captions. In addition, we compare our
+method to (1) a baseline model that ignores the meta-data
+and learns a new visual representation by performing PCA
+on the unlabeled images and (2) a model that uses as a visual
+representation the output of word classiﬁers trained using
+captions and unlabeled data. Note that our goal is to build
+
+classiﬁers that work on images alone (i.e., images which do
+not have captions), and our experimental set-up reﬂects this,
+in that training and test examples for the topic classiﬁcation
+tasks include image data only. The experiments show that
+our method signiﬁcantly outperforms baseline models.
+
+2. Previous work
+When few labeled examples are available, most current
+supervised learning methods [22, 10, 12, 18, 14] for image classiﬁcation may work poorly. To reach human performance, it is clear that knowledge beyond the supervised
+training data needs to be leveraged.
+There is a large literature on semi-supervised learning
+approaches, where unlabeled data is used in addition to
+labeled data. We do not aim to give a full overview of
+this work, for a comprehensive survey article see [17].
+Most semi-supervised learning techniques can be broadly
+grouped into three categories depending on how they make
+use of the unlabeled data: density estimation, dimensionality reduction via manifold learning and function regularization. Generative models trained via EM can naturally incorporate unlabeled data for classiﬁcation tasks [15, 2]. In the
+context of discriminative category learning, Fisher kernels
+[11] have been used to exploit a learned generative model
+of the data space in an SVM classiﬁer.
+Our work is related to work in transfer or multi-task
+learning, where training data in related tasks is used to aid
+learning in the problem of interest. Transfer and multi-task
+learning have a relatively long history in machine learning
+[20, 4, 16, 1]. Our work builds on the structural learning approach of Ando and Zhang [1], who describe an algorithm
+for transfer learning, and suggest the use of auxiliary problems on unlabeled data as a method for constructing related
+tasks. In vision a Bayesian transfer learning approach has
+been proposed for object recognition [8] where a common
+prior over visual classiﬁer parameters is learnt; their results
+show a signiﬁcant improvement when learning from a few
+labeled examples. In the context of multi-task learning, approaches that learn a shared part structure among different
+classes have also been proposed. In [21] Torralba introduced a discriminative (boosted) learning framework that
+learns common structure. The paper demonstrated faster
+learning with better generalization when parts are shared
+among classes. Epshtein and Ullman [5] have also addressed this goal, presenting an approach which identiﬁes
+functional parts by virtue of shared context. To the best of
+our knowledge, no previous approach to learning parts in
+images has made use of meta-data and structural learning.
+Several authors have considered the use of images with
+associated text data. Fergus et al. [9] developed a method
+using Google’s image search to learn visual categories, and
+report results comparable to fully supervised paradigms.
+Other work that has made use of image and/or video cap-
+
+tion data includes CMU’s Infomedia system [6], Barnards’
+“Matching Words and Pictures”[3], and Miller’s “Names
+and images in the news”[13].
+
+3. Learning Visual Representations
+A good choice of representation of images will be crucial to the success of any model for image classiﬁcation.
+The central focus of this paper is a method for automatically learning a representation from images which are unlabeled, but which have associated meta-data, for example
+natural language captions. We are particularly interested in
+learning a representation that allows effective learning of
+image classiﬁers in situations where the number of training
+examples is small. The key to the approach is to use metadata associated with the unlabeled images to form a set of
+auxiliary problems which drive the induction of an image
+representation. We assume the following scenario:
+• We have labeled (supervised) data for an image classiﬁcation task. We will call this the core task. For example, we might be interested in recovering images relevant
+to a particular topic in the news, in which case the labeled
+data would consist of images labeled with a binary distinction corresponding to whether or not they were relevant to
+the topic. We denote the labeled examples as the core set
+(x1 , y1 ), . . . , (xn , yn ) where (xi , yi ) is the i’th image/label
+pair. Note that test data points for the core task contain image data alone (these images do not have associated caption
+data, for example).
+=
+• We have N auxiliary training sets, Ti
+i
+i
+{(xi , y1 ), . . . , (xi i , yni )} for i = 1 . . . N . Here xi is the
+1
+n
+j
+i
+j’th image in the i’th auxiliary training set, yj is the label
+for that image, and ni is the number of examples in the i’th
+training set. The auxiliary training sets consist of binary
+classiﬁcation problems, distinct from the core task, where
+i
+each yj is in {−1, +1}. Shortly we will describe a method
+for constructing auxiliary training sets using images with
+captions.
+• The aim is to learn a representation of images, i.e., a
+function that maps images x to feature vectors f (x). The
+auxiliary training sets will be used as a source of information in learning this representation. The new representation
+will be applied when learning a classiﬁcation model for the
+core task.
+In the next section we will describe a method for inducing a representation from a set of auxiliary training sets.
+The intuition behind this method is to ﬁnd a representation
+which is relatively simple (i.e., of low dimension), yet allows strong performance on the auxiliary training sets. If
+the auxiliary tasks are sufﬁciently related to the core task,
+the learned representation will allow effective learning on
+the core task, even in cases where the number of training
+examples is small.
+
+i
+i
+Input 1: Auxiliary training sets{(xi , y1 ), . . . , (xi i , yni )}
+1
+n
+for i = 1 . . . N . Here xi is the j’th image in the i’th trainj
+i
+ing set, yj is the label for that image. ni is the number of
+examples in the i’th training set. We consider binary clasi
+siﬁcation problems, where each yj is in {−1, +1}. Each
+image x is represented by a feature vector g(x) ∈ Rd .
+Input 2: Core training set{(x1 , y1 ), . . . , (xn , yn )}
+
+Structural learning using auxiliary training sets:
+Step 1: Train N linear classiﬁers. For i = 1 . . . N ,
+choose the optimal parameters on the i’th training set to
+∗
+be wi = arg minw Li (w) where
+ni
+
+Li (w) =
+
+i
+l(w · g(xi ), yj ) +
+j
+j=1
+
+C1
+||w||2
+2
+
+(See section 3.1 for more discussion.)
+Step 2: Perform SVD on the Parameter Vectors.
+Form a matrix W of dimension d × N , by taking the pa∗
+rameter vectors wi for i = 1 . . . N . Compute a projection
+matrix A of dimension h × d by taking the ﬁrst h eigenvectors of WW .
+Output: The projection matrix A ∈ Rh×d .
+
+other density estimation method—over the feature vectors
+g(x1 ), . . . , g(xm ) for the set of unlabeled images (we will
+call this method the data-PCA method). The method we
+describe differs signiﬁcantly from PCA and similar methods in its use of meta-data associated with the images, for
+example captions. Later we will describe synthetic experiments where PCA fails to ﬁnd a useful representation, but
+our method is successful. In addition we describe experiments on real image data where PCA again fails, but our
+method is successful in recovering representations which
+signiﬁcantly speed learning.
+Given the baseline representation, the new representation
+is deﬁned as f (x) = Ag(x) where A is a projection matrix
+of dimension h × d.1 The value of h is typically chosen
+such that h
+d. The projection matrix is learned from the
+set of auxiliary training sets, using the structural learning
+approach described in [1]. Figure 1 shows the algorithm.
+∗
+In a ﬁrst step, linear classiﬁers wi are trained for each of
+the N auxiliary problems. In several parameter estimation
+methods, including logistic regression and support vector
+machines, the optimal parameters w∗ are taken to be w∗ =
+arg minw L(w) where L(w) takes the following form:
+n
+
+l(w · g(xj ), yj ) +
+
+L(w) =
+j=1
+
+Train using the core training set:
+Deﬁne f (x) = Ag(x).
+Choose the optimal parameters on the core training set to
+be v∗ = arg minv L(v) where
+n
+
+L(v) =
+
+l(v · f (xj ), yj ) +
+j=1
+
+C2
+||v||2
+2
+
+This section describes the structural learning algorithm
+[1] for learning a representation from a set of auxiliary training sets. We assume that a baseline representation of images
+g(x) ∈ Rd is available. In the experiments in this paper
+g(x) is a SIFT histogram representation [19]. In general,
+g(x) will be a “raw” representation of images that would
+be sufﬁcient for learning an effective classiﬁer with a large
+number of training examples, but which performs relatively
+poorly when the number of training examples is small. For
+example, with the SIFT representation the feature vectors
+g(x) are of relatively high dimension (we use d = 1, 000),
+making learning with small amounts of training data a challenging problem without additional information.
+Note that one method for learning a representation
+from the unlabeled data would be to use PCA—or some
+
+(1)
+
+Here {(x1 , y1 ), . . . , (xn , yn )} is a set of training examples,
+where each xj is an image and each yj is a label. The constant C > 0 dictates the amount of regularization in the
+model. The function l(w · g(xj ), yj ) is some measure of
+the loss for the parameters w on the example (xj , yj ). For
+example, in support vector machines [7] l is the hinge-loss,
+deﬁned as l(m, y) = (1 − ym)+ where (z)+ is z if z >= 0,
+and is 0 otherwise. In logistic regression the loss function is
+
+Figure 1. The structural learning algorithm [1].
+
+3.1. Learning Visual Representations from Auxiliary Tasks
+
+C
+||w||2
+2
+
+l(m, y) = − log
+
+exp{ym}
+.
+1 + exp{ym}
+
+(2)
+
+Throughout this paper we use the loss function in Eq. 2, and
+classify examples with sign(w · g(x)) where sign(z) is 1
+if z ≥ 0, −1 otherwise.
+In the second step, SVD is used to identify a matrix A
+of dimension h × d. The matrix deﬁnes a linear subspace of
+dimension h which is a good approximation to the space of
+∗
+∗
+induced weight vectors w1 , . . . , wN . Thus the approach
+amounts to manifold learning in classiﬁer weight space.
+Note that there is a crucial difference between this approach
+and the data-PCA approach: in data-PCA SVD is run over
+the data space, whereas in this approach SVD is run over
+the space of parameter values. This leads to very different
+behaviors of the two methods.
+1 Note
+
+that the restriction to linear projections is not necessarily limiting. It is possible to learn non-linear projections using the kernel trick;
+i.e., by expanding feature vectors g(x) to a higher-dimensional space, then
+taking projections of this space.
+
+The matrix A is used to constrain learning of new problems. As in [1] the parameter values are chosen to be
+w∗ = A v∗ where v∗ = arg minv L(v) and
+n
+
+C
+l((A v) · g(xj ), yj ) + ||v||2
+L(v) =
+2
+j=1
+
+n
+
+l(v · f (xj ), yj ) +
+j=1
+
+C
+||v||2
+2
+
+b
+PD1
+H
+
+(3)
+
+S
+N
+LL
+
+This essentially corresponds to constraining the parameter
+vector w∗ for the new problem to lie in the sub-space deﬁned by A. Hence we have effectively used the auxiliary
+training problems to learn a sub-space constraint on the set
+of possible parameter vectors.
+If we deﬁne f (x) = Ag(x), it is simple to verify that
+L(v) =
+
+a
+
+(4)
+
+and also that sign(w∗ · g(x)) = sign(v∗ · f (x)). Hence an
+alternative view of the algorithm in ﬁgure 1 is that it induces
+a new representation f (x). In summary, the algorithm in
+ﬁgure 1 derives a matrix A that can be interpreted either as
+a sub-space constraint on the space of possible parameter
+vectors, or as deﬁning a new representation f (x) = Ag(x).
+
+3.2. Metadata-derived auxilliary problems
+A central question is how auxiliary training sets can be
+created for image data. A key contribution of this paper is to
+show that unlabeled images which have associated text captions can be used to create auxiliary training sets, and that
+the representations learned with these unlabeled examples
+can signiﬁcantly reduce the amount of training data required
+for a broad class of topic-classiﬁcation problems. Note that
+in many cases, images with captions are readily available,
+and thus the set of captioned images available may be considerably larger than our set of labeled images.
+Formally, denote a set of images with associated captions as (x1 , c1 ), . . . , (xm , cm ) where (xi , ci ) is the i’th image/caption pair. We base our N auxiliary training sets
+on N content words, (w1 , . . . , wN ). A natural choice for
+these words would be to choose the N most frequent content words seen within the captions.2 N auxiliary training
+sets can then be created as follows. Deﬁne Ii [c] to be 1 if
+word wi is seen in caption c, and −1 otherwise. Create a
+training set Ti = {(x1 , Ii [c1 ]), . . . , (xm , Ii [cm ])} for each
+i = 1 . . . N . Thus the i’th training set corresponds to the
+binary classiﬁcation task of predicting whether or not the
+word wi is seen in the caption for an image x .
+
+4. Examples Illustrating the Approach
+Figure 2 shows a concept ﬁgure illustrating how PCA in
+a classiﬁer weight space can discover functional part struc2 In our experiments we deﬁne a content word to be any word which
+does not appear on a “stop list” of common function words in English.
+
+LC
+LR
+EC
+PT 1
+
+a
+
+b
+
+D
+
+PD
+
+T
+
+PT
+
+Figure 2. Concept ﬁgure illustrating how when appropriate auxiliary tasks have already been learned manifold learning in classiﬁer
+weight space can group features corresponding to functionally deﬁned visual parts. Parts (eyes, nose, mouth) of an object (face)
+may have distinct visual appearances (the top row of cartoon part
+appearances). A speciﬁc face (e.g., a or b) is represented with the
+boolean indicator vector as shown. Matrix D shows all possible
+faces given this simple model; PCA on D is shown row-wise in PD
+(ﬁrst principal component is shown also above in green as P D1 .)
+No basis in PD groups together eye or mouth appearances; different part appearances never co-occur in D. However, idealized classiﬁers trained to recognize, e.g., faces with a particular mouth and
+any eye (H,S,N), or a particular eye and mouth (LL,LC,LR,EC),
+will learn to group features into parts. Matrix T and blue vectors above show these idealized boolean classiﬁer weights; the ﬁrst
+principal component of T is shown in red as P T1 , clearly grouping
+together the four cartoon eye and the three cartoon mouth appearances. Positive and negative components of P T1 would be very
+useful features for future learning tasks related to faces in this simple domain because they group together different appearances of
+eyes and mouths.
+
+tures given idealized auxiliary tasks. When the tasks are
+deﬁned such that to solve them they need to learn to group
+different visual appearances, the distinct part appearances
+will then become correlated in the weight space, and techniques such as PCA will be able to discover them. In practice the ability to obtain such ideal classiﬁers is critical to
+our method’s success. Next we will describe a synthetic example where the method is successful; in the following section we present real-world examples where auxiliary tasks
+are readily available and yield features that speed learning
+of future tasks.
+We now describe experiments on synthetic data that illustrate the approach. To generate the data, we assume that
+there is a set of 10 possible parts. Each object in our data
+consists of 3 distinct parts; hence there are 10 = 120 pos3
+sible objects. Finally, each of the 10 parts has 5 possible
+observations, giving 50 possible observations in total (the
+observations for each part are distinct).
+As a simple example (see ﬁgure 3), the 10 parts might
+correspond to 10 letters of the alphabet. Each “object” then
+
+a
+b
+(a) c
+j
+
+A
+b
+C
+J
+
+A
+B
+c
+...
+J
+
+A
+b
+c
+J
+
+A
+b
+c
+J
+
+Abc
+Abc
+abc
+(b)
+AdE
+ADE
+ADe
+
+abD
+AbD
+abd
+bcf
+Bcf
+bCf
+
+Figure 3. Synthetic data involving objects constructed from letters.
+(a) There are 10 possible parts, corresponding to the ﬁrst 10 letters
+of the alphabet. Each part has 5 possible observations (corresponding to different fonts). (b) Each object consists of 3 distinct parts;
+the observation for each part is drawn uniformly at random from
+the set of possible observations for that part. A few random draws
+for 4 different objects are shown.
+
+consists of 3 distinct letters from this set. The 5 possible observations for each part (letter) correspond to visually distinct realizations of that letter; for example, these could correspond to the same letter in different fonts, or the same
+letter with different degrees of rotation. The assumption is
+that each observation will end up as a distinct visual word,
+and therefore that there are 50 possible visual words.
+
+PCA Dimensions: 1and 2
+
+PCA Dimensions: 2and 3
+
+0.5
+
+0.4
+
+0.4
+
+0.3
+
+0.2
+
+0.3
+
+0.1
+0.2
+0
+0.1
+−0.1
+0
+−0.2
+−0.1
+−0.3
+−0.2
+
+−0.4
+
+−0.3
+−0.4
+
+−0.3
+
+−0.2
+
+−0.1
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+
+−0.5
+0.5
+−0.3
+
+−0.2
+
+−0.1
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+
+0.5
+
+Figure 4. The representations learned by PCA on the synthetic data
+problem. The ﬁrst ﬁgure shows projections 1 vs. 2; the second
+ﬁgure shows projections 2 vs. 3. Each plot shows 50 points corresponding to the 50 observations in the model; observations corresponding to the same part have the same color. There is no discernable structure in the ﬁgures. The remaining dimensions were
+found to similarly show no structure.
+Structure Learning: Dimensions: 2and 3
+
+Structure Learning: Dimensions: 1and 2
+
+0.4
+
+0.25
+
+0.2
+
+0.3
+
+0.15
+
+0.2
+0.1
+
+The goal in learning a representation for object recognition in this task would be to learn that different observations
+from the same part are essentially equivalent—for example,
+that observations of the letter “a” in different fonts should
+be collapsed to the same point. This can be achieved by
+learning a projection matrix A of dimension 10 × 50 which
+correctly maps the 50-dimensional observation space to the
+10-dimensional part space. We show that the use of auxiliary training sets, as described in section 3.1, is successful in
+learning this structure, whereas PCA fails to ﬁnd any useful
+structure in this domain.
+To generate the synthetic data, we sample 100 instances
+of each of the 120 objects as follows. For a given object
+y, deﬁne Py to be the set of parts that make up that object.
+For each part p ∈ Py , generate a single observation uniformly at random from the set of possible observations for
+p. Each data point generated in this way consists of an object label y, together with a set of three observations, x. We
+can represent x by a 50-dimensional binary feature vector
+g(x), where only 3 dimensions (corresponding to the three
+observations in x) are non-zero.
+To apply the auxiliary data approach, we create 120 auxiliary training sets. The i’th training set corresponds to the
+problem of discriminating between the i’th object and all
+other 119 objects. A projection matrix A is learned from
+the auxiliary training sets. In addition, we can also construct a projection matrix using PCA on the data points
+g(x) alone. Figures 4 and 5 show the projections learned by
+PCA and the auxiliary tasks method. PCA fails to learn useful structure; in contrast the auxiliary task method correctly
+collapses observations for the same part to nearby points.
+
+0.1
+
+0.05
+
+0
+
+0
+
+−0.05
+
+−0.1
+−0.1
+
+−0.2
+−0.15
+
+−0.2
+−0.145
+
+−0.144
+
+−0.143
+
+−0.142
+
+−0.141
+
+−0.14
+
+−0.139
+
+−0.138
+
+−0.137
+
+−0.3
+−0.2
+−0.136
+
+−0.15
+
+−0.1
+
+−0.05
+
+0
+
+0.05
+
+0.1
+
+0.15
+
+Figure 5. The representations learned by structural learning on the
+synthetic data problem. The ﬁrst ﬁgure shows projections 1 vs. 2;
+the second ﬁgure shows projections 2 vs. 3. Each plot shows 50
+points corresponding to the 50 observations in the model; observations corresponding to the same part have the same color. There
+is clear structure in features 2 and 3, in that observations corresponding to the same part are collapsed to nearby points in the
+projected space. The remaining dimensions were found to show
+similar structure to those in dimensions 2 and 3.
+
+5. Experiments on Images with Captions
+5.1. Data
+We collected a data set consisting of 10,576 images.
+These images were collected from the Reuters news website (http://today.reuters.com/news/) during a
+period of one week. Images on the Reuters website are partitioned into stories or topics, which correspond to different
+topics in the news. Thus each image has a topic label—in
+our case, the images fell into 130 possible topics. Figure 6
+shows some example images.
+The experiments involved predicting the topic variable y
+for test images. We reserved 8, 000 images as a source of
+training data, and an additional 1, 000 images as a potential
+source of development data. The remaining 1,576 images
+
+0.2
+
+0.25
+
+will in practice give an upper bound on the performance
+of the baseline model, as assuming 1, 000 development examples is almost certainly unrealistic (particulary considering that we are considering training sets whose size is at
+most 320). The values of C that were tested were 10k , for
+k = −5, −4, . . . , 4.
+
+5.3. The Data-PCA Model
+
+Figure 6. Example images from the Golden Globes, ﬁgure skating,
+Grammy and ice hockey topics.
+
+were used as a test set. Multiple training sets of different
+sizes, and for different topics, were created as follows. We
+created training sets Tn,y for n = {1, 2, 4, 8, 16, 32, 64} and
+y = {1, 2, 3, . . . , 15}, where Tn,y denotes a training set for
+topic y which has n positive examples from topic y, and 4n
+negative examples. The 15 topics corresponded to the 15
+most frequent topics in the training data. The positive and
+negative examples were drawn randomly from the training
+set of size 8, 000. We will compare various models by training them on each of the training sets Tn,y , and evaluating
+the models on the 1,576 test images.
+In addition, each of the 8, 000 training images had associated captions, which can be used to derive an image
+representation (see section 3.1). Note that we make no use
+of captions on the test or development data sets. Instead,
+we will use the 8, 000 training images to derive representations that are input to a classiﬁer that uses images alone.
+In summary, our experimental set-up corresponds to a scenario where we have a small amount of labeled data for a
+core task (predicting the topic for an image), and a large
+amount of unlabeled data with associated captions.
+
+5.2. The Baseline Model
+A baseline model was trained on all training sets Tn,y . In
+each case the resulting model was tested on the 1, 576 test
+examples. The baseline model consists of a logistic regression model over the SIFT features: to train the model we
+used conjugate gradient descent to ﬁnd the parameters w∗
+which maximize the regularized log-likelihood, see equations 1 and 2. When calculating equal-error-rate statistics
+on test data, the value for P (y = +1|x; w∗ ) can be calculated for each test image x; this score is then used to rank
+the test examples.
+The parameter C in Eq. 1 dictates the amount of regularization used in the model. For the baseline model, we
+used the development set of 1, 000 examples to optimize
+the value of C for each training set Tn,y . Note that this
+
+As a second baseline, we trained a logistic-regression
+classiﬁer, but with the original feature vectors g(x) in training and test data replaced by h-dimensional feature vectors
+f (x) = Ag(x) where A was derived using PCA. A matrix F of dimension 1, 000 × 8, 000 was formed by taking
+the feature vectors g(x) for the 8, 000 data points; the projection matrix A was constructed from the ﬁrst h eigenvectors of FF . The PCA model has free parameters h and C.
+These were optimized using the method described in section 5.6. We call this model the data-PCA model.
+
+5.4. A Model with Predictive Structure
+We ran experiments using the structure prediction approach described in section 3. We train a logistic-regression
+classiﬁer on feature vectors f (x) = Ag(x) where A is
+derived using the method in section 3.1. Using the 8, 000
+training images, we created 100 auxiliary training sets corresponding to the 100 most frequent content words in the
+captions.3 Each training set involves prediction of a particular content word. The input to the classiﬁer is the SIFT
+representation of an image. Next, we trained linear classiﬁers on each of the 100 auxiliary training sets to induce
+parameter vectors w1 . . . w100 . Each parameter vector is of
+dimension 1, 000; we will use W to refer to the matrix of
+size 1, 000 × 100 which contains all parameter values. The
+projection matrix A consists of the h eigenvectors in Rd
+which correspond to the h largest eigenvalues of WW .
+
+5.5. The Word-Classiﬁers Model
+As a third baseline, we trained a logistic-regression classiﬁer with the original feature vectors g(x) in training
+and test data replaced by 100-dimensional feature vectors
+f (x) = Ag(x) where A = Wt . This amounts to training the topic classiﬁers with the outputs of the word classiﬁers. Notice that this model is similar to a model with
+predictive structure where h = 100. The word-classiﬁers
+model has a free parameter C. This was optimized using
+the method described in section 5.6. We call this model the
+word-classiﬁers model.
+3 Content words are deﬁned as any words which do not appear on a
+“stop” list of common function words.
+
+Reuters Dataset: 14 topics
+0.75
+
+Average Equal Error Rate
+
+0.7
+
+0.65
+
+0.6
+
+0.55
+
+Baseline Model
+PCA Model
+Structural Learning
+Word Classifiers Model
+
+0.5
+
+0.45
+
+1
+
+2
+
+4
+8
+16
+# positive training examples
+
+32
+
+64
+
+Figure 7. Equal error rate averaged across topics, with standard
+deviations calculated from ten runs for each topic. The equal error
+rates are averaged across 14 topics; the 7th most frequent topic is
+excluded as this was used for cross-validation (see section 5.6).
+
+5.6. Cross-Validation of Parameters
+The data-PCA and the predictive structure models have 2
+free parameters: the dimensionality of the projection h, and
+C.4 A single topic—the 7th most frequent topic in the training data—was used to tune these parameters for the 3 model
+types. For each model type the model was trained on all
+training sets Tn,7 for n = 1, 2, 4, 8, ..., 64, with values for h
+taken from the set {2, 5, 10, 20, 30, 40, 100} and values for
+n
+C chosen from {0.00001, 0.0001, . . ., 1000}. Deﬁne Eh,C
+to be the equal-error-rate on the development set for topic
+7, when trained on the training set Tn,7 using parameters h
+and C. We choose the value h∗ for all experiments on the
+remaining 14 topics as
+h∗ = arg min
+h
+
+i
+min Eh,C
+i=1,2,...,64
+
+C
+
+This corresponds to making a choice of h∗ that performs
+well on average across all training set sizes. In addition,
+when training a model on a training set with i positive ex∗
+i
+amples, we chose Ci = arg minC Eh∗ ,C as the regularization constant. The motivation for using a single topic as a
+validation set is that it is realistic to assume that a fairly substantial validation set (1,000 examples in our case) can be
+created for one topic; this validation set can then be used to
+∗
+choose values of h∗ and Ci for all remaining topics.
+The word-classiﬁers model has one free parameter: the
+constant C used in Eq. 1. The value for this parameter was
+also optimized using the development set.
+
+5.7. Results
+Figure 7 shows the mean equal error rate and standard
+deviation over ten runs for the experiments on the Reuters
+4 We use C to refer to the parameter C in ﬁgure 1. C in ﬁgure 1 was
+2
+1
+set to be 0.1 in all of our experiments.
+
+dataset. The equal error rate is the recall occurring when
+the decision threshold of the classiﬁer is set so that the proportion of false rejections will be equal to the proportion of
+false acceptances. For example an equal error rate of 70%
+means that when the proportion of false rejections is equal
+to the proportion of false acceptances 70% of the positive
+examples are labeled correctly and 30% of the negative examples are misclassiﬁed as positive.
+For all training set sizes the structural learning model
+improves performance over the three other models. The
+average performance with one positive training example is
+around 62% with the structural learning method; to achieve
+similar performance with the word-classiﬁers model requires around four positive examples and with the baseline model between four and eight. Similarly, the performance with four positive examples for the structural learning method is around 67%; both the word-classiﬁers model
+and the baseline model require between 32 and 64 positive
+examples to achieve this performance. PCA’s performance
+is lower than the baseline model for all training sizes and
+the gap between the two increases with the size of the training set. The performance of the word-classiﬁers model is
+better than the baseline for small training sets but the gap
+between the two decreases with the size of the training set.
+Figures 8 and 9 show equal error rates for two different topics. The ﬁrst topic, “Australian Open”, is one of
+the topics that exhibits the most improvement from structural learning. The second topic, “Winter Olympics”, is one
+of the three topics for which structural learning does not
+improve performance. As can be observed from the Australian Open curves the use of structural features speeds the
+generalization ability of the classiﬁer. The structural model
+trained with only two positive examples performs comparably to the baseline model trained with sixty four examples.
+For the Winter Olympics topic the three models perform
+similarly. At least for a small number of training examples,
+this topic exhibits a slow learning curve; i.e. there is no
+signiﬁcant improvement in performance as we increase the
+size of the labeled training set; this suggests that this is an
+inherently more difﬁcult class.
+
+6. Conclusions
+We have described a method for learning visual representations from large quantities of unlabeled images which
+have associated captions. The method makes use of auxiliary training sets corresponding to different words in the
+captions, and structural learning, which learns a manifold in
+parameter space. The induced representations signiﬁcantly
+speed up learning of image classiﬁers applied to topic classiﬁcation. Our results show that when meta-data labels are
+suitably related to a target (core) task, the structural learning
+method can discover feature groupings that speed learning
+of the target task. Future work includes exploration of au-
+
+Australial Open : Trained with 1 examples
+
+0.7
+True Positive Rate
+
+0.8
+
+0.7
+True Positive Rate
+
+1
+0.9
+
+0.8
+
+0.6
+0.5
+0.4
+0.3
+
+0.5
+0.4
+
+0.2
+Baseline
+PCA
+Structural
+
+0.1
+0
+
+0.6
+
+0.3
+
+0.2
+
+0
+
+0.2
+
+0.4
+0.6
+False Positive Rate
+
+0.8
+
+Baseline
+PCA
+Structural
+
+0.1
+0
+
+1
+
+0
+
+Australial Open : Trained with 4 examples
+
+0.2
+
+0.4
+0.6
+False Positive Rate
+
+0.8
+
+1
+
+Australial Open : Trained with 64 examples
+1
+0.9
+
+0.8
+
+0.8
+
+0.7
+
+0.7
+True Positive Rate
+
+1
+0.9
+
+True Positive Rate
+
+References
+
+Australian Open : Trained with 2 examples
+
+1
+0.9
+
+0.6
+0.5
+0.4
+0.3
+
+0.5
+0.4
+0.3
+
+0.2
+
+0.2
+Baseline
+PCA
+Structural
+
+0.1
+0
+
+0.6
+
+0
+
+0.2
+
+0.4
+0.6
+False Positive Rate
+
+0.8
+
+Baseline
+PCA
+Structural
+
+0.1
+0
+
+1
+
+0
+
+0.2
+
+0.4
+0.6
+False Positive Rate
+
+0.8
+
+1
+
+Figure 8. Roc Curves for the “Australian Open” topic.
+
+Winter Olympics: Trained with 1 example
+
+Winter Olympics: Trained with 4 examples
+
+0.8
+
+0.7
+
+0.7
+True Positive Rate
+
+1
+0.9
+
+0.8
+
+True Positive Rate
+
+1
+0.9
+
+0.6
+0.5
+0.4
+0.3
+
+0.5
+0.4
+0.3
+
+0.2
+
+0.2
+Baseline
+PCA
+Structural
+
+0.1
+0
+
+0.6
+
+0
+
+0.2
+
+0.4
+0.6
+False Positive Rate
+
+0.8
+
+Baseline
+PCA
+Structural
+
+0.1
+0
+
+1
+
+0
+
+Winter Olympics: Trained with 8 examples
+
+0.4
+0.6
+False Positive Rate
+
+0.8
+
+1
+
+Winter Olympics: Trained with 64 examples
+1
+0.9
+
+0.8
+
+0.8
+
+0.7
+
+0.7
+True Positive Rate
+
+1
+0.9
+
+True Positive Rate
+
+0.2
+
+0.6
+0.5
+0.4
+0.3
+
+0.5
+0.4
+0.3
+
+0.2
+
+0.2
+Baseline
+PCA
+Structural
+
+0.1
+0
+
+0.6
+
+0
+
+0.2
+
+0.4
+0.6
+False Positive Rate
+
+0.8
+
+Baseline
+PCA
+Structural
+
+0.1
+1
+
+0
+
+0
+
+0.2
+
+0.4
+0.6
+False Positive Rate
+
+0.8
+
+Figure 9. Roc Curves for the “Winter Olympics” topic.
+
+tomatic determination of relevance between target and auxiliary tasks, and experimental evaluation of the effectiveness of structural learning from more weakly related auxiliary domains. We would also like to explore other manifold
+learning techniques such as NMF and LDA.
+
+Acknowledgements
+M. Collins was supported by NSF grants 0347631 and
+DMS-0434222. A. Quattoni was supported by a grant from
+DARPA, and NSF grant DMS-0434222. T. Darrell was supported by DARPA, Google and Toyota Motor Company .
+
+1
+
+[1] R. K. Ando and T. Zhang. A framework for learning predictive structures from multiple tasks and unlabeled data. Journal of Machine
+Learning Research, 6:1817–1853, 2005. 1, 2, 3, 4
+[2] S. Baluja. Probabilistic modeling for face orientation discrimination:
+Learning from labeled and unlabeled data. In In Neural and Information Processing Systems (NIPS), 1998. 2
+[3] K. Barnard, P. Duygulu, D. Forsyth, and N. D. Freitas. Matching
+words and pictures. Journal of Machine Learning Research, 3:1107–
+1135, 2003. 2
+[4] J. Baxter. A bayesian/information theoretic model of learning to
+learn via multiple task sampling. Machine Learning, 28, 1997. 2
+[5] B.Epshtein and S.Ullmam. Identifying semantically equivalent object fragments. In Proceedings of CVPR-2005, 2005. 2
+[6] CMU. http://www.informedia.cs.cmu.edu/. 2
+[7] C. Cortes and V. Vapnik. Support vector networks. Machine Learning, 20(2):273–297, 2005. 3
+[8] Fei-Fei, P. Perona, and R. Fergus. One-shot learning of object categories. Pattern Analysis and Machine Intelligence, 28(4), 2006. 2
+[9] R. Fergus, F.-F. L., P. Perona, and A. Zisserman. Learning object
+categories from google’s image search. In Proc. of the 10th Inter.
+Conf. on Computer Vision, ICCV 2005, 2005. 2
+[10] K. Grauman and T. Darrell. The pyramid match kernel:discriminative
+classiﬁcation with sets of image features. In Proceedings fo the International Conference on Computer Vision (ICCV), 2005. 2
+[11] T. Jaakkola and D. Haussler. Exploiting generative models in discriminative classiﬁers. In In Advances in Neural Information Processing Systems 11, 1998. 2
+[12] S. Lazebnik, C. Schmid, and J. Ponce. Beyond bags of features:
+Spatial pyramid matching for recognizing natural scene categories.
+In Proceedings of CVPR-2006, 2006. 2
+[13] T. Miller, A. Berg, J. Edwards, M. Maire, and R. White. Names and
+images in the news. In Proceedings of the IEEE Conf. on Computer
+Vision and Pattern Recognition (CVPR), 2004. 2
+[14] J. Mutch and D. Lowe. Multiclass object recognition with sparse,
+localized features. In Proceedings of CVPR, 2006. 2
+[15] K. Nigam, A. Mccallum, S. Thrun, and T. Mitchell. Text classiﬁcation from labeled and unlabeled documents using em. Machine
+Learning, 39(2):103–134, 2000. 2
+[16] R. Raina, A. Y. Ng, and D. Koller. Constructing informative priors using transfer learning. In Proceedings of the 23rd International
+Conference on Machine learning, pages 713–720, 2006. 2
+[17] M. Seeger. Learning with labeled and unlabeled data. Technical
+report, Institute for Adaptive and Neural Computation, Univ. of Edinburgh, 2001. 2
+[18] T. Serre, L. Wolf, and T. Poggio. Object recognition with features inspired by visual cortex. In Proceedings of 2005 IEEE Computer Society Conference on Computer Vision and Pattern Recognition (CVPR
+2005), 2005. 2
+[19] J. Sivic, B. Russell, A. Efros, A. Zisserman, and W. Freeman. Discovering object categories in image collections. Proc. Int’l Conf.
+Computer Vision, Beijing, 2005, 2005. 3
+[20] S. Thrun. Is learning the n-th thing any easier than learning the ﬁrst?
+In In Advances in Neural Information Processing Systems, 1996. 2
+[21] A. Torralba, K. P. Murphy, and W. T. Freeman. Sharing visual features for multiclass and multiview object detection. Pattern Analysis
+and Machine Intelligence, In press, 2006. 2
+[22] H. Zhang, A. Berg, M. Maire, and J. Malik. Svm-knn: Discriminative
+nearest neighbor classiﬁcation for visual category recognition. In
+Proceedings of CVPR-2006, 2006. 2
+
+

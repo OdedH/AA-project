@@ -1,0 +1,6287 @@
+Learning Dependency-Based Compositional Semantics
+by
+Percy Shuo Liang
+
+A dissertation submitted in partial satisfaction of the
+requirements for the degree of
+Doctor of Philosophy
+in
+Electrical Engineering and Computer Sciences
+and the Designated Emphasis
+in
+Communication, Computation, and Statistics
+in the
+Graduate Division
+of the
+University of California, Berkeley
+
+Committee in charge:
+Professor Dan Klein, Chair
+Professor Michael I. Jordan
+Professor Tom Griﬃths
+Fall 2011
+
+Learning Dependency-Based Compositional Semantics
+
+Copyright 2011
+by
+Percy Shuo Liang
+
+1
+Abstract
+
+Learning Dependency-Based Compositional Semantics
+by
+Percy Shuo Liang
+Doctor of Philosophy in Electrical Engineering and Computer Sciences
+and the Designated Emphasis
+in
+Communication, Computation, and Statistics
+University of California, Berkeley
+Professor Dan Klein, Chair
+Suppose we want to build a system that answers a natural language question by representing
+its semantics as a logical form and computing the answer given a structured database of facts.
+The core part of such a system is the semantic parser that maps questions to logical forms.
+Semantic parsers are typically trained from examples of questions annotated with their target
+logical forms, but this type of annotation is expensive.
+Our goal is to learn a semantic parser from question-answer pairs instead, where the logical form is modeled as a latent variable. Motivated by this challenging learning problem, we
+develop a new semantic formalism, dependency-based compositional semantics (DCS), which
+has favorable linguistic, statistical, and computational properties. We deﬁne a log-linear distribution over DCS logical forms and estimate the parameters using a simple procedure that
+alternates between beam search and numerical optimization. On two standard semantic
+parsing benchmarks, our system outperforms all existing state-of-the-art systems, despite
+using no annotated logical forms.
+
+i
+
+To my parents...
+and
+to Ashley.
+
+ii
+
+Contents
+1 Introduction
+
+1
+
+2 Representation
+2.1 Notation . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.2 Syntax of DCS Trees . . . . . . . . . . . . . . . . . . .
+2.3 Worlds . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2.3.1 Types and Values . . . . . . . . . . . . . . . . .
+2.3.2 Examples . . . . . . . . . . . . . . . . . . . . .
+2.4 Semantics of DCS Trees: Basic Version . . . . . . . . .
+2.4.1 DCS Trees as Constraint Satisfaction Problems
+2.4.2 Computation . . . . . . . . . . . . . . . . . . .
+2.4.3 Aggregate Relation . . . . . . . . . . . . . . . .
+2.5 Semantics of DCS Trees: Full Version . . . . . . . . . .
+2.5.1 Denotations . . . . . . . . . . . . . . . . . . . .
+2.5.2 Join Relations . . . . . . . . . . . . . . . . . . .
+2.5.3 Aggregate Relations . . . . . . . . . . . . . . .
+2.5.4 Mark Relations . . . . . . . . . . . . . . . . . .
+2.5.5 Execute Relations . . . . . . . . . . . . . . . . .
+2.6 Construction Mechanism . . . . . . . . . . . . . . . . .
+2.6.1 Lexical Triggers . . . . . . . . . . . . . . . . . .
+2.6.2 Recursive Construction of DCS Trees . . . . . .
+2.6.3 Filtering using Abstract Interpretation . . . . .
+2.6.4 Comparison with CCG . . . . . . . . . . . . . .
+3 Learning
+3.1 Semantic Parsing Model .
+3.1.1 Features . . . . . .
+3.2 Parameter Estimation . .
+3.2.1 Objective Function
+3.2.2 Algorithm . . . . .
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+5
+5
+6
+6
+7
+9
+10
+10
+12
+13
+15
+16
+20
+21
+22
+23
+30
+31
+31
+33
+35
+
+.
+.
+.
+.
+.
+
+37
+37
+37
+40
+40
+41
+
+iii
+4 Experiments
+4.1 Experimental Setup . . . . . . . . . . . . . . . . . . . .
+4.1.1 Datasets . . . . . . . . . . . . . . . . . . . . . .
+4.1.2 Settings . . . . . . . . . . . . . . . . . . . . . .
+4.1.3 Lexical Triggers . . . . . . . . . . . . . . . . . .
+4.2 Comparison with Other Systems . . . . . . . . . . . . .
+4.2.1 Systems that Learn from Question-Answer Pairs
+4.2.2 State-of-the-Art Systems . . . . . . . . . . . . .
+4.3 Empirical Properties . . . . . . . . . . . . . . . . . . .
+4.3.1 Error Analysis . . . . . . . . . . . . . . . . . . .
+4.3.2 Visualization of Features . . . . . . . . . . . . .
+4.3.3 Learning, Search, Bootstrapping . . . . . . . . .
+4.3.4 Eﬀect of Various Settings . . . . . . . . . . . .
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
+43
+43
+43
+45
+46
+48
+48
+49
+51
+52
+53
+54
+55
+
+5 Discussion
+5.1 Semantic Representation
+5.2 Program Induction . . .
+5.3 Grounded Language . .
+5.4 Conclusions . . . . . . .
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+58
+58
+60
+60
+61
+
+A Details
+A.1 Denotation Computation . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+A.1.1 Set-expressions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+A.1.2 Join and Project on Set-Expressions . . . . . . . . . . . . . . . . . .
+
+68
+68
+69
+70
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+.
+.
+.
+.
+
+iv
+
+Acknowledgments
+My last six years at Berkeley have been an incredible journey—one where I have grown
+tremendously, both academically and personally. None of this would have been possible
+without the support of the many people I have interacted with over the years.
+First, I am extremely grateful to have been under the guidance of not one great adviser,
+but two. Michael Jordan and Dan Klein didn’t just teach me new things—they truly shaped
+the way I think in a fundamental way and gave me invaluable perspective on research. From
+Mike, I learned how to really make sense of mathematical details and see the big important
+ideas; Dan taught me how to make sense of data and read the mind of a statistical model.
+The two inﬂuences complemented each other wonderfully, and I cannot think of a better
+environment for me.
+Having two advisers also meant having the fortune of interacting with two vibrant research groups. I remember having many inspiring conversations in meeting rooms, hallways, and at Jupiter—thanks to all the members of the SAIL and NLP groups, as well as
+Peter Bartlett’s group. I also had the pleasure of collaborating on projects with Alexandre Bouchard-Cˆt´, Ben Taskar, Slav Petrov, Tom Griﬃths, Aria Haghighi, Taylor Bergoe
+Kirkpatrick, Ben Blum, Jake Abernethy, Alex Simma, and Ariel Kleiner. I especially want
+to thank Dave Golland and Gabor Angeli, whom I really enjoyed mentoring.
+Many people outside of Berkeley also had a lasting impact on me. Nati Srebro introduced
+me to research when I was an undergraduate at MIT, and ﬁrst got me excited about machine
+learning. During my masters at MIT, Michael Collins showed me the rich world of statistical
+NLP. I also learned a great deal from working with Paul Viola, Martin Szummer, Francis
+Bach, Guillaume Bouchard, and Hal Daume through various collaborations. In a fortuitous
+turn of events, I ended up working on program analysis with Mayur Naik, Omer Tripp,
+and Mooly Sagiv. Mayur Naik taught me almost everything I know about the ﬁeld of
+programming languages.
+There are several additional people I’d like to thank: John Duchi, who gave me an excuse
+to bike long distances for my dinner; Mike Long, with whom I ﬁrst explored the beauty of
+the Berkeley hills; Rodolphe Jenatton, avec qui j’ai appris ` parler fran¸ais et courir en
+a
+c
+mˆme temps; John Blitzer, with whom I seemed to get better research done in the hills than
+e
+in the oﬃce; Kurt Miller, with whom I shared exciting adventures in St. Petersburg, to be
+continued in New York; Blaine Nelson, who introduced me to great biking in the Bay Area;
+my Ashby housemates (Dave Golland, Fabian Wauthier, Garvesh Raskutti, Lester Mackey),
+with whom I had many whole wheat conversations not about whole wheat; Haggai Niv and
+Ray Lifchez, pillars of my musical life; Simon Lacoste-Julien and Sasha Skorokhod, who
+expanded my views on life; and Alex Bouchard-Cˆt´, with whom I shared so many vivid
+oe
+memories during our years at Berkeley.
+
+v
+My parents, Frank Liang and Ling Zhang, invested in me more than I can probably
+imagine, and they have provided their unwavering support throughout my life—words simply
+fail to express my appreciation for them. Finally, Ashley, thank you for your patience during
+my long journey, for always providing a fresh perspective, for your honesty, and for always
+being there for me.
+
+1
+
+Chapter 1
+Introduction
+We are interested in building a system that can answer natural language questions given
+a structured database of facts. As a running example, consider the domain of US geography
+(Figure 1.1).
+What is the total population of the
+ten largest cities in California?
+city
+San Francisco
+Chicago
+Boston
+···
+
+loc
+Mount Shasta California
+San Francisco California
+Boston
+Massachusetts
+···
+···
+
+state
+Alabama
+Alaska
+Arizona
+···
+
+population
+Los Angeles 3.8 million
+San Francisco 805,000
+Boston
+617,000
+···
+···
+
+7
+5
+18
+···
+
+>
+3
+0
+2
+···
+
+count
+0
+{}
+{1,4} 2
+{2,5,6} 3
+···
+···
+
+System
+
+?
+Figure 1.1: The goal: a system that answers natural language questions given a structured
+database of facts. An example is shown in the domain of US geography.
+The problem of building these natural language interfaces to databases (NLIDBs) has a
+long history in NLP, starting from the early days of AI with systems such as Lunar (Woods
+et al., 1972), Chat-80 (Warren and Pereira, 1982), and many others (see Androutsopoulos
+et al. (1995) for an overview). While quite successful in their respective limited domains,
+because these systems were constructed from manually-built rules, they became diﬃcult to
+scale up, both to other domains and to more complex utterances. In response, against the
+backdrop of a statistical revolution in NLP during the 1990s, researchers began to build
+systems that could learn from examples, with the hope of overcoming the limitations of
+rule-based methods. One of the earliest statistical eﬀorts was the Chill system (Zelle and
+Mooney, 1996), which learned a shift-reduce semantic parser. Since then, there has been
+a healthy line of work yielding increasingly more accurate semantic parsers by using new
+semantic representations and machine learning techniques (Zelle and Mooney, 1996; Miller
+
+CHAPTER 1. INTRODUCTION
+
+2
+
+et al., 1996; Tang and Mooney, 2001; Ge and Mooney, 2005; Kate et al., 2005; Zettlemoyer
+and Collins, 2005; Kate and Mooney, 2006; Wong and Mooney, 2006; Kate and Mooney,
+2007; Zettlemoyer and Collins, 2007; Wong and Mooney, 2007; Kwiatkowski et al., 2010,
+2011).
+However, while statistical methods provided advantages such as robustness and portability, their application in semantic parsing achieved only limited success. One of the main
+obstacles was that these methods depended crucially on having examples of utterances paired
+with logical forms, and this requires substantial human eﬀort to obtain. Furthermore, the
+annotators must be proﬁcient in some formal language, which drastically reduces the size
+of the annotator pool, dampening any hope of acquiring enough data to fulﬁll the vision of
+learning highly accurate systems.
+In response to these concerns, researchers have recently begun to explore the possibility
+of learning a semantic parser without any annotated logical forms (Clarke et al., 2010; Liang
+et al., 2011; Goldwasser et al., 2011; Artzi and Zettlemoyer, 2011). It is in this vein that
+we develop our present work. Speciﬁcally, given a set of (x, y) example pairs, where x is an
+utterance (e.g., a question) and y is the corresponding answer, we wish to learn a mapping
+from x to y. What makes this mapping particularly interesting is it passes through a latent
+logical form z, which is necessary to capture the semantic complexities of natural language.
+Also note that while the logical form z was the end goal in past work on semantic parsing,
+for us, it is just an intermediate variable—a means towards an end. Figure 1.2 shows the
+graphical model which captures the learning setting we just described: The question x,
+answer y, and world/database w are all observed. We want to infer the logical forms z and
+the parameters θ of the semantic parser, which are unknown quantities.
+While liberating ourselves from annotated logical forms reduces cost, it does increase the
+diﬃculty of the learning problem. The core challenge here is program induction: on each
+example (x, y), we need to eﬃciently search over the exponential space of possible logical
+forms z and ﬁnd ones that produces the target answer y, a computationally daunting task.
+There is also a statistical challenge: how do we parametrize the mapping from utterance x
+to logical form z so that it can be learned from only the indirect signal y? To address these
+two challenges, we must ﬁrst discuss the issue of semantic representation. There are two
+basic questions here: (i) what should the formal language for the logical forms z be, and (ii)
+what are the compositional mechanisms for constructing those logical forms?
+The semantic parsing literature is quite multilingual with respect to the formal language
+used for the logical form: Researchers have used SQL (Giordani and Moschitti, 2009), Prolog (Zelle and Mooney, 1996; Tang and Mooney, 2001), a simple functional query language
+called FunQL (Kate et al., 2005), and lambda calculus (Zettlemoyer and Collins, 2005), just
+to name a few. The construction mechanisms are equally diverse, including synchronous
+grammars (Wong and Mooney, 2007), hybrid trees (Lu et al., 2008), Combinatorial Categorial Grammars (CCG) (Zettlemoyer and Collins, 2005), and shift-reduce derivations (Zelle
+and Mooney, 1996). It is worth pointing out that the choice of formal language and the
+construction mechanism are decisions which are really more orthogonal than it is often
+
+CHAPTER 1. INTRODUCTION
+
+3
+city
+San Francisco
+Chicago
+Boston
+···
+
+[0.3, −0.7, 4.5, 1.2, . . . ]
+
+loc
+Mount Shasta California
+San Francisco California
+Boston
+Massachusetts
+···
+···
+
+state
+Alabama
+Alaska
+Arizona
+···
+
+population
+Los Angeles 3.8 million
+San Francisco 805,000
+Boston
+617,000
+···
+···
+
+(parameters)
+
+>
+3
+0
+2
+···
+
+count
+0
+{}
+{1,4} 2
+{2,5,6} 3
+···
+···
+
+(world)
+
+θ
+
+7
+5
+18
+···
+
+w
+
+Semantic Parsing
+z ∼ p(z | x; θ)
+
+Semantic Evaluation
+y= z w
+
+y
+
+x
+
+z
+
+(utterance)
+
+(logical form)
+
+(answer)
+
+state with the
+largest area
+
+∗∗
+
+Alaska
+
+x1
+
+state
+1
+1
+
+area
+c
+
+argmax
+
+Figure 1.2: Our probabilistic model consists of two steps: (i) semantic parsing: an utterance
+x is mapped to a logical form z by drawing from a log-linear distribution parametrized by
+a vector θ; and (ii) evaluation: the logical form z is evaluated with respect to the world w
+(database of facts) to deterministically produce an answer y = z w . The ﬁgure also shows
+an example conﬁguration of the variables around the graphical model. Logical forms z as
+represented as labeled trees. During learning, we are given w and (x, y) pairs (shaded nodes)
+and try to infer the latent logical forms z and parameters θ.
+assumed—the former is concerned with what the logical forms look like; the latter, how to
+generate a set of possible logical forms in a compositional way given an utterance. (How to
+score these logical forms is yet another dimension.)
+The formal languages and construction mechanisms in past work were chosen somewhat
+out of the convenience of conforming to existing standards. For example, Prolog and SQL
+were existing standard declarative languages built for querying a deductive or relational
+database, which was convenient for the end application, but they were not designed for representing the semantics of natural language. As a result, the construction mechanism that
+bridges the gap between natural language and formal language is quite complicated and
+diﬃcult to learn. CCG (Steedman, 2000) and more generally, categorial grammar, is the de
+facto standard in linguistics. In CCG, logical forms are constructed compositionally using a
+small handful of combinators (function application, function composition, and type raising).
+For a wide range of canonical examples, CCG produces elegant, streamlined analyses, but
+its success really depends on having a good, clean lexicon. During learning, there is often
+
+CHAPTER 1. INTRODUCTION
+
+4
+
+large amounts of uncertainty over the lexical entries, which makes CCG more cumbersome.
+Furthermore, in real-world applications, we would like to handle disﬂuent utterances, and
+this further strains CCG by demanding either extra type-raising rules and disharmonic combinators (Zettlemoyer and Collins, 2007) or a proliferation of redundant lexical entries for
+each word (Kwiatkowski et al., 2010).
+To cope with the challenging demands of program induction, we break away from tradition in favor of a new formal language and construction mechanism, which we call dependencybased compositional semantics (DCS). The guiding principle behind DCS is to make a simple
+and intuitive framework for constructing and representing logical forms. Logical forms in
+DCS are tree structures called DCS trees. The motivation is two-fold: (i) DCS trees are
+meant to parallel syntactic dependency trees, which facilitates parsing; and (ii) a DCS tree
+essentially encodes a constraint satisfaction problem, which can be solved eﬃciently used
+dynamic programming. In addition, DCS provides a mark-execute construct, which provides
+a uniform way of dealing with scope variation, a major source of trouble in any semantic
+formalism. The construction mechanism in DCS is a generalization of labeled dependency
+parsing, which leads to simple and natural algorithms. To a linguist, DCS might appear
+unorthodox, but it is important to keep in mind that our primary goal is eﬀective program
+induction, not necessarily to model new linguistic phenomena in the tradition of formal
+semantics.
+Armed with our new semantic formalism, DCS, we then deﬁne a discriminative probabilistic model, which is depicted in Figure 1.2. The semantic parser is a log-linear distribution
+over DCS trees z given an utterance x. Notably, z is unobserved, and we instead observe
+only the answer y, which is z evaluated on a world/database w. There are an exponential
+number of possible trees z, and usually dynamic programming is employed for eﬃciently
+searching over the space of these combinatorial objects. However, in our case, we must
+enforce the global constraint that the tree generates the correct answer y, which makes dynamic programming infeasible. Therefore, we resort to beam search and learn our model
+with a simple procedure which alternates between beam search and optimizing a likelihood
+objective restricted to those beams. This yields a natural bootstrapping procedure in which
+learning and search are integrated.
+We evaluated our DCS-based approach on two standard benchmarks, Geo, a US geography domain (Zelle and Mooney, 1996) and Jobs, a job queries domain (Tang and Mooney,
+2001). On Geo, we found that our system signiﬁcantly outperforms previous work that also
+learns from answers instead of logical forms (Clarke et al., 2010). What is perhaps a more
+signiﬁcant result is that our system even outperforms state-of-the-art systems that do rely on
+annotated logical forms. This demonstrates that the viability of training accurate systems
+with much less supervision than before.
+The rest of this thesis is organized as follows: Chapter 2 introduces dependency-based
+compositional semantics (DCS), our new semantic formalism. Chapter 3 presents our probabilistic model and learning algorithm. Chapter 4 provides an empirical evaluation of our
+methods. Finally, Chapter 5 situates this work in a broader context.
+
+5
+
+Chapter 2
+Representation
+In this chapter, we present the main conceptual contribution of this work, dependencybased compositional semantics (DCS), using the US geography domain (Zelle and Mooney,
+1996) as a running example. To do this, we need to deﬁne the syntax and semantics of
+the formal language. The syntax is deﬁned in Section 2.2 and is quite straightforward: The
+logical forms in the formal language are simply trees, which we call DCS trees. In Section 2.3,
+we give a type-theoretic deﬁnition of worlds (also known as databases or models) with respect
+to which we can deﬁne the semantics of DCS trees.
+The semantics, which is the heart of this thesis, contains two main ideas: (i) using
+trees to represent logical forms as constraint satisfaction problems or extensions thereof,
+and (ii) dealing with cases when syntactic and semantic scope diverge (e.g., for generalized
+quantiﬁcation and superlative constructions) using a new construct which we call markexecute. We start in Section 2.4 by introducing the semantics of a basic version of DCS
+which focuses only on (i) and then extend it to the full version (Section 2.5) to account for
+(ii).
+Finally, having fully speciﬁed the formal language, we describe a construction mechanism
+for mapping a natural language utterance to a set of candidate DCS trees (Section 2.6).
+
+2.1
+
+Notation
+
+Operations on tuples will play a prominent role in this thesis. For a sequence1 v = (v1 , . . . , vk ),
+we use |v| = k to denote the length of the sequence. For two sequences u and v, we use
+u + v = (u1 , . . . , u|u| , v1 , . . . , v|v| ) to denote their concatenation.
+For a sequence of positive indices i = (i1 , . . . , im ), let vi = (vi1 , . . . , vim ) consist of the
+components of v speciﬁed by i; we call vi the projection of v onto i. We use negative indices
+1
+
+We use the sequence to include both tuples (v1 , . . . , vk ) and arrays [v1 , . . . , vk ]. For our purposes, there
+is no functional diﬀerence between tuples and arrays; the distinction is convenient when we start to talk
+about arrays of tuples.
+
+CHAPTER 2. REPRESENTATION
+
+6
+
+to exclude components: v−i = (v(1,...,|v|)\i ). We can also combine sequences of indices by
+concatenation: vi,j = vi + vj . Some examples: if v = (a, b, c, d), then v2 = b, v3,1 = (c, a),
+v−3 = (a, b, d), v3,−3 = (c, a, b, d).
+
+2.2
+
+Syntax of DCS Trees
+
+The syntax of the DCS formal language is built from two ingredients, predicates and relations:
+• Let P be a set of predicates. We assume that P always contains a special null predicate
+ø and several domain-independent predicates (e.g., count, <, >, and =). In addition,
+P contains domain-speciﬁc predicates. For example, for the US geography domain, P
+would include state, river, border, etc. Right now, think of predicates as just labels,
+which have yet to receive formal semantics.
+• Let R be the set of relations. The full set of relations are shown in Table 2.1; note
+that unlike the predicates P, the relations R are ﬁxed.
+The logical forms in DCS are called DCS trees. A DCS tree is a directed rooted tree in
+which nodes are labeled with predicates and edges are labeled with relations; each node also
+maintains an ordering over its children. Formally:
+Deﬁnition 1 (DCS trees) Let Z be the set of DCS trees, where each z ∈ Z consists of (i)
+a predicate z.p ∈ P and (ii) a sequence of edges z.e = (z.e1 , . . . , z.em ). Each edge e consists
+of a relation e.r ∈ R (see Table 2.1) and a child tree e.c ∈ Z.
+We will either draw a DCS tree graphically or write it compactly as p; r1 : c1 ; . . . ; rm : cm
+where p is the predicate at the root node and c1 , . . . , cm are its m children connected via
+edges labeled with relations r1 , . . . , rm , respectively. Figure 2.2(a) shows an example of a
+DCS tree expressed using both graphical and compact formats.
+A DCS tree is a logical form, but it is designed to look like a syntactic dependency tree,
+only with predicates in place of words. As we’ll see over the course of this chapter, it is this
+transparency between syntax and semantics provided by DCS which leads to a simple and
+streamlined compositional semantics suitable for program induction.
+
+2.3
+
+Worlds
+
+In the context of question answering, the DCS tree is a formal speciﬁcation of the question.
+To obtain an answer, we still need to evaluate the DCS tree with respect to a database of facts
+(see Figure 2.1 for an example). We will use the term world to refer to this database (it is
+sometimes also called model, but we avoid this term to avoid confusion with the probabilistic
+model that we will present in Section 3.1).
+
+CHAPTER 2. REPRESENTATION
+
+7
+Relations R
+
+Name
+join
+aggregate
+extract
+quantify
+compare
+execute
+
+Relation
+Description
+j
+j-th component of parent = j -th component of child
+j for j, j ∈ {1, 2, . . . }
+Σ
+parent = set of feasible values of child
+e
+mark node for extraction
+q
+mark node for quantiﬁcation, negation
+c
+mark node for superlatives, comparatives
+∗
+xi for i ∈ {1, 2 . . . }
+process marked nodes speciﬁed by i
+
+Table 2.1: Possible relations that appear on edges of DCS trees. Basic DCS uses only the
+join and aggregate relations; the full version uses all of them.
+w:
+
+city
+San Francisco
+Chicago
+Boston
+···
+
+loc
+Mount Shasta California
+San Francisco California
+Boston
+Massachusetts
+···
+···
+
+state
+Alabama
+Alaska
+Arizona
+···
+
+population
+Los Angeles 3.8 million
+San Francisco 805,000
+Boston
+617,000
+···
+···
+
+7
+5
+18
+···
+
+>
+3
+0
+2
+···
+
+count
+0
+{}
+{1,4} 2
+{2,5,6} 3
+···
+···
+
+Figure 2.1:
+An example of a world w (database) in the US geography domain. A world
+maps each predicate (relation) to a set of tuples. Here, the world w maps the predicate loc
+to the set of pairs of places and their containers. Note that functions (e.g., population)
+are also represented as predicates for uniformity. Some predicates (e.g., count) map to an
+inﬁnite number of tuples and would be represented implicitly.
+
+2.3.1
+
+Types and Values
+
+To deﬁne a world, we start by constructing a set of values V. The exact set of values
+depend on the domain (we will continue to use US geography as a running example).
+Brieﬂy, V contains numbers (e.g., 3 ∈ V), strings (e.g., Washington ∈ V), tuples (e.g.,
+(3, Washington) ∈ V), sets (e.g., {3, Washington} ∈ V), and other higher-order entities.
+To be more precise, we construct V recursively. First, deﬁne a set of primitive values V ,
+which includes the following:
+• Numeric values: each value has the form x : t ∈ V , where x ∈ R is a real number and
+t ∈ {number, ordinal, percent, length, . . . } is a tag. The tag allows us to diﬀerentiate
+
+CHAPTER 2. REPRESENTATION
+
+8
+
+3, 3rd, 3%, and 3 miles—this will be important in Section 2.6.3. We simply write x
+for the value x : number.
+• Symbolic values: each value has the form x : t ∈ V , where x is a string (e.g.,
+Washington) and t ∈ {string, city, state, river, . . . } is a tag. Again, the tag allows
+us to diﬀerentiate, for example, the entities Washington : city and Washington : state.
+Now we build the full set of values V from the primitive values V . To deﬁne V, we
+need a bit more machinery: To avoid logical paradoxes, we construct V in increasing order of
+complexity using types (see Carpenter (1998) for a similar construction). The casual reader
+can skip this construction without losing any intuition.
+Deﬁne the set of types T to be the smallest set that satisﬁes the following properties:
+1. The primitive type
+
+∈T;
+
+2. The tuple type (t1 , . . . , tk ) ∈ T for each k ≥ 0 and each non-tuple type ti ∈ T for
+i = 1, . . . , k; and
+3. The set type {t} ∈ T for each tuple type t ∈ T .
+Note that { }, {{ }}, and (( )) are not valid types.
+For each type t ∈ T , we construct a corresponding set of values Vt :
+1. For the primitive type t = , the primitive values V have already been speciﬁed. Note
+that these types are rather coarse: Primitive values with diﬀerent tags are considered
+to have the same type .
+2. For a tuple type t = (t1 , . . . , tk ), Vt is the cross product of the values of its component
+types:
+Vt = {(v1 , . . . , vk ) : ∀i, vi ∈ Vti }.
+
+(2.1)
+
+3. For a set type t = {t }, Vt contains all subsets of its element type t :
+Vt = {s : s ⊂ Vt }.
+
+(2.2)
+
+Note that all elements of the set must have the same type.
+Let V = ∪t∈T Vt be the set of all possible values.
+A world maps each predicate to its semantics, which is a set of tuples (see Figure 2.1
+for an example). First, let Ttuple ⊂ T be the tuple types, which are the ones of the form
+(t1 , . . . , tk ). Let V{tuple} denote all the sets of tuples (with the same type):
+def
+
+V{tuple} =
+
+V{t} .
+t∈Ttuple
+
+Now we deﬁne a world formally:
+
+(2.3)
+
+CHAPTER 2. REPRESENTATION
+
+9
+
+Deﬁnition 2 (World) A world w : P → V{tuple} ∪ {V} is a function that maps each nonnull predicate p ∈ P\{ø} to a set of tuples w(p) ∈ V{tuple} and maps the null predicate ø to
+the set of all values (w(ø) = V).
+For a set of tuples A with the same arity, let Arity(A) = |x|, where x ∈ A is arbitrary;
+if A is empty, then Arity(A) is undeﬁned. Now for a predicate p ∈ P and world w, deﬁne
+Arityw (p), the arity of predicate p with respect to w, as follows:
+Arityw (p) =
+
+1
+if p = ø,
+Arity(w(p)) if p = ø.
+
+(2.4)
+
+The null predicate has arity 1 by ﬁat; the arity of a non-null predicate p is inherited from
+the tuples in w(p).
+Remarks In higher-order logic and lambda calculus, we construct function types and values, whereas in DCS, we construct tuple types and values. The two are equivalent in representational power, but this discrepancy does point at the fact that lambda calculus is based
+on function application, whereas DCS, as we will see, is based on declarative constraints.
+The set type {( , )} in DCS corresponds to the function type → ( → bool). In DCS,
+there is no explicit bool type—it is implicitly represented by using sets.
+
+2.3.2
+
+Examples
+
+The world w maps each domain-speciﬁc predicate to a ﬁnite set of tuples. For the US
+geography domain, w has a predicate that maps to the set of US states (state), another
+predicate that maps to set of pairs of entities and where they are located (loc), and so on:
+w(state) = {(California : state), (Oregon : state), . . . },
+w(loc) = {(San Francisco : city, California : state), . . . }
+...
+
+(2.5)
+(2.6)
+(2.7)
+
+To shorten notation, we use state abbreviations (e.g., CA = California : state).
+The world w also speciﬁes the semantics of several domain-independent predicates (think
+of these as helper functions), which usually correspond to an inﬁnite set of tuples. Functions
+are represented in DCS by a set of input-output pairs. For example, the semantics of the
+countt predicate (for each type t ∈ T ) contains pairs of sets S and their cardinalities |S|:
+w(countt ) = {(S, |S|) : S ∈ V{(t)} } ∈ V{({(t)},
+
+)} .
+
+(2.8)
+
+As another example, consider the predicate averaget (for each t ∈ T ), which takes a
+set of key-value pairs (with keys of type t) and returns the average value. For notational
+convenience, we treat an arbitrary set of pairs S as a set-valued function: We let S1 = {x :
+
+CHAPTER 2. REPRESENTATION
+
+10
+
+(x, y) ∈ S} denote the domain of the function, and abusing notation slightly, we deﬁne the
+function S(x) = {y : (x, y) ∈ S} to be the set of values y that co-occur with the given x.
+The semantics of averaget contains pairs of sets and their averages:
+
+
+
+
+
+|S(x)|−1
+y  ∈ V{({(t, )}, )} .
+w(averaget ) = (S, z) : S ∈ V{(t, )} , z = |S1 |−1
+
+
+x∈S1
+
+y∈S(x)
+
+(2.9)
+Similarly, we can deﬁne the semantics of argmint and argmaxt , which each takes a set of
+key-value pairs and returns the keys that attain the smallest (largest) value:
+w(argmint ) =
+
+(S, z) : S ∈ V{(t,
+
+w(argmaxt ) =
+
+(S, z) : S ∈ V{(t,
+
+)} , z
+
+∈ argmin min S(x)
+
+∈ V{({(t,
+
+)},t)} ,
+
+(2.10)
+
+x∈S1
+)} , z
+
+∈ argmax max S(x)
+
+∈ V{({(t,
+
+)},t)} .
+
+(2.11)
+
+x∈S1
+
+These helper functions are monomorphic: For example, countt only computes cardinalities of sets of type {(t)}. In practice, we mostly operate on sets of primitives (t = ). To
+reduce notation, we simply omit t to refer to this version: count = count , average =
+average , etc.
+
+2.4
+
+Semantics of DCS Trees: Basic Version
+
+The semantics or denotation of a DCS tree z with respect to a world w is denoted z w . First,
+we deﬁne the semantics of DCS trees with only join relations (Section 2.4.1). In this case,
+a DCS tree encodes a constraint satisfaction problem (CSP); this is important because it
+highlights the constraint-based nature of DCS and also naturally leads to a computationally
+eﬃcient way of computing denotations (Section 2.4.2). We then allow DCS trees to have
+aggregate relations (Section 2.4.3). The fragment of DCS which has only join and aggregate
+relations is called basic DCS.
+
+2.4.1
+
+DCS Trees as Constraint Satisfaction Problems
+
+Let z be a DCS tree with only join relations on its edges. In this case, z encodes a constraint
+satisfaction problem (CSP) as follows: For each node x in z, the CSP has a variable a(x); the
+collection of these variables is referred to as an assignment a. The predicates and relations
+of z introduce constraints:
+1. a(x) ∈ w(p) for each node x labeled with predicate p ∈ P; and
+
+CHAPTER 2. REPRESENTATION
+
+11
+
+Example: major city in California
+z = city; 1 : major ; 1 : loc; 2 : CA
+1
+1
+1
+city
+1 1
+1
+
+major
+
+1
+
+loc
+2
+1
+
+CA
+
+λc ∃m ∃ ∃s .
+city(c) ∧ major(m) ∧ loc( ) ∧ CA(s)∧
+c1 = m1 ∧ c1 = 1 ∧ 2 = s1
+
+(a) DCS tree
+(c) Denotation: z
+
+(b) Lambda calculus formula
+w
+
+= {SF, LA, . . . }
+
+Figure 2.2: (a) An example of a DCS tree (written in both the mathematical and graphical
+notation). Each node is labeled with a predicate, and each edge is labeled with a relation.
+(b) A DCS tree z with only join relations encodes a constraint satisfaction problem. (c) The
+denotation of z is the set of feasible values for the root node.
+2. a(x)j = a(y)j for each edge (x, y) labeled with jj ∈ R, which says that the j-th
+component of a(x) must equal the j -th component of a(y).
+We say that an assignment a is feasible if it satisﬁes all the above constraints. Next, for
+a node x, deﬁne V (x) = {a(x) : assignment a is feasible} as the set of feasible values for
+x—these are the ones which are consistent with at least one feasible assignment. Finally, we
+deﬁne the denotation of the DCS tree z with respect to the world w to be z w = V (x0 ),
+where x0 is the root node of z.
+Figure 2.2(a) shows an example of a DCS tree. The corresponding CSP has four variables
+c, m, , s.2 In Figure 2.2(b), we have written the equivalent lambda calculus formula. The
+non-root nodes are existentially quantiﬁed, the root node c is λ-abstracted, and all constraints
+introduced by predicates and relations are conjoined. The λ-abstraction of c represents the
+fact that the denotation is the set of feasible values for c (note the equivalence between the
+boolean function λc.p(c) and the set {c : p(c)}).
+Remarks Note that CSPs only allow existential quantiﬁcation and conjunction. Why did
+we choose this particular logical subset as a starting point, rather than allowing universal
+quantiﬁcation, negation, or disjunction? There seems to be something fundamental about
+this subset, which also appears in Discourse Representation Theory (DRT) (Kamp and Reyle,
+1993; Kamp et al., 2005). Brieﬂy, logical forms in DRT are called Discourse Representation
+Structures (DRSes), each of which contains (i) a set of existentially-quantiﬁed discourse
+2
+
+Technically, the node is c and the variable is a(c), but we use c to denote the variable to simplify notation.
+
+CHAPTER 2. REPRESENTATION
+
+12
+
+referents (variables), (ii) a set of conjoined discourse conditions (constraints), and (iii) nested
+DRSes. If we exclude nested DRSes, a DRS is exactly a CSP.3 The default existential
+quantiﬁcation and conjunction are quite natural for modeling cross-sentential anaphora: New
+variables can be added to a DRS and connected to other variables. Indeed, DRT was
+originally motivated by these phenomena (see Kamp and Reyle (1993) for more details).
+Tree-structured CSPs can capture unboundedly complex recursive structures—such as
+cities in states that border states that have rivers that. . . . However, one limitation which
+will stay with us even with the full version of DCS, is the inability to capture long distance dependencies arising from anaphora (ironically, given our connection to DRT). For
+example, consider the phrase a state with a river that traverses its capital. Here, its binds
+to state, but this dependence cannot be captured in a tree structure. However, given the
+highly graphical context in which we’ve been developing DCS, a solution leaps out at us
+immediately: Simply introduce an edge between the its node and the state node. This edge
+introduces a CSP constraint that the two nodes must be equal. The resulting structure is a
+graph rather than a tree, but still a CSP. In this thesis, we will not pursue these non-tree
+structures, but it should be noted that such an extension is possible and quite natural.
+
+2.4.2
+
+Computation
+
+So far, we have given a declarative deﬁnition of the denotation z w of a DCS tree z with only
+join relations. Now we will show how to compute z w eﬃciently. Recall that the denotation
+is the set of feasible values for the root node. In general, ﬁnding the solution to a CSP is
+NP-hard, but for trees, we can exploit dynamic programming (Dechter, 2003). The key is
+that the denotation of a tree depends on its subtrees only through their denotations:
+m
+1
+p; j1 : c1 ; · · ·
+j
+
+m
+; j m : cm
+j
+
+= w(p) ∩
+w
+
+{v : vji = tji , t ∈ ci
+
+w }.
+
+(2.12)
+
+i=1
+
+On the right-hand side of (2.12), the ﬁrst term w(p) is the set of values that satisfy the node
+constraint, and the second term consists of an intersection across all m edges of {v : vji =
+tji , t ∈ ci w }, which is the set of values v which satisfy the edge constraint with respect to
+some value t for the child ci .
+To further ﬂesh out this computation, we express (2.12) in terms of two operations: join
+and project. Join takes a cross product of two sets of tuples and keeps the resulting tuples
+that match the join constraint:
+A
+
+j,j
+
+B = {u + v : u ∈ A, v ∈ B, uj = vj }.
+
+(2.13)
+
+Project takes a set of tuples and keeps a ﬁxed subset of the components:
+A[i] = {vi : v ∈ A}.
+3
+
+(2.14)
+
+DRSes are not necessarily tree-structured, though economical DRT (Bos, 2009) imposes a tree-like
+restriction on DRSes for computational reasons.
+
+CHAPTER 2. REPRESENTATION
+
+13
+
+The denotation in (2.12) can now be expressed in terms of these join and project operations:
+1
+m
+p; j1 : c1 ; · · · ; jm : cm
+j
+j
+
+= ((w(p)
+
+j1 ,j1
+
+w
+
+c1
+
+w )[i] · · ·
+
+jm ,jm
+
+cm
+
+w )[i],
+
+(2.15)
+
+where i = (1, . . . , Arityw (p)). Projecting onto i keeps only components corresponding to p.
+The time complexity for computing the denotation of a DCS tree z w scales linearly
+with the number of nodes, but there is also a dependence on the cost of performing the join
+and project operations. For details on how we optimize these operations and handle inﬁnite
+sets of tuples, see Appendix A.1.
+The denotation of DCS trees is deﬁned in terms of the feasible values of a CSP, and
+the recurrence in (2.12) is only one way of computing this denotation. However, in light of
+the extensions to come, we now consider (2.12) as the actual deﬁnition rather than just a
+computational mechanism. It will still be useful to refer to the CSP in order to access the
+intuition of using declarative constraints.
+Remarks The fact that trees enable eﬃcient computation is a general theme which appears
+in many algorithmic contexts, notably, in probabilistic inference in graphical models. Indeed,
+a CSP can be viewed as a deterministic version of a graphical model where we maintain only
+supports of distributions (sets of feasible values) rather than the full distribution. Recall
+that trees—dependency trees, in particular—also naturally capture the syntactic locality of
+natural language utterances. This is not a coincidence for the two are intimately connected,
+and DCS trees highlight their connection.4
+
+2.4.3
+
+Aggregate Relation
+
+Thus far, we have focused on DCS trees that only use join relations, which are insuﬃcient for capturing higher-order phenomena in language. For example, consider the phrase
+number of major cities. Suppose that number corresponds to the count predicate, and that
+major cities maps to the DCS tree city; 1 : major . We cannot simply join count with
+1
+the root of this DCS tree because count needs to be joined with the set of major cities (the
+denotation of city; 1 : major ) not just a single city.
+1
+We therefore introduce the aggregate relation (Σ) that takes a DCS subtree and reiﬁes its
+denotation so that it can be accessed by other nodes in its entirety. Consider a tree Σ : c ,
+where the root is connected to a child c via Σ. The denotation of the root is simply the
+singleton set containing the denotation of c:
+Σ:c
+4
+
+w
+
+= {( c w )}.
+
+(2.16)
+
+As a side note, if we introduce k non-tree edges, we obtain a graph with tree-width at most k. We could
+then modify our recurrences to compute the denotation of those graphs, akin to the junction tree algorithm
+in graphical models.
+
+CHAPTER 2. REPRESENTATION
+
+14
+
+number of major cities
+
+average population of major cities
+
+∗∗
+
+∗∗
+
+city in Oregon or a state bordering Oregon
+city
+
+1
+2
+
+1
+2
+
+1
+1
+
+count
+
+average
+
+loc
+
+1
+1
+
+1
+1
+
+2
+2
+
+∗∗
+
+∗∗
+
+contains
+
+Σ
+
+Σ
+
+1
+3
+
+city
+
+population
+
+union
+
+1
+1
+
+1
+1
+
+major
+
+city
+
+∗∗
+
+1
+1
+
+Σ
+
+Σ
+
+major
+
+OR
+
+state
+
+1 2
+1
+
+1
+
+∗∗
+
+1
+1
+
+border
+2
+1
+
+OR
+(a) Counting
+
+(b) Averaging
+
+(c) Disjunction
+
+Figure 2.3:
+Examples of DCS trees that use the aggregate relation (Σ) to (a) compute
+the cardinality of a set, (b) take the average over a set, (c) represent a disjunction over two
+conditions. The aggregate relation sets the parent node deterministically to the denotation
+of the child node.
+Figure 2.3(a) shows the DCS tree for our running example. The denotation of the middle
+node is {(s)}, where s is all major cities. Everything above this node is an ordinary CSP:
+s constrains the count node, which in turns constrains the root node to |s|. Figure 2.3(b)
+shows another example of using the aggregate relation Σ. Here, the node right above Σ is
+constrained to be a set of pairs of major cities and their populations. The average predicate
+then computes the desired answer.
+To represent logical disjunction in natural language, we use the aggregate relation and
+two predicates, union and contains, which are deﬁned in the expected way:
+w(union) = {(S, B, C) : C = A ∪ B},
+w(contains) = {(A, x) : x ∈ A}.
+
+(2.17)
+(2.18)
+
+Figure 2.3(c) shows an example of a disjunctive construction: We use the aggregate relations
+to construct two sets, one containing Oregon, an the other containing states bordering Oregon. We take the union of these two sets; contains takes the set and reads out an element,
+which then constrains the city node.
+Remarks A DCS tree that contains only join and aggregate relations can be viewed as a
+collection of tree-structured CSPs connected via aggregate relations. The tree structure still
+enables us to compute denotations eﬃciently based on the recurrences in (2.15) and (2.16).
+
+CHAPTER 2. REPRESENTATION
+
+15
+
+Example: most populous city
+
+populous
+
+∗∗
+
+∗∗
+
+1
+2
+
+city
+
+x12
+
+argmax
+
+city
+
+1
+1
+
+most
+
+∗∗
+
+1
+e
+
+∗∗
+
+1
+
+population
+
+Σ
+
+c
+
+population
+
+argmax
+
+1
+1
+
+city
+(a) Syntax
+
+(b) Using only join and aggregate
+
+(c) Using mark-execute
+
+Figure 2.4: Two semantically-equivalent DCS trees are shown in (b) and (c). The DCS tree
+in (b), which uses the join and aggregate relations in the basic DCS, does not correspond
+well with the syntactic structure of most populous city (a), and thus is undesirable. The
+DCS tree in (c), by using the mark-execute construct, corresponds much better, with city
+rightfully dominating its modiﬁers. The full version of DCS allows us to construct (c), which
+is preferable to (b).
+Recall that a DCS tree with only join relations is a DRS without nested DRSes. The
+aggregate relation corresponds to the abstraction operator in DRT and is one way of making
+nested DRSes. It turns the abstraction operator is suﬃcient to obtain the full representational power of DRT, and subsumes generalized quantiﬁcation and disjunction constructs in
+DRT. By analogy, we use the aggregate relation to handle disjunction (Figure 2.3(c)) and
+generalized quantiﬁcation (Section 2.5.5).
+DCS restricted to join relations is less expressive than ﬁrst-order logic because it does not
+have universal quantiﬁcation, negation, and disjunction. The aggregate relation is analogous
+to lambda abstraction, which we can use to implement those basic constructs using higherorder predicates (e.g., not,every,union). We can also express logical statements such as
+generalized quantiﬁcation, which go beyond ﬁrst-order logic.
+
+2.5
+
+Semantics of DCS Trees: Full Version
+
+Basic DCS allows only join and aggregate relations, but is already quite expressive. However,
+it is not enough to simply express a denotation using an arbitrary logical form; one logical
+form can be better than another even if the two are semantically-equivalent. For example,
+consider the superlative construction most populous city, which has a basic syntactic dependency structure shown in Figure 2.4(a). Figure 2.4(b) shows a DCS tree with only join and
+
+CHAPTER 2. REPRESENTATION
+
+16
+
+aggregate relations that expresses the correct semantics. However, the two structures are
+quite divergent—the syntactic head is city and the semantic head is argmax. This divergence
+runs counter to the principal motivation of DCS, which is to create a transparent interface
+between syntax and semantics.
+In this section, we resolve this dilemma by introducing mark and execute relations, which
+will allow us to use the DCS tree in Figure 2.4(c) to represent the same semantics. Importantly, the structure of the semantic structure in Figure 2.4(c) matches the syntactic structure
+in Figure 2.4(a). The focus of this section is on this mark-execute construct—using mark
+and execute relations to give proper semantically-scoped denotations to syntactically-scoped
+tree structures.
+The basic intuition of the mark-execute construct is as follows: We mark a node low in
+the tree with a mark relation; then higher up in the tree, we invoke it with a corresponding
+execute relation (Figure 2.5). For our example in Figure 2.4(c), we mark the population
+node, which puts the child argmax in a temporary store; when we execute the city node,
+we fetch the superlative predicate argmax from the store and invoke it.
+This divergence between syntactic and semantic scope arises in other linguistic contexts
+besides superlatives such as quantiﬁcation and negation. In each of these cases, the general
+template is the same: a syntactic modiﬁer low in the tree needs to have semantic force
+higher in the tree. A particularly compelling case of this divergence happens with quantiﬁer
+scope ambiguity (e.g., Some river traverses every city.), where the quantiﬁers appear in ﬁxed
+syntactic positions, but the wide or narrow reading correspond to diﬀerent semanticallyscoped denotations. Analogously, a single syntactic structure involving superlatives can also
+yield two diﬀerent semantically-scoped denotations—the absolute and relative readings (e.g.,
+state bordering the largest state). The mark-execute construct provides a uniﬁed framework
+for dealing all these forms of divergence between syntactic and semantic scope. See Figure 2.6
+for more concrete examples.
+
+2.5.1
+
+Denotations
+
+We now formalize our intuitions about the mark-execute construct by deﬁning the denotations of DCS trees that use mark and execute relations. We saw that the mark-execute
+construct appears to act non-locally, putting things in a store and retrieving them out later.
+This means that if we want the denotation of a DCS tree to only depend on the denotations
+of its subtrees, the denotations need to contain more than the set of feasible values for the
+root node, as was the case for basic DCS. We need to augment denotations to include information about all marked nodes, since these are the ones that can be accessed by an execute
+relation higher up in the tree.
+More speciﬁcally, let z be a DCS tree and d = z w be its denotation. The denotation
+d consists of n columns, where each column is either the root node of z or a non-executed
+marked node in z. In the example in Figure 2.7, there are two columns, one for the root
+state node and the other for size node, which is marked by c. The columns are ordered
+
+CHAPTER 2. REPRESENTATION
+
+17
+∗∗
+xi
+
+···
+
+···
+
+···
+
+e|q|c
+
+∗∗
+
+Figure 2.5: The template for the mark-execute construct. For cases where syntactic and
+semantic scope diverge, the objective is to build DCS trees that resemble syntactic structures
+but that also encode the correct semantics. Usually, a node low in the tree has a modiﬁer
+(e.g., every or argmax). A mark relation (one of e, q, c) “stores” the modiﬁer. Then an
+execute relation (of the form xi for indices i) higher up “recalls” the modiﬁer and applies it
+at the desired semantic point. See Figure 2.6 for examples.
+according to a pre-order traversal of z, so column 1 always corresponds to the root node. The
+denotation d contains a set of arrays d.A, where each array represents a feasible assignment
+of values to the columns of d. For example, in Figure 2.7, the ﬁrst array in d.A corresponds
+to assigning (OK) to the state node (column 1) to and (TX, 2.7e5) to the size node (column
+2). If there are no marked nodes, d.A is basically a set of tuples, which corresponds to a
+denotation in basic DCS. For each marked node, the denotation d also maintains a store
+with information to be retrieved when that marked node is executed. A store σ for a
+marked node contains the following: (i) the mark relation σ.r (c in the example), (ii) the
+base denotation σ.b which essentially corresponds to denotation of the subtree rooted at the
+marked node excluding the mark relation and its subtree ( size w in the example), and
+(iii) the denotation of the child of the mark relation ( argmax w in the example). The store
+of any non-marked nodes (e.g., the root) is empty (σ = ø).
+Deﬁnition 3 (Denotations) Let D be the set of denotations, where each denotation d ∈ D
+consists of
+• a set of arrays d.A, where each array a = [a1 , . . . , an ] ∈ d.A is a sequence of n tuples;
+and
+• a sequence of n stores d.σ = (d.σ1 , . . . , d.σn ), where each store σ contains a mark
+relation σ.r ∈ {e, q, c, ø}, a base denotation σ.b ∈ D ∪ {ø}, and a child denotation
+σ.c ∈ D ∪ {ø}.
+Note that denotations are formally deﬁned without reference to DCS trees (just as sets of
+tuples were in basic DCS), but it is sometimes useful to refer to the DCS tree that generates
+that denotation.
+
+CHAPTER 2. REPRESENTATION
+California borders which states?
+
+18
+
+Alaska borders no states.
+
+Some river traverses every city.
+
+∗∗
+
+∗∗
+
+∗∗
+
+∗∗
+
+x1
+
+x1
+
+x12
+
+x21
+
+border
+
+border
+
+traverse
+
+traverse
+
+1 2
+
+1 2
+
+1 2
+
+1
+
+1
+
+CA
+
+1
+
+state
+
+1
+
+AK
+
+state
+
+1
+
+1
+
+river
+
+q
+
+no
+
+city traversed by no rivers
+
+1
+
+city
+
+river
+
+city
+
+q
+
+e
+
+∗∗
+(a) Extraction (e)
+
+1 2
+
+1
+
+q
+
+q
+
+q
+
+some
+some
+every
+every
+(narrow)
+(wide)
+(c) Quantiﬁer scope ambiguity (q, q)
+
+(b) Quantiﬁcation (q)
+
+state bordering the most states
+
+most populous city
+
+∗∗
+
+∗∗
+
+∗∗
+
+x12
+
+x12
+
+x12
+
+city
+
+state
+
+∗∗
+
+city
+
+1
+
+1
+e
+
+e
+
+2
+
+∗∗
+
+traverse
+
+1
+e
+
+1
+
+∗∗
+
+border
+
+1
+
+population
+
+1
+1
+
+2
+1
+
+c
+
+river
+
+state
+
+argmax
+
+c
+
+q
+
+argmax
+(e) Superlative (c)
+
+no
+(d) Quantiﬁcation (q, e)
+
+state bordering more states than Texas
+
+(f) Superlative (c)
+
+state bordering the largest state
+
+Most states’ largest city is major.
+
+∗∗
+
+state
+
+∗∗
+
+x12
+
+1
+1
+
+x12
+
+x1
+
+state
+
+border
+
+state
+
+major
+
+1
+e
+
+∗∗
+
+2
+1
+
+1
+
+∗∗
+
+1
+e
+
+∗∗
+
+x2
+
+1
+
+border
+
+∗∗
+
+2
+1
+
+x12
+
+2
+1
+
+state
+
+state
+
+state
+
+1
+
+3
+1
+
+TX
+(g) Comparative (c)
+
+city
+1 1
+1
+
+loc
+
+1
+
+size
+
+e
+
+∗∗
+
+1
+1
+
+2
+1
+
+c
+
+size
+
+size
+
+state
+
+argmax
+
+c
+
+c
+
+more
+
+border
+
+c
+
+1
+
+argmax
+argmax
+(absolute)
+(relative)
+(h) Superlative scope ambiguity (c)
+
+q
+
+most
+(i) Quantiﬁcation+Superlative (q, c)
+
+Figure 2.6:
+Examples of DCS trees that use the mark-execute construct. (a) The head
+verb borders has a direct object states modiﬁed by which and needs to be returned. (b)
+The quantiﬁer no is syntactically dominated by state but needs to take wider scope. (c)
+Two quantiﬁers yield two possible readings; we build the same basic structure, marking
+both quantiﬁers; the choice the execute relation (x12 versus x21 ) determines the reading. (d)
+We employ two mark relations, q on river for the negation, and e on city to force the
+quantiﬁer to be computed for each value of city. (e,f,g) Analogous construction but with
+the c relation (for comparatives and superlatives). (h) Analog of quantiﬁer scope ambiguity
+for superlatives: the placement of the execute relation determines an absolute versus relative
+reading. (i) Interaction between a quantiﬁer and a superlative.
+
+CHAPTER 2. REPRESENTATION
+
+19
+
+state
+1
+1
+
+border
+2
+1
+
+state
+1
+1
+
+size
+c
+
+argmax
+
+DCS tree
+
+·
+
+w
+
+column 1 column 2
+[(OK)
+(TX,2.7e5)]
+[(NM)
+(TX,2.7e5)]
+A:
+[(NV)
+(CA,1.6e5)]
+···
+···
+r:
+ø
+c
+size w
+b:
+ø
+argmax w
+c:
+ø
+Denotation
+
+Figure 2.7:
+Example of the denotation for a DCS tree with a compare relation c. This
+denotation has two columns, one for each active node—the root node state and the marked
+node size.
+For notational convenience, we write d as A; (r1 , b1 , c1 ); . . . ; (rn , bn , cn ) . Also let d.ri =
+d.σi .r, d.bi = d.σi .b, and d.ci = d.σi .c. Let d{σi = x} be the denotation which is identical to
+d, except with d.σi = x; d{ri = x}, d{bi = x}, and d{ci = x} are deﬁned analogously. We
+def
+also deﬁne a project operation for denotations: A; σ [i] = {ai : a ∈ A}; σi . Extending
+this notation further, we use ø to denote the indices of the non-initial columns with empty
+stores (i > 1 such that d.σi = ø). We can then use d[−ø] to represent projecting away the
+non-initial columns with empty stores. For the denotation d in Figure 2.7, d[1] keeps column
+1, d[−ø] keeps both columns, and d[2, −2] swaps the two columns.
+In basic DCS, denotations are sets of tuples, which works quite well for representing the
+semantics of wh-questions such as What states border Texas? But what about polar questions
+such as Does Louisiana border Texas? The denotation should be a simple boolean value,
+which basic DCS does not represent explicitly. Using our new denotations, we can represent
+boolean values explicitly using zero-column structures: true corresponds to a singleton set
+containing just the empty array (dt = {[ ]} ) and false is the empty set (df = ∅ ).
+Having described denotations as n-column structures, we now give the formal mapping
+from DCS tree to these structures. As in basic DCS, this mapping is deﬁned recursively over
+the structure of the tree. We have a recurrence for each case (the ﬁrst line is the base case,
+
+CHAPTER 2. REPRESENTATION
+
+20
+
+and each of the others handles a diﬀerent edge relation):
+p
+
+w
+
+p; e; jj : c
+
+w
+
+p; e; Σ : c
+p; e; xi : c
+p; e; e : c
+p; e; c : c
+p; q : c; e
+
+= {[v] : v ∈ w(p)}; ø ,
+=
+
+p; e
+
+w
+
+w
+
+=
+
+p; e
+
+w
+
+w
+
+=
+
+p; e
+
+w
+
+w
+w
+w
+
+= M( p; e
+= M( p; e
+= M( p; e
+
+−ø
+j,j
+−ø
+∗,∗
+−ø
+∗,∗
+
+[base case]
+
+(2.19)
+
+[join]
+
+(2.20)
+
+Σ ( c w) ,
+
+[aggregate]
+
+(2.21)
+
+Xi ( c w ),
+
+[execute]
+
+(2.22)
+
+[extract]
+[compare]
+[quantify]
+
+(2.23)
+(2.24)
+(2.25)
+
+c w,
+
+w , e,
+
+c w ),
+w , c, c w ),
+w , q, c w ).
+
+Note that these deﬁnitions depend on several operations ( −ø , Σ, Xi , M), which we have not
+j,j
+deﬁned yet. We will do so lazily as we walk through each of the cases.
+Base Case (2.19) deﬁnes the denotation for a DCS tree z with a single node with predicate
+p. The denotation of z has one column whose arrays correspond to the tuples w(p); the store
+for that column is empty.
+
+2.5.2
+
+Join Relations
+
+(2.20) deﬁnes the recurrence for join relations. On the left-hand side, p; e; jj : c is a DCS
+tree with p at the root, a sequence of edges e followed by a ﬁnal edge with relation jj connect
+to a child DCS tree c. On the right-hand side, we take the recursively computed denotation
+of p; e , the DCS tree without the ﬁnal edge, and perform a join-project-inactive operation
+(notated −ø ) with the denotation of the child DCS tree c.
+j,j
+The join-project-inactive operation joins the arrays of the two denotations (this is the
+core of the join operation in basic DCS—see (2.13)), and then projects away the non-initial
+empty columns:
+A; σ
+
+−ø
+j,j
+
+A ;σ
+
+= A ; σ + σ [−ø], where
+
+(2.26)
+
+A = {a + a : a ∈ A, a ∈ A , a1j = a1j }.
+We concatenate all arrays a ∈ A with all arrays a ∈ A that satisfy the join condition
+a1j = a1j . The sequences of stores are simply concatenated (σ + σ ). Finally, any non-initial
+columns with empty stores are projected away by applying ·[−ø].
+Note that the join works on column 1, the other columns are carried along for the ride.
+As another piece of convenient notation, we use ∗ to represent all components, so that −ø
+∗,∗
+would impose the join condition that the entire tuple has to agree (a1 = a1 ).
+
+CHAPTER 2. REPRESENTATION
+column 1
+column 2
+[(FL)
+(AL)]
+A: [(GA)
+(AL)]
+···
+···
+r:
+ø
+e
+b:
+ø
+{[(AL)], [(AK)], . . . }; ø
+c:
+ø
+ø
+
+state
+1
+1
+
+border
+2
+1
+
+·
+
+21
+
+w
+
+state
+e
+
+∗∗
+
+Σ (·)
+∗∗
+Σ
+
+state
+1
+1
+
+border
+2
+1
+
+state
+e
+
+∗∗
+
+·
+
+w
+
+column 1
+column 2
+[({(FL), (GA), (MS), (TN)})
+(AL)]
+A:
+[({})
+(AK)]
+···
+···
+r:
+ø
+e
+b:
+ø
+{[(AL)], [(AK)], . . . }; ø
+c:
+ø
+ø
+
+DCS tree
+
+Denotation
+
+Figure 2.8:
+An example of applying the aggregate operation, which takes a denotation
+and aggregates the values in column 1 for every setting of the other columns. The base
+denotations (b) are used to put in {} for values that do not appear in A. (in this example,
+AK, corresponding to the fact that Alaska does not border any states).
+
+2.5.3
+
+Aggregate Relations
+
+(2.21) deﬁnes the recurrence for aggregate relations. Recall that in basic DCS, aggregate
+(2.16) simply takes the denotation (a set of tuples) and puts it into a set. Now, the denotation
+is not just a set, so we need to generalize this operation. Speciﬁcally, the aggregate operation
+applied to a denotation forms a set out of the tuples in the ﬁrst column for each setting of
+the rest of the columns:
+Σ ( A; σ ) = A ∪ A ; σ ,
+A = {[S(a), a2 , . . . , an ] : a ∈ A},
+S(a) = {a1 : [a1 , a2 , . . . , an ] ∈ A},
+A = {[∅, a2 , . . . , an ] : ∀i ∈ {2, . . . , n}, [ai ] ∈ σi .b.A[1], ¬∃a1 , a ∈ A}.
+
+(2.27)
+
+The aggregate operation takes the set of arrays A and produces two sets of arrays, A and
+A , which are unioned (note that the stores do not change). The set A is the one that ﬁrst
+comes to mind: For every setting of a2 , . . . , an , we construct S(a), the set of tuples a1 in the
+ﬁrst column which co-occur with a2 , . . . , an in A.
+However, there is another case: what happens to settings of a2 , . . . , an that do not cooccur with any value of a1 in A? Then, S(a) = ∅, but note that A by construction will not
+
+CHAPTER 2. REPRESENTATION
+
+state
+
+22
+
+·
+
+column 1
+[(AL)]
+A: [(AK)]
+···
+r:
+ø
+b:
+ø
+c:
+ø
+
+w
+
+M(·, q, every
+
+A:
+
+state
+q
+
+every
+
+DCS tree
+
+·
+
+w
+
+r:
+b:
+c:
+
+w)
+
+column 1
+[(AL)]
+[(AK)]
+···
+q
+{[(AL)], [(AK)], . . . }; ø
+every w
+Denotation
+
+Figure 2.9:
+An example of applying the mark operation, which takes a denotation and
+modiﬁes the store of the column 1. This information is used by other operations such as
+aggregate and execute.
+have the desired array [∅, a2 , . . . , an ]. As a concrete example, suppose A = ∅ and we have
+one column (n = 1). Then A = ∅, rather than the desired {[∅]}.
+Fixing this problem is slightly tricky. There are an inﬁnite number of a2 , . . . , an which
+do not co-occur with any a1 in A, so for which ones do we actually include [∅, a2 , . . . , an ]?
+Certainly, the answer to this question cannot come from A, so it must come from the stores.
+In particular, for each column i ∈ {2, . . . , n}, we have conveniently stored a base denotation
+σi .b. We consider any ai that occurs in column 1 of the arrays of this base denotation
+([ai ] ∈ σi .b.A[1]). For this a2 , . . . , an , we include [∅, a2 , . . . , an ] in A as long as a2 , . . . , an
+does not co-occur with any a1 . An example is given in Figure 2.8.
+Now, the reason for storing base denotations is partially revealed. The arrays represent
+feasible values of a CSP and thus can only contain positive information. When we aggregate,
+we need to access possibly empty sets of feasible values—a kind of negative information,
+which can only be recovered from the base denotations.
+
+2.5.4
+
+Mark Relations
+
+(2.23), (2.24), and (2.25) each processes a diﬀerent mark relation. We deﬁne a general mark
+operation, M(d, r, c) which takes a denotation d, a mark relation r ∈ {e, q, c} and a child
+
+CHAPTER 2. REPRESENTATION
+
+23
+
+denotation c, and sets the store of d in column 1 to be (r, d, c):
+M(d, r, c) = d{r1 = r, b1 = d, c1 = c}.
+
+(2.28)
+
+The base denotation of the ﬁrst column b1 is set to the current denotation d. This, in some
+sense, creates a snapshot of the current denotation. Figure 2.9 shows an example of the
+mark operation.
+
+2.5.5
+
+Execute Relations
+
+(2.22) deﬁnes the denotation of a DCS tree where the last edge of the root is an execute
+relation. Similar to the aggregate case (2.21), we recurse on the DCS tree without the
+last edge ( p; e ) and then join it to the result of applying the execute operation Xi to the
+denotation of the child ( c w ).
+The execute operation Xi is the most intricate part of DCS and is what does the heavy
+lifting. The operation is parametrized by a sequence of distinct indices i which speciﬁes the
+order in which the columns should be processed. Speciﬁcally, i indexes into the subsequence
+of columns with non-empty stores. We then process this subsequence of columns in reverse
+order, where processing a column means performing some operations depending on the stored
+relation in that column. For example, suppose that columns 2 and 3 are the only non-empty
+columns. Then X12 processes column 3 before column 2. On the other hand, X21 processes
+column 2 before column 3. For the double quantiﬁer example, If each column stores a
+quantiﬁer example (Figure 2.6(c)), these lead to the narrow and wide readings, respectively.
+We will deﬁne the execute operation Xi for a single column i. There are three distinct cases,
+depending on the relation stored in column i:
+Extraction
+For a denotation d with the extract relation e in column i, executing Xi (d) involves three
+steps: (i) moving column i to before column 1 (·[i, −i]), (ii) projecting away non-initial empty
+columns (·[−ø]), and (iii) removing the store (·{σ1 = ø}):
+Xi (d) = d[i, −i][−ø]{σ1 = ø} if d.ri = e.
+
+(2.29)
+
+An example is given in Figure 2.10. There are two main uses of extraction:
+1. By default, the denotation of a DCS tree is the set of feasible values of the root node
+(which occupies column 1). To return the set of feasible values of another node, we
+mark that node with e. Upon execution, the feasible values of that node move into
+column 1. See Figure 2.6(a) for an example.
+2. Unmarked nodes are existentially quantiﬁed and have narrower scope than all marked
+nodes. Therefore, we can make a node x have wider scope than another node y by
+
+CHAPTER 2. REPRESENTATION
+
+24
+
+border
+1 2
+1
+
+1
+
+CA
+
+state
+
+·
+
+w
+
+e
+
+∗∗
+
+column 1 column 2
+[(CA,AZ)
+(AZ)]
+(NV)]
+A: [(CA,NV)
+[(CA,OR)
+(OR)]
+r:
+ø
+e
+state w
+b:
+ø
+c:
+ø
+ø
+
+X1 (·)
+
+∗∗
+x1
+
+border
+1 2
+1
+
+CA
+
+·
+
+1
+
+state
+e
+
+∗∗
+
+DCS tree
+
+Figure 2.10:
+relation e.
+
+w
+
+column 1
+(AZ)
+A: (NV)
+(OR)
+r:
+ø
+b:
+ø
+c:
+ø
+Denotation
+
+An example of applying the execute operation on column i with the extract
+
+marking x (with e) and executing y before x (see Figure 2.6(d,e) for examples). The
+extract relation e (in fact, any mark relation) signiﬁes that we want to control the
+scope of a node, and the execute relation allows us to set that scope.
+Generalized Quantiﬁcation
+Generalized quantiﬁers (including negation) are predicates on two sets, a restrictor A and a
+nuclear scope B. For example,
+w(some) = {(A, B) : A ∩ B > 0},
+w(every) = {(A, B) : A ⊂ B},
+w(no) = {(A, B) : A ∩ B = ∅},
+1
+w(most) = {(A, B) : |A ∩ B| > |A|}.
+2
+
+(2.30)
+(2.31)
+(2.32)
+(2.33)
+
+We think of the quantiﬁer as a modiﬁer which always appears as the child of a q relation;
+the restrictor is the parent. For example, in Figure 2.6(b), no corresponds to the quantiﬁer
+and state corresponds to the restrictor. The nuclear scope should be the set of all states that
+Alaska borders. More generally, the nuclear scope is the set of feasible values of the restrictor
+node with respect to the CSP that includes all nodes between the mark and execute relations.
+
+CHAPTER 2. REPRESENTATION
+column 1 column 2
+
+border
+1 2
+1
+
+1
+
+AK
+
+25
+
+·
+
+state
+
+w
+
+q
+
+no
+
+A:
+r:
+b:
+c:
+
+ø
+ø
+ø
+
+q
+state w
+no w
+
+∗∗
+[−1]
+
+no
+1
+
+∗∗
+
+2
+
+1
+
+1
+
+x1
+
+X1 (·)
+
+∗∗
+
+border
+
+Σ
+
+Σ
+
+state
+
+∗∗
+
+1 2
+1
+
+AK
+
+x1
+
+border
+1 2
+
+AK
+
+“
+
+”
+
+·
+
+1
+
+state
+q
+
+w
+
+A: [ ]
+r:
+b:
+c:
+
+state
+
+x1
+
+q
+
+∗∗
+
+1
+
+1
+
+∗∗
+
+border
+
+no
+
+1 2
+1
+
+AK
+
+1
+
+state
+e
+
+∗∗
+
+no
+
+DCS tree
+
+Denotation
+
+(a) Execute a quantify relation q
+
+(b) Execute “expands the DCS tree”
+
+Figure 2.11:
+(a) An example of applying the execute operation on column i with the
+quantify relation q. Before executing, note that A = {} (because Alaska does not border
+any states). The restrictor (A) is the set of all states, and the nuclear scope (B) is empty.
+Since the pair (A, B) does exists in w(no), the ﬁnal denotation, is {[ ]} (which represents
+true). (b) Although the execute operation actually works on the denotation, think of it in
+terms of expanding the DCS tree. We introduce an extra projection relation [−1], which
+projects away the ﬁrst column of the child subtree’s denotation.
+The restrictor is also the set of feasible values of the restrictor node, but with respect to the
+CSP corresponding to the subtree rooted at that node.5
+We implement generalized quantiﬁers as follows: Let d be a denotation and suppose
+we are executing column i. We ﬁrst construct a denotation for the restrictor dA and a
+denotation for the nuclear scope dB . For the restrictor, we take the base denotation in
+column i (d.bi )—remember that the base denotation represents a snapshot of the restrictor
+node before the nuclear scope constraints are added. For the nuclear scope, we take the
+complete denotation d (which includes the nuclear scope constraints) and extract column i
+(d[i, −i][−ø]{σ1 = ø}—see (2.29)). We then construct dA and dB by applying the aggregate
+5
+
+Deﬁned this way, we can only handle conservative quantiﬁers, since the nuclear scope will always be a
+subset of the restrictor. This design decision is inspired by DRT, where it provides a way of modeling donkey
+anaphora. We are not treating anaphora in this work, but we can handle it by allowing pronouns in the
+nuclear scope to create anaphoric edges into nodes in the restrictor. These constraints naturally propagate
+through the nuclear scope’s CSP without aﬀecting the restrictor.
+
+CHAPTER 2. REPRESENTATION
+
+26
+
+operation to each. Finally, we join these sets with the quantiﬁer denotation, stored in d.ci :
+Xi (d) =
+
+−ø
+1,1
+
+d.ci
+
+dA
+
+−ø
+2,1
+
+dB [−1] if d.ri = q, where
+
+dA = Σ (d.bi ) ,
+dB = Σ (d[i, −i][−ø]{σ1 = ø}) .
+
+(2.34)
+(2.35)
+(2.36)
+
+When there is one quantiﬁer, think of the execute relation as performing a syntactic rewriting
+operation, as shown in Figure 2.11(b). For more complex cases, we must defer to (2.34).
+Figure 2.6(c) shows an example with two interacting quantiﬁers. The denotation of the
+DCS tree before execution is the same in both readings, as shown in Figure 2.12. The
+quantiﬁer scope ambiguity is resolved by the choice of execute relation: x12 gives the narrow
+reading, x21 gives the wide reading.
+
+traverse
+1 2
+1
+
+1
+
+river
+
+city
+
+q
+
+some
+
+·
+
+q
+
+every
+
+w
+
+DCS tree
+
+Figure 2.12:
+
+column 1
+column 2 column 3
+[(Hudson,NY) (Hudson)
+(NY)]
+A: [(Columbia,OR) (Columbia)
+(OR)]
+···
+···
+···
+r:
+ø
+q
+q
+river w state w
+b:
+ø
+some w every w
+c:
+ø
+Denotation
+
+Denotation of Figure 2.6(c) before the execute relation is applied.
+
+Figure 2.6(d) shows how extraction and quantiﬁcation work together. First, the no
+quantiﬁer is processed for each city, which is an unprocessed marked node. Here, the
+extract relation is a technical trick to give city wider scope.
+Comparatives and Superlatives
+Comparative and superlative constructions involve comparing entities, and for this, we rely
+on a set S of entity-degree pairs (x, y), where x is an entity and y is a numeric degree.
+Recall that we can treat S as a function, which maps an entity x to the set of degrees S(x)
+associated with x. Note that this set can contain multiple degrees. For example, in the
+relative reading of state bordering the largest state, we would have a degree for the size of
+each neighboring state.
+Superlatives use the argmax and argmin predicates, which are deﬁned in Section 2.3.
+Comparatives use the more and less predicates: w(more) contains triples (S, x, y), where x
+is “more than” y as measured by S; w(less) is deﬁned analogously:
+w(more) = {(S, x, y) : max S(x) > max S(y)},
+w(less) = {(S, x, y) : min S(x) < min S(y)}.
+
+(2.37)
+(2.38)
+
+CHAPTER 2. REPRESENTATION
+
+state
+1
+e
+
+∗∗
+
+1
+
+border
+2
+1
+
+·
+
+state
+1
+1
+
+w
+
+size
+c
+
+argmax
+
+27
+
+column 1 column 2
+(TX,267K)]
+[(AR)
+(TX,267K)]
+[(LA)
+[(NM)
+(TX,267K)]
+A:
+[(OK)
+(TX,267K)]
+[(NV)
+(CA,158K)]
+···
+···
+r:
+ø
+c
+size w
+b:
+ø
+argmax w
+c:
+ø
+
+∗∗
+1
+2
+
+argmax
+1
+1
+
+∗∗
+∗∗
+
+∗∗
++2,1
+
+state
+1
+e
+
+∗∗
+
+X12 (·)
+
+Σ
+
+x12
+
+∗∗
+
+1
+
+2
+1
+
+border
+2
+1
+
+“
+
+”
+
+∗∗
+
+state
+1
+
+size
+
+∗∗
+x12
+
+state
+1
+e
+
+x2
+
+1
+1
+
+∗∗
+
+state
+
+1
+
+border
+2
+1
+
+·
+
+state
+1
+1
+
+size
+c
+
+w
+
+column 1
+[(AR)]
+[(LA)]
+A:
+[(NM)]
+[(OK)]
+r:
+ø
+b:
+ø
+c:
+ø
+
+c
+
+argmax
+
+e
+
+∗∗
+
+1
+
+border
+2
+1
+
+state
+1
+1
+
+size
+e
+
+∗∗
+
+argmax
+
+DCS tree
+
+Denotation
+
+(a) Execute a compare relation c
+
+(b) Execute “expands the DCS tree”
+
+Figure 2.13: (a) Executing a compare relation c for an example superlative construction
+(relative reading of state bordering the largest state from Figure 2.6(h)). Before executing,
+column 1 contains the entity to compare, and column 2 contains the degree information,
+of which only the second component is relevant. After executing, the resulting denotation
+contains a single column with only the entities that obtain the highest degree (in this case, the
+states that border Texas) (b) For this example, think of the execute operation as expanding
+the original DCS tree, although the execute operation actually works on the denotation, not
+the DCS tree. The expanded DCS tree has the same denotation as the original DCS tree,
+and syntactically captures the essence of the execute-compare operation. Going through the
+relations of the expanded DCS tree from bottom to top: The x2 relation swaps columns
+1 and 2; the join relation keeps only the second component ((TX, 267K) becomes (267K));
++2,1 concatenates columns 2 and 1 ([(267K), (AR)] becomes [(AR, 267K)]); Σ aggregates these
+tuples into a set; argmax operates on this set and returns the elements.
+We use the same mark relation c for both comparative and superlative constructions. In
+terms of the DCS tree, there are three key parts: (i) the root x, which corresponds to the
+
+CHAPTER 2. REPRESENTATION
+
+28
+
+entity to be compared, (ii) the child c of a c relation, which corresponds to the comparative or
+superlative predicate, and (iii) c’s parent p, which contains the “degree information” (which
+will be described later) used for comparison. We assume that the root is marked (usually
+with a relation e). This forces us to compute a comparison degree for each value of the root
+node. In terms of the denotation d corresponding to the DCS tree prior to execution, the
+entity to be compared occurs in column 1 of the arrays d.A, the degree information occurs in
+column i of the arrays d.A, and the denotation of the comparative or superlative predicate
+itself is the child denotation at column i (d.ci ).
+First, we deﬁne a concatenating function +i (d), which combines the columns i of d by
+concatenating the corresponding tuples of each array in d.A:
++i ( A; σ ) = A ; σ , where
+A = {a(1...i1 )\i + [ai1 + · · · + ai|i| ] + a(i1 ...n)\i : a ∈ A}
+
+(2.39)
+
+σ = σ(1...i1 )\i + [σi1 ] + σ(i1 ...n)\i .
+Note that the store of column i1 is kept and the others are discarded. As an example:
++2,1 ( {[(1), (2), (3)], [(4), (5), (6)]}; σ1 , σ2 , σ3 ) = {[(2, 1), (3)], [(5, 4), (6)]}; σ2 , σ3 .
+(2.40)
+We ﬁrst create a denotation d where column i, which contains the degree information, is
+extracted to column 1 (and thus column 2 corresponds to the entity to be compared). Next,
+we create a denotation dS whose column 1 contains a set of entity-degree pairs. There are
+two types of degree information:
+1. Suppose the degree information has arity 2 (Arity(d.A[i]) = 2). This occurs, for
+example, in most populous city (see Figure 2.6(f)), where column i is the population
+node. In this case, we simply set the degree to the second component of population
+by projection ( ø w −ø d ). Now columns 1 and 2 contain the degrees and entities,
+1,2
+respectively. We concatenate columns 2 and 1 (+2,1 (·)) and aggregate to produce a
+denotation dS which contains the set of entity-degree pairs in column 1.
+2. Suppose the degree information has arity 1 (Arity(d.A[i]) = 1). This occurs, for
+example, in state bordering the most states (see Figure 2.6(e)), where column i is the
+lower marked state node. In this case, the degree of an entity from column 2 is the
+number of diﬀerent values that column 1 can take. To compute this, aggregate the set
+of values (Σ (d )) and apply the count predicate. Now with the degrees and entities
+in columns 1 and 2, respectively, we concatenate the columns and aggregate again to
+obtain dS .
+Having constructed dS , we simply apply the comparative/superlative predicate which has
+been patiently waiting in d.ci . Finally, the store of d’s column 1 was destroyed by the
+
+CHAPTER 2. REPRESENTATION
+
+29
+
+concatenation operation +2,1 (() ·), so we must restore it with ·{σ1 = d.σ1 }. The complete
+operation is as follows:
+Xi (d) =
+dS =
+
+ø
+
+w
+
+Σ +2,1
+Σ +2,1
+
+−ø
+1,2
+
+d.ci
+ø
+ø
+
+w
+w
+
+−ø
+1,1
+−ø
+1,2
+−ø
+1,2
+
+d = d[i, −i][−ø]{σ1 = ø}.
+
+dS
+
+{σ1 = d.σ1 } if d.σi = c, d.σ1 = ø, where
+
+d
+count
+
+w
+
+−ø
+1,1
+
+Σ (d )
+
+if Arity(d.A[i]) = 2
+if Arity(d.A[i]) = 1,
+
+(2.41)
+(2.42)
+(2.43)
+
+An example of executing the c relation is shown in Figure 2.13(a). As with executing a q
+relation, for simple cases, we can think of executing a c relation as expanding a DCS tree,
+as shown in Figure 2.13(b).
+Figure 2.6(e) and Figure 2.6(f) show examples of superlative constructions with the arity
+1 and arity 2 types of degree information, respectively. Figure 2.6(g) shows an example of
+an comparative construction. Comparatives and superlatives both use the exact same machinery, diﬀering only in the predicate: argmax versus more; 3 : TX (more than Texas). But
+1
+both predicates have the same template behavior: Each takes a set of entity-degree pairs
+and returns any entity satisfying some property. For argmax, the property is obtaining the
+highest degree; for more, it is having a degree higher than a threshold. We can handle generalized superlatives (the ﬁve largest or the ﬁfth largest or the 5% largest) as well by swapping
+in a diﬀerent predicate; the execution mechanisms deﬁned in (2.41) remain the same.
+We saw that the mark-execute machinery allowed decisions regarding quantiﬁer scope to
+made in a clean and modular fashion. Superlatives also have scope ambiguities in the form
+of absolute versus relative readings. Consider the example in Figure 2.6(g). In the absolute
+reading, we ﬁrst compute the superlative in a narrow scope (the largest state is Alaska),
+and then connect it with the rest of the phrase, resulting in the empty set (since no states
+border Alaska). In the relative reading, we consider the ﬁrst state as the entity we want to
+compare, and its degree is the size of a neighboring state. In this case, the lower state node
+cannot be set to Alaska because there are no states bordering it. The result is therefore any
+state that borders Texas (the largest state that does have neighbors). The two DCS trees
+in Figure 2.6(g) show that we can naturally account for this form of superlative ambiguity
+based on where the scope-determining execute relation is placed without drastically changing
+the underlying tree structure.
+Remarks All these issues are not speciﬁc to DCS; every serious semantic formalism must
+address them as well. Not surprisingly then, the mark-execute construct bears some resemblance to other mechanisms that operate on categorial grammar and lambda calculus, such
+as quantiﬁer raising, Montague’s quantifying in, Cooper storage, and Carpenter’s scoping
+constructor (Carpenter, 1998). Very broadly speaking, these mechanisms delay application
+of the divergent element (usually a quantiﬁer), “marking” its spot with a dummy pronoun
+(as in Montague’s quantifying in) or in a store (as in Cooper storage), and then “executing”
+
+CHAPTER 2. REPRESENTATION
+
+30
+
+the quantiﬁer at a later point in the derivation. One subtle but important diﬀerence between
+mark-execute in DCS and the others is that a DCS tree (which contains the mark and execute relations) is the ﬁnal logical form, and all the action happens in the computing of the
+denotation of this logical form. In more traditional approaches, the action happens in the
+construction mechanism for building the logical form; the actually logical form produced at
+the end of the day is quite simple. In other words, we have pushed the inevitable complexity
+from the construction mechanism into the semantics of the logical from. This refactoring
+is important because we want our construction mechanism to focus not on linguistic issues,
+but on purely computational and statistical ones, which ultimately determine the success of
+our system.
+
+2.6
+
+Construction Mechanism
+
+We have thus far deﬁned the syntax (Section 2.2) and semantics (Section 2.5) of DCS trees,
+but we have only vaguely hinted at how these DCS trees might be connected to natural
+language utterances by appealing to idealized examples. In this section, we formally deﬁne
+the construction mechanism for DCS, which takes an utterance x and produces a set of DCS
+trees ZL (x).
+Since we motivated DCS trees based on dependency syntax, it might be tempting to take
+a dependency parse tree of the utterance, replace the words with predicates, and attach some
+relations on the edges to produce a DCS tree. To a ﬁrst-order approximation, this is what
+we will do, but we need to be a bit more ﬂexible for several reasons: (i) some nodes in the
+DCS tree do not have predicates (e.g., children of a e relation or parent of an xi relation);
+(ii) nodes have predicates that do not correspond to words (e.g., in California cities, there
+is a implicit loc predicate that bridges CA and city); (iii) some words might not correspond
+to any predicates in our world (e.g., please); and (iv) the DCS tree might not always be
+aligned with the syntactic structure depending on which syntactic formalism one ascribes
+to. While syntax was the inspiration for the DCS formalism, we will not actually use it in
+construction.
+It is also worth stressing the purpose of the construction mechanism. In linguistics, the
+purpose of the construction mechanism is to try to generate the exact set of valid logical
+forms for a sentence. We view the construction mechanism instead as simply a way of
+creating a set of candidate logical forms. A separate step deﬁnes a distribution over this
+set to favor certain logical forms over others. The construction mechanism should therefore
+overapproximate the set of logical forms. Settling for an overapproximation allows us to
+simplify the construction mechanism.
+
+CHAPTER 2. REPRESENTATION
+
+31
+
+Ci,j (x)
+
+city
+1
+
+1
+
+1
+
+1
+
+population
+
+loc
+
+c
+
+2
+1
+
+argmax
+
+CA
+
+population
+
+city
+
+c
+
+1
+1
+
+argmax
+
+loc
+2
+1
+
+CA
+
+Ci,k (x)
+
+x:
+
+i
+
+Ck ,j (x)
+
+most populous
+
+k=k
+
+city in California
+
+j
+
+Figure 2.14: Shows an example of the recursive construction of Ci,j (x), a set of DCS trees
+for span i..j.
+
+2.6.1
+
+Lexical Triggers
+
+The construction mechanism assumes a ﬁxed set of lexical triggers L. Each trigger is a pair
+(s, p), where s is a sequence of words (usually one) and p is a predicate (e.g., s = California
+and p = CA). We use L(s) to denote the set of predicates p triggered by s ((s, p) ∈ L). We
+also deﬁne a set of trace predicates, denoted by L( ), which can be introduced without an
+overt lexical trigger.
+It is important to think of the lexical triggers L not as pinning down the precise predicate
+for each word. For example, L might contain {(city, city), (city, state), (city, river), . . . }.
+Section 4.1.3 describes the lexical triggers that we use in our experiments.
+
+2.6.2
+
+Recursive Construction of DCS Trees
+
+Given a set of lexical triggers L, we will now describe a recursive mechanism for mapping an
+utterance x = (x1 , . . . , xn ) to ZL (x), a set of candidate DCS trees for x. The basic approach
+is reminiscent of projective labeled dependency parsing: For each span i..j of the utterance,
+we build a set of trees Ci,j (x). The set of trees for the span 0..n is the ﬁnal result:
+ZL (x) = C0,n (x).
+
+(2.44)
+
+Each set of DCS trees Ci,j (x) is constructed recursively by combining the trees of its
+subspans Ci,k (x) and Ck ,j (x) for each pair of split points k, k (words between k and k
+
+CHAPTER 2. REPRESENTATION
+
+32
+
+are ignored). These combinations are then augmented via a function A and ﬁltered via a
+function F ; these functions will be speciﬁed later. Formally, Ci,j (x) is deﬁned recursively as
+follows:
+Ci,j (x) = F A { p
+
+i..j
+
+: p ∈ L(xi+1..j )} ∪
+
+T2 (a, b))
+
+.
+
+(2.45)
+
+i≤k≤k <j
+a∈Ci,k (x)
+b∈Ck ,j (x)
+
+This recurrence has two parts:
+• The base case: we take the phrase (sequence of words) over span i..j and look up the
+set of predicates p in the set of lexical triggers. For each predicate, we construct a
+one-node DCS tree. We also extend the deﬁnition of DCS trees in Section 2.2 to allow
+each node to store the indices of the span i..j that triggered the predicate at that node;
+this is denoted by p i..j . This span information will be useful in Section 3.1.1, where
+we will need to talk about how an utterance x is aligned with a DCS tree z.
+• The recursive case: T1 (a, b), which we will deﬁne shortly, that takes two DCS trees, a
+and b, and returns a set of new DCS trees formed by combining a and b. Figure 2.14
+shows this recurrence graphically.
+We now focus on how to combine two DCS trees. Deﬁne Td (a, b) as the set of resulting
+DCS trees by making either a or b the root and connecting the other via a chain of relations
+and at most d − 1 trace predicates:
+Td (a, b) = Td (a, b) ∪ Td (b, a),
+
+(2.46)
+
+Here, Td (a, b) is the set of DCS trees where a is the root; for Td (a, b), b is the root. The
+former is deﬁned recursively as follows:
+T0 (a, b) = ∅,
+Td (a, b) =
+
+(2.47)
+{ a; r : b , a; r : Σ : b } ∪ Td−1 (a, p; r : b ).
+
+r∈R
+p∈L( )
+
+First, we consider all possible relations r ∈ R and try putting r between a and b ( a; r : b ),
+possibly with an additional aggregate relation ( a; r : Σ : b ). Of course, R contains an inﬁnite number of join and execute relations, but only a small ﬁnite number of them make sense:
+we consider join relations jj only for j ∈ {1, . . . , Arity(a.p)} and j ∈ {1, . . . , Arity(b.p)},
+and execute relations xi for which i does not contain indices larger than the number of
+columns of b w . Next, we further consider all possible trace predicates p ∈ L( ), and recursively try to connect a with the intermediate p; r : b , now allowing d − 1 additional
+predicates. See Figure 2.15 for an example. In the other direction, Td is deﬁned similarly:
+
+CHAPTER 2. REPRESENTATION
+
+33
+
+a = city
+b = state
+T1 (a, b)
+
+T1 (a, b)
+···
+
+city
+
+city
+
+city
+
+city
+
+city
+
+1
+1
+
+1
+1
+
+q
+
+1
+1
+
+1
+2
+
+1
+1
+
+1
+1
+
+1
+1
+
+q
+
+1
+1
+
+1
+2
+
+1
+1
+
+state
+
+∗∗
+
+state
+
+loc
+
+loc
+
+border
+
+city
+
+∗∗
+
+city
+
+loc
+
+loc
+
+border
+
+2
+1
+
+1
+1
+
+2
+1
+
+Σ
+
+2
+1
+
+1
+1
+
+2
+1
+
+state
+
+city
+
+city
+
+city
+
+city
+
+Σ
+
+state
+
+state state
+
+state state state state state
+
+state · · ·
+
+city
+
+Figure 2.15: Given two DCS trees, a and b, T1 (a, b) and T1 (a, b) are the two sets of DCS
+trees formed by combining a and b with a at the root and b at the root, respectively; one
+trace predicate can be inserted in between. In this example, the DCS trees which survive
+ﬁltering (Section 2.6.3) are shown.
+T0 (a, b) = ∅,
+Td (a, b) =
+
+(2.48)
+{ b.p; r : a; b.e , b.p; r : Σ : a ; b.e } ∪ Td−1 (a, p; r : b ).
+
+r∈R
+p∈L( )
+
+Inserting trace predicates allows us to build logical forms with more predicates than what
+is explicitly triggered by the words. This ability is useful for several reasons. Sometimes,
+there actually is a predicate not overtly expressed, especially in noun compounds (e.g.,
+California cities). For semantically light words such as prepositions (e.g., for) it is diﬃcult
+to enumerate all the possible predicates that it might trigger; it is computationally simpler
+to try to insert trace predicates. We can even omit lexical triggers for transitive verbs such
+as border because the corresponding predicate border can be just inserted as trace predicate.
+The function T1 (a, b) connects two DCS trees via a path of relations and trace predicates.
+The augmentation function A adds additional relations (speciﬁcally, e and/or xi ) on a single
+DCS tree:
+A(Z) =
+
+{z, z; e : ø , xi : z , xi : z; e : ø
+
+},
+
+(2.49)
+
+z∈Z
+xi ∈R
+
+2.6.3
+
+Filtering using Abstract Interpretation
+
+The current construction procedure is extremely permissive and generates many DCS trees
+which are obviously wrong—for example, state; 1 : >; 2 3 , which tries to compare a state
+1
+1
+with the number 3. There is nothing syntactically wrong this expression: its denotation will
+simply be empty (with respect to the world). But semantically, this DCS tree is anomalous.
+
+CHAPTER 2. REPRESENTATION
+
+34
+
+We cannot simply just discard DCS trees with empty denotations, because we would
+incorrectly rule out state; 1 : border; 2 AK . The diﬀerence here is that even though the
+1
+1
+denotation is empty in this world, it is possible that it might not be empty in a diﬀerent world
+where history and geology took another turn, whereas it is simply impossible to compare
+cities and numbers.
+Now let us quickly ﬂesh out this intuition before falling into a philosophical discussion
+about possible worlds. Given a world w, we deﬁne an abstract world α(w), to be described
+shortly. We compute the denotation of a DCS tree z with respect to this abstract world. If
+at any point in the computation we create an empty denotation, we judge z to be impossible
+and throw it away. The ﬁltering function F is deﬁned as follows:6
+F (Z) = {z ∈ Z : ∀z subtree of z , z
+
+α(w) .A
+
+= ∅}.
+
+(2.50)
+
+Now we need to deﬁne the abstract world α(w). The intuition is to map concrete values
+to abstract values: 3 : length becomes length, Oregon : state becomes ∗ : state, and in
+general, primitive value x : t becomes ∗ : t. We perform abstraction on tuples componentwise,
+so that (Oregon : state, 3 : length) becomes (∗ : state, ∗ : length). Our abstraction of sets
+is slightly more complex: the empty set maps to the empty set, a set containing values all
+with the same abstract value a maps to {a}, and a set containing values with more than
+one abstract value maps to a {mixed}. Finally, a world maps each predicate onto a set
+of (concrete) tuples; the corresponding abstract world maps each predicate onto the set of
+abstract tuples. Formally, the abstraction function is deﬁned as follows:
+α(x : t) = ∗ : t,
+α((v1 , . . . , vn )) = (α(v1 ), . . . , α(vn )),
+
+∅
+if A = ∅,
+
+α(A) = {α(x) : x ∈ A} if |{α(x) : x ∈ A}| = 1,
+
+
+{mixed}
+otherwise.
+α(w) = λp.{α(x) : x ∈ w(p)}.
+
+[primitive values] (2.51)
+[tuples] (2.52)
+[sets] (2.53)
+[worlds] (2.54)
+
+As an example, the abstract world might look like this:
+α(w)(>) = {(∗ : number, ∗ : number, ∗ : number), (∗ : length, ∗ : length, ∗ : length), . . . },
+(2.55)
+α(w)(state) = {(∗ : state)},
+α(w)(AK) = {(∗ : state)},
+α(w)(border) = {(∗ : state, ∗ : state)}.
+6
+
+(2.56)
+(2.57)
+(2.58)
+
+To further reduce the search space, F imposes a few additional constraints, e.g., limiting the number
+of columns to 2, and only allowing trace predicates between arity 1 predicates.
+
+CHAPTER 2. REPRESENTATION
+
+35
+
+Example: states that border Texas
+state
+
+λx.state(x) ∧ border(x, TX)
+
+1
+
+<
+
+1
+
+λf.λx.f (x) ∧ border(x, TX)
+
+border
+
+>
+
+2
+
+λx.border(x, TX)
+>
+λx.state(x) λg.λf.λx.f (x) ∧ g(x) λy.λx.border(x, y)
+states
+
+that
+
+border
+
+(a) CCG construction
+
+1
+
+TX
+
+TX
+Texas
+
+states
+
+that border Texas
+
+(b) DCS construction
+
+Figure 2.16: Comparison between the construction mechanisms of CCG and DCS. There
+are three principal diﬀerences: First, in CCG, words are mapped onto a lambda calculus expression; in DCS, words are just mapped onto a predicate. Second, in CCG, lambda calculus
+expressions are built by combining (e.g., via function application) two smaller expressions;
+in DCS, trees are combined by inserting relations (and possibly other predicates between
+them). Third, in CCG, all words map to a logical expression; in DCS, only a small subset of
+words (e.g., state and Texas) map to predicates; the rest participate in features for scoring
+DCS trees.
+Now returning our motivating example at the beginning of this section, we see that the bad
+DCS tree has an empty abstract denotation state; 1 : >; 2 3
+1
+1
+α(w) = ∅; ø . The good
+1 : border; 2 AK
+DCS tree has an non-empty abstract denotation: state; 1
+1
+α(w) = {(∗ :
+state)}; ø , as desired.
+Remarks Computing denotations on an abstract world is called abstract interpretation
+(Cousot and Cousot, 1977) and is very powerful framework commonly used in the programming languages community. The idea is to obtain information about a program (in our case,
+a DCS tree) without running it concretely, but rather just by running it abstractly. It is
+closely related to type systems, but the type of abstractions one uses is often much richer
+than standard type systems.
+
+2.6.4
+
+Comparison with CCG
+
+We now compare our construction mechanism with CCG (see Figure 2.16 for an example).
+The main diﬀerence is that our lexical triggers contain less information than a lexicon in a
+CCG. In CCG, the lexicon would have an entry such as
+major
+
+n/n : λf.λx.major(x) ∧ f (x),
+
+(2.59)
+
+CHAPTER 2. REPRESENTATION
+
+36
+
+which gives detailed information about how this word should interact with its context. However, in DCS construction, each lexical trigger only has the minimal amount of information:
+major
+
+major.
+
+(2.60)
+
+A lexical trigger speciﬁes a pre-theoretic “meaning” of a word which does not commit to any
+formalisms. One advantage of this minimality is that lexical triggers could be easily obtained
+from non-expert supervision: One would only have to associate words with database table
+names (predicates).
+In some sense, the DCS construction mechanism pushes the complexity out of the lexicon. In linguistics, this complexity usually would end up in the grammar, which would
+be undesirable. However, we do not have to ﬁght this tradeoﬀ, because the construction
+mechanism only produces an overapproximation, which means it is possible to have both a
+simple “lexicon” and a simple “grammar.”
+There is an important but subtle rationale for this design decision. During learning, we
+never just have one clean lexical entry per word (as is typically assumed in formal linguistics).
+Rather, there are often many possible lexical entries (and to handle disﬂuent utterances or
+utterances in free word-order languages, we might actually need many of them (Kwiatkowski
+et al., 2010, 2011)):
+major
+major
+major
+...
+
+n : λx.major(x)
+n/n : λf.λx.major(x) ∧ f (x)
+n\n : λf.λx.major(x) ∧ f (x)
+
+(2.61)
+(2.62)
+(2.63)
+(2.64)
+
+Now think of a DCS lexical trigger major major as simply a compact representation for a
+set of CCG lexical entries. Furthermore, the choice of the lexical entry is made not at the
+initial lexical base case, but rather during the recursive construction by inserting relations
+between DCS subtrees. It is exactly at this point that the choice can be made, because
+after all, the choice is one that depends on context. The general principle is to compactly
+represent the indeterminacy until one can resolve it.
+Type raising is a combinator in CCG that turns one logical form into another. It can
+be used to turn one entity into related entity (a kind of generalized metonymy). For example,
+Zettlemoyer and Collins (2007) used it to allow conversion from Boston to λx.from(x, Boston).
+Type raising in CCG is analogous to inserting trace predicates in DCS, but there is an important distinction: Type raising is a unary operation and thus is somewhat unconstrained
+because it changes logical forms into new ones without regard for how they will interact with
+the context. Inserting trace predicates is a binary operation which is constrained by the two
+predicates that it is mediating. In the example, from would only be inserted to combine
+Boston with flight. This is another instance of the general principle of delaying uncertain
+decisions until there is more information.
+
+37
+
+Chapter 3
+Learning
+In Chapter 2, we deﬁned DCS trees and a construction mechanism for producing a set of
+candidate DCS trees given an utterance. We now deﬁne a probability distribution over that
+set (Section 3.1) and an algorithm for estimating the parameters (Section 3.2). The number
+of candidate DCS trees grows exponentially, so we use beam search to control this growth.
+The ﬁnal learning algorithm alternates between beam search and optimizing the parameters,
+leading to a natural bootstrapping procedure which integrates learning and search.
+
+3.1
+
+Semantic Parsing Model
+
+The semantic parsing model speciﬁes a conditional distribution over a set of candidate DCS
+trees C(x) given an utterance x. This distribution depends on a function φ(x, z) ∈ Rd ,
+which takes a (x, z) pair and extracts a set of local features (see Section 3.1.1 for a full
+speciﬁcation). Associated with this feature vector is a parameter vector θ ∈ Rd . The
+inner product between the two vectors φ(x, z) θ yields a numerical score, which intuitively
+measures the compatibility of the utterance x with the DCS tree z. We exponentiate the
+score and normalize over C(x) to obtain a proper probability distribution:
+p(z | x; C, θ) = exp{φ(x, z) θ − A(θ; x, C)},
+A(θ; x, C) = log
+
+exp{φ(x, z) θ}.
+
+(3.1)
+(3.2)
+
+z∈C(x)
+
+Here, A(θ; x, C) is the log-partition function with respect to the candidate set function C(x).
+
+3.1.1
+
+Features
+
+We now deﬁne the feature vector φ(x, z) ∈ Rd , the core part of the semantic parsing model.
+Each component j = 1, . . . , d of this vector is a feature, and φ(x, z)j is the number of
+times that feature occurs in (x, z). Rather than working with indices, we treat features as
+
+CHAPTER 3. LEARNING
+
+38
+
+symbols (e.g., TriggerPred[states, state]). Each feature captures some property about
+(x, z) which abstracts away from the details of the speciﬁc instance and allow us to generalize
+to new instances that share common features.
+The features are organized into feature templates, where each feature template instantiates a set of features. Figure 3.1 shows all the feature templates for a concrete example.
+The feature templates are as follows:
+• PredHit contains the single feature PredHit, which ﬁres for each predicate in z.
+• Pred contains features {Pred[α(p)] : p ∈ P}, each of which ﬁres on α(p), the abstraction of predicate p, where
+α(p) =
+
+∗ : t if p = x : t
+p
+otherwise.
+
+(3.3)
+
+The purpose of the abstraction is to abstract away the details of concrete values such
+as TX = Texas : state.
+• PredRel contains features {PredRel[α(p), q] : p ∈ P, q ∈ ({ , } × R)∗ }. A
+feature ﬁres when a node x has predicate p and is connected via some path q =
+(d1 , r1 ), . . . , (dm , rm ) to the lowest descendant node y with the property that each node
+between x and y has a null predicate. Each (d, r) on the path represents an edge
+labeled with relation r connecting to a left (d = ) or right (d = ) child. If x has no
+children, then m = 0. The most common case is when m = 1, but m = 2 also occurs
+1
+with the aggregate and execute relations (e.g., PredRel[count,
+Σ] ﬁres for
+1
+Figure 2.3(a)).
+• PredRelPred contains features {PredRelPred[α(p), q, α(p )] : p, p ∈ P, q ∈ ({
+, } × R)∗ }, which are the same as PredRel, except that we include both the predicate p of x and the predicate p of the descendant node y. These features do not ﬁre
+if m = 0.
+• TriggerPred contains features {TriggerPred[s, p] : s ∈ W ∗ , p ∈ P}, where W =
+{it, Texas, . . . } is the set of words. Each of these features ﬁres when a span of the
+utterance with words s triggers the predicate p—more precisely, when a subtree p; e i..j
+exists with s = xi+1..j . Note that these lexicalized features use the predicate p rather
+than the abstracted version α(p).
+• TracePred contains features {TracePred[s, p, d] : s ∈ W ∗ , p ∈ P, d ∈ { , }},
+each of which ﬁres when a trace predicate p has been inserted over a word s. The
+situation is the following: Suppose we have a subtree a that ends at position k (there
+is a predicate in a that is triggered by a phrase with right endpoint k) and another
+subtree b that begins at k . Recall that in the construction mechanism (2.46), we
+
+CHAPTER 3. LEARNING
+
+39
+state
+1
+1
+
+border
+z:
+
+2
+1
+
+TX
+x: states
+
+Feature template
+
+Feature j
+
+[Number of predicates]
+
+that border Texas
+
+Count φ(x, z)j Parameter θj
+
+PredHit
+
+3
+
+2.721
+
+1
+
+0.570
+
+1
+
+−2.596
+
+Pred[∗ : state]
+[Predicate + relation]
+
+Pred[state]
+Pred[border]
+
+[Predicate]
+
+1
+
+1.511
+
+1
+
+−0.262
+
+PredRel[state
+
+1]
+1
+2]
+1
+
+1
+
+−2.248
+
+1
+
+1.059
+
+1
+
+2.119
+
+1
+
+1.090
+
+TriggerPred[states, state]
+
+1
+
+3.262
+
+TriggerPred[Texas, Texas:state]
+
+1
+
+−2.272
+
+1
+
+3.041
+
+1
+
+−0.253
+
+1
+
+0.000
+
+1
+
+0.000
+
+1
+
+0.000
+
+1
+
+0.000
+
+PredRel[border
+PredRel[∗ : state]
+[Predicate + relation + predicate]
+
+PredRelPred[state
+PredRelPred[border
+
+[Word + trigger predicate]
+
+[Word + trace predicate]
+
+border]
+
+TracePred[that,
+TracePred[border,
+
+[Word + trace relation]
+
+TraceRel[that,
+TraceRel[border,
+
+1 border]
+1
+2 ∗ : state]
+1
+
+border]
+
+1]
+1
+1]
+1
+
+[Word + trace predicate + relation] TracePredRel[that, state
+TracePredRel[border, state
+
+1]
+1
+1]
+1
+
+Score: φ(x, z) θ = 13.184
+
+Figure 3.1: For each utterance-DCS tree pair (x, z), we deﬁne a feature vector φ(x, z),
+whose j-th component is the number of times a feature j occurs in (x, z). Each feature has
+an associated parameter θj , which is estimated from data in Section 3.2. The inner product
+of the feature vector and parameter vector yields a compatibility score.
+can insert a trace predicate p ∈ L( ) between the roots of a and b. Then, for every
+word xj in between the spans of the two subtrees (j = {k + 1, . . . , k }), the feature
+
+CHAPTER 3. LEARNING
+
+40
+
+TracePred[xj , p, d] ﬁres (d =
+
+if b dominates a and d =
+
+if a dominates b).
+
+• TraceRel contains features {TraceRel[s, d, r] : s ∈ W ∗ , d ∈ { , }, r ∈ R}, each
+of which ﬁres when some trace predicate with parent relation r has been inserted over
+a word s.
+• TracePredRel contains features {TracePredRel[s, p, d, r] : s ∈ W ∗ , p ∈ P, d ∈
+{ , }, r ∈ R}, each of which ﬁres when a predicate p is connected via child relation
+r to some trace predicate over a word s.
+These features are simple generic patterns which can be applied for modeling essentially
+any distribution over sequences and labeled trees—there is nothing speciﬁc to DCS at all.
+The ﬁrst half of the feature templates (PredHit, Pred, PredRel, PredRelPred) capture properties of the tree independent of the utterance, and are similar to ones used for
+syntactic dependency parsing. The other feature templates (TriggerPred, TracePred,
+TraceRel, TracePredRel) connect predicates in the DCS tree with words in the utterance, similar to those in a model of machine translation.
+
+3.2
+
+Parameter Estimation
+
+We have now fully speciﬁed the details of the graphical model in Figure 1.2: Section 3.1
+described semantic parsing and Chapter 2 described semantic evaluation. Next, we focus on
+estimating the parameters θ of the model from data.
+
+3.2.1
+
+Objective Function
+
+We assume that our learning algorithm is given a training dataset D containing questionanswer pairs (x, y). Because the logical forms are unobserved, we work with log p(y | x; C, θ),
+the marginal log-likelihood of obtaining the correct answer y given an utterance x. This
+marginal log-likelihood sums over all z ∈ C(x) that evaluate to y:
+log p(y | x; C, θ) = log p(z ∈ C y (x) | x; C, θ)
+= A(θ; x, C y ) − A(θ, x, C), where
+def
+
+C y (x) = {z ∈ C(x) : z
+
+w
+
+= y}.
+
+(3.4)
+(3.5)
+(3.6)
+
+Here, C y (x) is the set of DCS trees z with denotation y.
+We call an example (x, y) ∈ D feasible if the candidate set of x contains a DCS tree that
+evaluates to y (C y (x) = ∅). Deﬁne an objective function O(θ, C) containing two terms: The
+ﬁrst term is the sum of the marginal log-likelihood over all feasible training examples. The
+
+CHAPTER 3. LEARNING
+
+41
+
+second term is a quadratic penalty on the parameters θ with regularization parameter λ.
+Formally:
+def
+
+O(θ, C) =
+
+log p(y | x; C, θ) −
+(x,y)∈D
+C y (x)=∅
+
+λ
+θ
+2
+
+2
+2
+
+(A(θ; x, C y ) − A(θ; x, C)) −
+
+=
+(x,y)∈D
+C y (x)=∅
+
+(3.7)
+λ
+θ 2.
+2
+2
+
+We would like to maximize O(θ, C). The log-partition function A(θ; ·, ·) is convex, but
+O(θ, C) is the diﬀerence of two log-partition functions and hence is not concave (nor convex). Our plan is to use gradient-based optimization to hill climb the objective anyway. A
+standard result is that the derivative of the log-partition function is the expected feature
+vector (Wainwright and Jordan, 2008). Using this, we obtain the gradient of our objective
+function:
+∂O(θ, C)
+=
+∂θ
+
+Ep(z|x;C y ,θ) [φ(x, z)] − Ep(z|x;C,θ) [φ(x, z)] − λθ.
+
+(3.8)
+
+(x,y)∈D
+C y (x)=∅
+
+Updating the parameters in the direction of the gradient would move the parameters towards
+the DCS trees that yield the correct answer (C y ) and away from over all candidate DCS trees
+(C). We can use any standard numerical optimization algorithm that requires only blackbox access to a gradient. Section 4.3.4 will discuss the empirical ramiﬁcations the choice of
+optimization algorithm.
+
+3.2.2
+
+Algorithm
+
+Given a candidate set function C(x), we can optimize (3.7) to obtain parameters θ. Ideally,
+we would use C(x) = ZL (x), the candidate sets from our construction mechanism in Section 2.6, but we quickly run into the problem of computing (3.8) eﬃciently. Note that ZL (x)
+(deﬁned in (2.44)) grows exponentially with the length of x. This by itself is not a show stopper. Our features (Section 3.1.1) actually decompose along the edges of the DCS tree, so it is
+possible to use dynamic programming1 to compute the second expectation Ep(z|x;ZL ,θ) [φ(x, z)]
+y
+of (3.8). The problem is computing the ﬁrst expectation Ep(z|x;ZL ,θ) [φ(x, z)], which sums over
+the subset of candidate DCS trees z satisfying the constraint z w = y. Though this is a
+smaller set, there is no eﬃcient dynamic program for this set since the constraint does not
+y
+decompose along the structure of the DCS tree. Therefore, we need to approximate ZL , and
+in fact, we will approximate ZL as well so that the two expectations in (3.8) are coherent.
+1
+
+The state of the dynamic program would be the span i..j and the head predicate over that span.
+
+CHAPTER 3. LEARNING
+
+42
+Learning Algorithm
+
+Initialize: θ(0) ← (0, . . . , 0)
+For each iteration t = 1, . . . , T :
+˜
+−Update candidate sets: C (t) (x) ← ZL,θ(t−1) (x)
+−Update parameters: θ(t) ← argmaxθ O(θ, C (t) )
+Return θ(T )
+
+Figure 3.2: The learning algorithm alternates between updating the candidate sets based
+on beam search and updating the parameters using standard numerical optimization.
+Recall that ZL (x) was built by recursively constructing a set of DCS trees Ci,j (x) for each
+span i..j. In our approximation, we simply use beam search, which truncates each Ci,j (x)
+˜
+to include the (at most) K DCS trees with the highest score φ(x, z) θ. We let Ci,j,θ (x)
+denote this approximation and deﬁne the set of candidate DCS trees with respect to the
+beam search:
+˜
+˜
+ZL,θ (x) = C0,n,θ (x).
+
+(3.9)
+
+We now have a chicken-and-egg problem: If we had good parameters θ, we could generate
+˜
+good candidate sets C(x) using beam search ZL,θ (x). If we had good candidate sets C(x),
+we could generate good parameters by optimizing our objective O(θ, C) in (3.7). This
+problem leads to a natural solution: simply alternate between the two steps (Figure 3.2).
+This procedure is not theoretically guaranteed to converge due to the heuristic nature of the
+beam search, but we found it to be eﬀective in practice.
+Lastly, we use the trained model with parameters θ to answer new questions x by choosing
+the most likely answer y, summing out the latent logical form z:
+def
+˜
+Fθ (x) = argmax p(y | x; θ, ZL,θ )
+
+(3.10)
+
+y
+
+˜
+p(z | x; θ, ZL,θ ).
+
+= argmax
+y
+
+˜
+z∈ZL,θ (x)
+z w =y
+
+(3.11)
+
+43
+
+Chapter 4
+Experiments
+We have now completed the conceptual part of this thesis—using DCS trees to represent
+logical forms (Chapter 2), and learning a probabilistic model over them (Chapter 3). In this
+section, we evaluate and study our approach empirically. Our main result is that our system
+obtains higher accuracies than existing systems, despite requiring no annotated logical forms.
+
+4.1
+
+Experimental Setup
+
+We ﬁrst describe the datasets (Section 4.1.1) that we use to train and evaluate our system.
+We then mention various choices in the model and learning algorithm (Section 4.1.2). One
+of these choices is the lexical triggers, which is further discussed in Section 4.1.3.
+
+4.1.1
+
+Datasets
+
+We tested our methods on two standard datasets, referred to in this thesis as Geo and Jobs.
+These datasets were created by Ray Mooney’s group during the 1990s and have been used
+to evaluate semantic parsers for over a decade.
+US Geography The Geo dataset, originally created by Zelle and Mooney (1996), contains
+880 questions about US Geography and a database of facts encoded in Prolog. The questions
+in Geo ask about general properties (e.g., area, elevation, population) of geographical entities
+(e.g., cities, states, rivers, mountains). Across all the questions, there are 280 word types,
+and the length of an utterance ranges from 4 to 19 words, with an average of 8.5 words. The
+questions involve conjunctions, superlatives, negation, but no generalized quantiﬁcation.
+Each question is annotated with a logical form in Prolog, for example:
+Utterance: What is the highest point in Florida?
+Logical form: answer(A,highest(A,(place(A),loc(A,B),const(B,stateid(florida)))))
+
+CHAPTER 4. EXPERIMENTS
+
+44
+
+Since our approach learns from answers, not logical forms, we evaluated the annotated
+logical forms on the provided database to obtain the correct answers.
+Recall that a world/database w maps each predicate p ∈ P to a set of tuples w(p). Some
+predicates contain the set of tuples explicitly (e.g., mountain); others can be derived (e.g.,
+higher takes two entities x and y and returns true if elevation(x) > elevation(y)). Other
+predicates are higher-order (e.g., sum, highest) in that they take other predicates as arguments. We do not use the provided domain-speciﬁc higher-order predicates (e.g., highest),
+but rather provide domain-independent higher-order predicates (e.g., argmax) and the ordinary domain-speciﬁc predicates (e.g., elevation). This provides more compositionality and
+therefore better generalization. Similarly, we use more and elevation instead of higher.
+Altogether, P contains 43 predicates plus one predicate for each value (e.g., CA).
+Job Queries The Jobs dataset (Tang and Mooney, 2001) contains 640 natural language
+queries about job postings. Most of the questions ask for jobs matching various criteria: job
+title, company, recruiter, location, salary, languages and platforms used, areas of expertise,
+required/desired degrees, and required/desired years of experience. Across all utterances,
+there are 388 word types, and the length of an utterance ranges from 2 to 23 words, with
+an average of 9.8 words. The utterances are mostly based on conjunctions of criteria, with
+a sprinkling of negation and disjunction. Here is an example:
+Utterance: Are there any jobs using Java that are not with IBM?
+Logical form: answer(A,(job(A),language(A,’java’),¬company(A,’IBM’)))
+The Jobs dataset comes with a database, which we can use as the world w. However,
+when the logical forms are evaluated on this database, close to half of the answers are empty
+(no jobs match the requested criteria). Therefore, there is a large discrepancy between
+obtaining the correct logical form (which has been the focus of most work on semantic
+parsing) and obtaining the correct answer (our focus).
+To bring these two into better alignment, we generated a random database as follows: We
+created m = 100 jobs. For each job j, we go through each predicate p (e.g., company) that
+takes two arguments, a job and a target value. For each of the possible target values v, we
+add (j, v) to w(p) independently with probability α = 0.8. For example, for p = company,
+j = job37, we might add (job37, IBM) to w(company). The result is a database with a
+total of 23 predicates (which includes the domain-independent ones) in addition to the value
+predicates (e.g., IBM).
+The goal of using randomness is to ensure that two diﬀerent logical forms will most likely
+yield diﬀerent answers. For example, consider two logical forms:
+z1 = λj.job(j) ∧ company(j, IBM),
+z2 = λj.job(j) ∧ language(j, Java).
+
+(4.1)
+(4.2)
+
+Under the random construction, The denotation of z1 is S1 , an random subset of the jobs,
+where each job is included in S1 independently with probability α, and the denotation
+
+CHAPTER 4. EXPERIMENTS
+
+45
+
+of z2 is S2 , which has the same distribution as S1 but importantly is independent of S1 .
+Therefore, the probability that S1 = S2 is [α2 + (1 − α)2 ]m , which is exponentially small in
+m. This construction yields a world that is not entirely “realistic” (a job might have multiple
+employers), but it ensures that if we get the correct answer, we probably also obtain the
+correct logical form.
+
+4.1.2
+
+Settings
+
+There are a number of settings which control the tradeoﬀs between computation, expressiveness, and generalization power of our model, shown below. For now, we will use generic
+settings chosen rather crudely; Section 4.3.4 will explore the eﬀect of changing these settings.
+Lexical Triggers The lexical triggers L (Section 2.6.1) deﬁne the set of candidate DCS
+trees for each utterance. There is a tradeoﬀ between expressiveness and computational
+complexity: The more triggers we have, the more DCS trees we can consider for a given
+utterance, but then either the candidate sets become too large or beam search starts
+dropping the good DCS trees. Choosing lexical triggers is important and requires
+additional supervision (Section 4.1.3).
+Features Our probabilistic semantic parsing model is deﬁned in terms of feature templates
+(Section 3.1.1). Richer features increase expressiveness but also might lead to overﬁtting. By default, we include all the feature templates.
+Number of training examples (n) An important property of any learning algorithm is
+its sample complexity—how many training examples are required to obtain a certain
+level of accuracy? By default, all training examples are used.
+Number of training iterations (T ) Our learning algorithm (Figure 3.2) alternates between updating candidate sets and update parameters for T iterations. We use T = 5
+as the default value.
+Beam size (K) The computation of the candidate sets in Figure 3.2 is based on beam
+search where each intermediate state keeps at most K DCS trees. The default value is
+K = 100.
+Optimization algorithm Updating the parameters in Figure 3.2 involves optimizing an
+the objective function O(θ, C). The optimization algorithm determines both the speed
+of convergence and the quality of the converged solution. By default, we use the standard L-BFGS algorithm (Nocedal, 1980) with a backtracking line search for choosing
+the step size.
+Regularization (λ) The regularization parameter λ > 0 in the objective function O(θ, C)
+is another knob for controlling the tradeoﬀ between ﬁtting and overﬁtting. The default
+is λ = 0.01.
+
+CHAPTER 4. EXPERIMENTS
+
+4.1.3
+
+46
+
+Lexical Triggers
+
+The lexical triggers L (Section 2.6.1) is a set of entries (s, p), where s is a sequence of words
+and p is a predicate. We will run experiments on two sets of lexical triggers: base triggers
+Lb and augmented triggers Lb+p .
+Base Triggers The base triggers Lb include three types of entries:
+• Domain-independent triggers: For each domain-independent predicate (e.g., argmax),
+we manually specify a few words associated with that predicate (e.g., most). The full
+list is shown at the top of Figure 4.1.
+• Values: For each value x that appears in the world (speciﬁcally, x ∈ vj ∈ w(p) for some
+tuple v, index j, and predicate p), Lb contains an entry (x, x) (e.g., (Boston, Boston :
+city)). Note that this rule implicitly speciﬁes an inﬁnite number of triggers.
+Regarding predicate names, we do not add entries such as (city, city), because we
+want our system to be language-independent. In Turkish, for instance, we would not
+have the luxury of lexicographical cues that associate city with ¸ehir. So we should
+s
+think of the predicates as just symbols predicate1, predicate2, etc. On the other
+hand, values in the database are generally proper nouns (e.g., city names) for which
+there are generally strong cross-linguistic lexicographic similarities.
+• Part-of-speech (POS) triggers:1 For each domain-speciﬁc predicate p, we specify a set
+of part-of-speech tags T . Implicitly, Lb contains all pairs (x, p) where the word x has
+a POS tag t ∈ T . For example, for city, we would specify nn and nns, which means
+that any word which is a singular or plural common noun triggers the predicate city.
+Note that city triggers city as desired, but state also triggers city.
+The POS triggers for Geo and Jobs domains are shown in the left side of Figure 4.1.
+Note that that some predicates such as traverse and loc are not associated with
+any POS tags. Predicates corresponding to verbs and prepositions are not included
+as overt lexical triggers, but rather included as trace predicates L( ). In constructing
+the logical forms, nouns and adjectives serve as anchor points. Trace predicates can be
+inserted in between these anchors. This strategy is more ﬂexible than requiring each
+predicate to spring from some word.
+Augmented Triggers We now deﬁne the augmented triggers Lb+p , which contains more
+domain-speciﬁc information than Lb . Speciﬁcally, for each domain-speciﬁc predicate (e.g.,
+city), we manually specify a single prototype word (e.g., city) associated with that predicate.
+1
+To perform POS tagging, we used the Berkeley Parser (Petrov et al., 2006), trained on the WSJ Treebank
+(Marcus et al., 1993) and the Question Treebank (Judge et al., 2006)—thanks to Slav Petrov for providing
+the trained grammar.
+
+CHAPTER 4. EXPERIMENTS
+
+47
+
+Domain-independent triggers
+no | not | dont | doesnt | outside | exclude
+each | every
+most
+least | fewest
+count | number | many
+large | high | great
+small | low
+sum | combined | total
+less | at most
+more | at least
+called | named
+
+Geo POS triggers
+nn | nns
+
+nn | nns | jj
+
+nn | nns
+jj
+wrb
+
+Geo prototypes
+
+city | state | country | lake |
+mountain | river | place | person |
+capital | population
+len | negLen | size | negSize |
+elevation | negElevation | density |
+negDensity | area | negArea
+usa:country
+major
+loc
+loc | next to | traverse |
+hasInhabitant
+
+Jobs POS triggers
+nn | nns
+
+not
+every
+argmax
+argmin
+count
+affirm
+negate
+sum
+less
+more
+nameObj
+
+city
+state
+country
+lake
+mountain
+river
+point
+where
+major
+capital
+high point
+
+city
+state
+country
+lake
+mountain
+river
+place
+loc
+major
+capital
+high point
+
+person
+population
+long
+short
+large
+small
+high
+low
+dense
+sparse
+area
+
+person
+population
+len
+negLen
+size
+negSize
+elevation
+negElevation
+density
+negDensity
+area
+
+Jobs prototypes
+
+job | deg | exp | language | loc
+salary greater than | require | desire |
+title | company | recruiter | area |
+platform | application | language | loc
+
+(beginning of utterance)
+degree
+experience
+language
+location
+
+job
+deg
+exp
+language
+loc
+
+Figure 4.1: Lexical triggers used in our experiments.
+Under Lb+p , city would trigger only city because city is a prototype word, but town would
+trigger all the nn predicates (city, state, country, etc.) because it is not a prototype
+word.
+Prototype triggers require only a modest amount of domain-speciﬁc supervision (see the
+right side of Figure 4.1 for the entire list for Geo and Jobs). In fact, as we’ll see in
+Section 4.2, prototype triggers are not absolutely required to obtain good accuracies, but
+they give an extra boost and also improve computational eﬃciency by reducing the set of
+candidate DCS trees.
+Finally, we use a small set of rules that expand morphology (e.g., largest is mapped to
+
+CHAPTER 4. EXPERIMENTS
+
+48
+
+most large). To determine triggering, we stem all words using the Porter stemmer Porter
+(1980), so that mountains triggers the same predicates as mountain.
+
+4.2
+
+Comparison with Other Systems
+
+We now compare our approach with existing methods (Section 4.2). We used the same
+training-test splits as Zettlemoyer and Collins (2005) (600 training and 280 test examples
+for Geo, 500 training and 140 test examples for Jobs). For development, we created ﬁve
+random splits of the training data. For each split, we put 70% of the examples into a
+development training set and the remaining 30% into a development test set. The actual test
+set was only used for obtaining ﬁnal numbers.
+
+4.2.1
+
+Systems that Learn from Question-Answer Pairs
+
+We ﬁrst compare our system (henceforth, LJK11) with Clarke et al. (2010) (henceforth,
+CGCR10), which is most similar to in our work in that it also learns from question-answer
+pairs without using annotated logical forms. CGCR10 works with the FunQL language and
+casts semantic parsing as integer linear programming (ILP). In each iteration, the learning
+algorithm solves the ILP to predict the logical form for each training example. The examples
+with correct predictions are fed to a structural SVM and the model parameters are updated.
+Though similar in spirit, there are some important diﬀerences between CGCR10 and our
+approach. They use ILP instead of beam search and structural SVM instead of log-linear
+models, but the main diﬀerence is which examples are used for learning. Our approach
+learns on any feasible example (Section 3.2.1), one where the candidate set contains a logical
+form that evaluates to the correct answer. CGCR10 uses a much more stringent criteria:
+the highest scoring logical form must evaluate to the correct answer. Therefore, for their
+algorithm to progress, the model already must be non-trivially good before learning even
+starts. This is reﬂected in the amount of prior knowledge and initialization that CGCR10
+employs before learning starts: WordNet features, and syntactic parse trees, and a set of
+lexical triggers with 1.42 words per non-value predicate. Our system with base triggers
+requires only simple indicator features, POS tags, and 0.5 words per non-value predicate.
+CGCR10 created a version of Geo which contains 250 training and 250 test examples.
+Table 4.1 compares the empirical results on this split. We see that our system (LJK11) with
+base triggers signiﬁcantly outperforms CGCR10 (84% over 73.2%), and it even outperforms
+the version of CGCR10 that is trained using logical forms (84.0% over 80.4%). If we use
+augmented triggers, we widen the gap by another 3.6%.2
+2
+
+Note that the numbers for LJK11 diﬀer from those presented in Liang et al. (2011), which reports results
+based on 10 diﬀerent splits rather than the one used by CGCR10.
+
+CHAPTER 4. EXPERIMENTS
+
+49
+
+System
+Accuracy
+CGCR10 w/answers
+(Clarke et al., 2010)
+73.2
+CGCR10 w/logical forms
+(Clarke et al., 2010)
+80.4
+84.0
+LJK11 w/base triggers
+(Liang et al., 2011)
+LJK11 w/augmented triggers (Liang et al., 2011)
+87.6
+Table 4.1: Results on Geo with 250 training and 250 test examples. Our system (LJK11
+with base triggers and no logical forms) obtains higher test accuracy than CGCR10, even
+when CGCR10 is trained using logical forms.
+
+4.2.2
+
+State-of-the-Art Systems
+
+We now compare our system (LJK11) with state-of-the-art systems, which all require annotated logical forms (except Precise). Here is a brief overview of the systems:
+• Cocktail (Tang and Mooney, 2001) uses inductive logic programming to learn rules
+for driving the decisions of a shift-reduce semantic parser. It assumes that a lexicon
+(mapping from words to predicates) is provided.
+• Precise (Popescu et al., 2003) does not use learning, but instead relies on matching
+words to strings in the database using various heuristics based on WordNet and the
+Charniak parser. Like our work, it also uses database type constraints to rule out
+spurious logical forms. One of the unique features of Precise is that it has 100%
+precision—it refuses to parse an utterance which it deems semantically intractable.
+• Scissor (Ge and Mooney, 2005) learns a generative probabilistic model that extends
+the Collins models (Collins, 1999) with semantic labels, so that syntactic and semantic
+parsing can be done jointly.
+• Silt (Kate et al., 2005) learns a set of transformation rules for mapping utterances to
+logical forms.
+• Krisp (Kate and Mooney, 2006) uses SVMs with string kernels to drive the local
+decisions of a chart-based semantic parser.
+• Wasp (Wong and Mooney, 2006) uses log-linear synchronous grammars to transform
+utterances into logical forms, starting with word alignments obtained from the IBM
+models.
+• λ-Wasp (Wong and Mooney, 2007) extends Wasp to work with logical forms that
+contain bound variables (lambda abstraction).
+
+CHAPTER 4. EXPERIMENTS
+
+50
+
+• LNLZ08 (Lu et al., 2008) learns a generative model over hybrid trees, which are logical
+forms augmented with natural language words. IBM model 1 is used to initialize the
+parameters, and a discriminative reranking step works on top of the generative model.
+• ZC05 (Zettlemoyer and Collins, 2005) learns a discriminative log-linear model over
+CCG derivations. Starting with a manually-constructed domain-independent lexicon,
+the training procedure grows the lexicon by adding lexical entries derived from associating parts of an utterance with parts of the annotated logical form.
+• ZC07 (Zettlemoyer and Collins, 2007) extends ZC05 with extra (disharmonic) combinators to increase the expressive power of the model.
+• KZGS10 (Kwiatkowski et al., 2010) uses a restricted higher-order uniﬁcation procedure,
+which iteratively breaks up a logical form into smaller pieces. This approach gradually
+adds lexical entries of increasing generality, thus obviating the need for the manuallyspeciﬁed templates used by ZC05 and ZC07 for growing the lexicon. IBM model 1 is
+used to initialize the parameters.
+• KZGS11 (Kwiatkowski et al., 2011) extends KZGS10 by factoring lexical entries into
+a template plus a sequence of predicates which ﬁll the slots of the template. This
+factorization improves generalization.
+With the exception of Precise, all other systems require annotated logical forms, whereas
+our system learns from annotated answers. On the other hand, many of the later systems
+require essentially no manually-crafted lexicon and instead rely on unsupervised word alignment (e.g., Wong and Mooney (2006, 2007); Kwiatkowski et al. (2010, 2011)) and/or lexicon
+learning (e.g., Zettlemoyer and Collins (2005, 2007); Kwiatkowski et al. (2010, 2011)). We
+cannot use these automatic techniques because they require annotated logical forms. Our
+system instead relies on lexical triggers, which does require some manual eﬀort. These lexical
+triggers play a crucial role in the initial stages of learning, because they constrain the set of
+candidate DCS trees, barring a hopelessly intractable search problem.
+Table 4.2 shows the results for Geo. Semantic parsers are typically evaluated on the
+accuracy of the logical forms: precision (the accuracy on utterances which are successfully
+parsed) and recall (the accuracy on all utterances). We only focus on recall (a lower bound
+on precision) and simply use the word accuracy to refer to recall.3 Our system is evaluated
+only on answer accuracy because our model marginalizes out the latent logical form. All
+other systems are evaluated on the accuracy of logical forms. To calibrate, we also evaluated
+KZGS10 on answer accuracy and found that it was quite similar to its logical form accuracy
+(88.9% versus 88.2%).4 This does not imply that our system would necessarily have a high
+3
+
+Our system produces a logical form for every utterance, and thus our precision is the same as our recall.
+The 88.2% corresponds to 87.9% in Kwiatkowski et al. (2010). The diﬀerence is due to using a slightly
+newer version of the code.
+4
+
+CHAPTER 4. EXPERIMENTS
+System
+LF
+Cocktail
+(Tang and Mooney, 2001)
+79.4
+Precise
+(Popescu et al., 2003)
+77.5
+72.3
+Scissor
+(Ge and Mooney, 2005)
+Silt
+(Kate et al., 2005)
+54.1
+71.7
+Krisp
+(Kate and Mooney, 2006)
+Wasp
+(Wong and Mooney, 2006)
+74.8
+λ-Wasp
+(Wong and Mooney, 2007)
+86.6
+LNLZ08
+(Lu et al., 2008)
+81.8
+ZC05
+(Zettlemoyer and Collins, 2005) 79.3
+ZC07
+(Zettlemoyer and Collins, 2007) 86.1
+KZGS10
+(Kwiatkowski et al., 2010)
+88.2
+88.6
+KZGS11
+(Kwiatkowski et al., 2010)
+LJK11 w/base triggers
+(Liang et al., 2011)
+–
+LJK11 w/augmented triggers (Liang et al., 2011)
+–
+
+51
+Answer
+–
+77.5
+–
+–
+–
+–
+–
+–
+–
+–
+88.9
+–
+87.9
+91.4
+
+Table 4.2: Results on Geo. Logical form accuracy (LF) and answer accuracy (Answer) of
+the various systems. The ﬁrst group of systems are evaluated using 10-fold cross-validation
+on all 880 examples; the second are evaluated on the 680 + 200 split of Zettlemoyer and
+Collins (2005). Our system (LJK11) with base triggers obtains comparable accuracy to past
+work, while with augmented triggers, our system obtains the highest overall accuracy.
+
+logical form accuracy because multiple logical forms can produce the same answer, and our
+system does not receive a training signal to tease them apart. Even with only base triggers,
+our system (LJK11) outperforms all but two of the systems, falling short of KZGS10 by
+only one point (87.9% versus 88.9%).5 With augmented triggers, our system takes the lead
+(91.4% over 88.9%).
+Table 4.3 shows the results for Jobs. The two learning-based systems (Cocktail and
+ZC05) are actually outperformed by Precise, which is able to use strong database type
+constraints. By exploiting this information and doing learning, we obtain the best results.
+
+4.3
+
+Empirical Properties
+
+In this section, we try to gain more intuition about the properties of our approach. All
+experiments in this section are performed on random development splits. Throughout this
+section, “accuracy” means development test accuracy.
+5
+
+The 87.9% and 91.4% correspond to 88.6% and 91.1% in Liang et al. (2011). These diﬀerences are due
+to minor diﬀerences in the code.
+
+CHAPTER 4. EXPERIMENTS
+System
+Cocktail
+Precise
+ZC05
+LJK11 w/base triggers
+LJK11 w/augmented triggers
+
+52
+LF
+(Tang and Mooney, 2001)
+79.4
+(Popescu et al., 2003)
+88.0
+(Zettlemoyer and Collins, 2005) 79.3
+(Liang et al., 2011)
+–
+–
+(Liang et al., 2011)
+
+Answer
+–
+88.0
+–
+90.7
+95.0
+
+Table 4.3: Results on Jobs. Both Precise and our system use database type constraints,
+which results in a decisive advantage over the other systems. In addition, LJK11 incorporates
+learning and therefore obtains the highest accuracies.
+
+4.3.1
+
+Error Analysis
+
+To understand the type of errors our system makes, we examined one of the development
+runs, which had 34 errors on the test set. We classiﬁed these errors into the following
+categories (the number of errors in each category is shown in parentheses):
+• Incorrect POS tags (8): Geo is out-of-domain for our POS tagger, so the tagger makes
+some basic errors which adversely aﬀect the predicates that can be lexically triggered.
+For example, the question What states border states . . . is tagged as wp vbz nn nns
+. . . , which means that the ﬁrst states cannot trigger state. In another example,
+major river is tagged as nnp nnp, so these cannot trigger the appropriate predicates
+either, and thus the desired DCS tree cannot even be constructed.
+• Non-projectivity (3): The candidate DCS trees are deﬁned by a projective construction
+mechanism (Section 2.6) that prohibits edges in the DCS tree from crossing. This
+means we cannot handle utterances such as largest city by area, since the desired DCS
+tree would have city dominating area dominating argmax. To construct this DCS
+tree, we could allow local reordering of the words.
+• Unseen words (2): We never saw at least or sea level at training time. The former has
+the correct lexical trigger, but not a suﬃciently large feature weight (0) to encourage
+its use. For the latter, the problem is more structural: We have no lexical triggers for
+0 : length, and only adding more lexical triggers can solve this problem.
+• Wrong lexical triggers (7): Sometimes the error is localized to a single lexical trigger.
+For example, the model incorrectly thinks Mississippi is the state rather than the river,
+and that Rochester is the city in New York rather than the name, even though there
+are contextual cues to disambiguate in these cases.
+• Extra words (5): Sometimes, words trigger predicates that should be ignored. For
+example, for population density, the ﬁrst word triggers population, which is used
+
+CHAPTER 4. EXPERIMENTS
+
+53
+
+TriggerPred[city, ·]
+city
+river
+capital
+···
+
+1.00
+0.00
+0.00
+···
+
+TriggerPred[peak, ·]
+mountain
+0.92
+place
+0.08
+city
+0.00
+···
+···
+
+TriggerPred[sparse, ·]
+elevation
+1.00
+density
+0.00
+size
+0.00
+···
+···
+
+TracePred[in, ·, ·]
+loc
+traverse
+border
+···
+
+0.99
+0.01
+0.00
+···
+
+TracePred[have, ·, ·]
+loc
+0.68
+border
+0.20
+traverse
+0.12
+···
+···
+
+TracePred[ﬂow, ·, ·]
+traverse
+border
+loc
+···
+
+PredRelPred[·, ·, city]
+ø x1,2
+0.38
+
+PredRelPred[·, ·, loc]
+1
+0.25
+city
+1
+
+PredRelPred[·, ·, elevation]
+1
+0.65
+place
+1
+
+øΣ
+count
+
+1
+1
+
+øΣ
+
+···
+
+0.19
+0.19
+
+state
+
+···
+
+···
+
+place
+
+1
+2
+1
+1
+
+0.25
+
+mountain
+1
+2
+
+0.17
+
+ø
+
+···
+
+···
+
+1
+1
+
+0.71
+0.18
+0.11
+···
+
+0.27
+0.08
+···
+
+Figure 4.2: Learned feature distributions. In a feature group (e.g., TriggerPred[city, ·]),
+each feature is associated with the marginal probability that the feature ﬁres according to
+(4.3). Note that we have successfully learned that city means city, but incorrectly learned
+that sparse means elevation (due to the confounding fact that Alaska is the most sparse
+state and has the highest elevation).
+rather than density.
+• Over-smoothing of DCS tree (9): The ﬁrst half of our features (Figure 3.1) are deﬁned
+on the DCS tree alone; these produce a form of smoothing that encourages DCS trees to
+look alike regardless of the words. We found several instances where this essential tool
+for generalization went too far. For example, in state of Nevada, the trace predicate
+border is inserted between the two nouns, because it creates a structure more similar
+to that of the common question what states border Nevada?
+
+4.3.2
+
+Visualization of Features
+
+Having analyzed the behavior of our system for individual utterances, let us move from
+the token-level to the type-level and analyze the learned parameters of our model. We do
+not look at raw feature weights, because there are complex interactions between them not
+represented by examining individual weights. Instead, we look at expected feature counts,
+which we think are more interpretable.
+
+CHAPTER 4. EXPERIMENTS
+
+54
+
+Fraction feasible
+
+100
+
+80
+
+60
+
+40
+
+Random
+Random
+Random
+Random
+Random
+
+20
+
+1
+
+2
+
+3
+
+4
+
+5
+
+1
+2
+3
+4
+5
+
+6
+
+iteration
+
+Figure 4.3:
+The fraction of feasible training examples increases steadily as the parameters, and thus, the beam search, improves. Each curve corresponds to a run on a diﬀerent
+development split.
+Consider a group of “competing” features J, for example J = {TriggerPred[city, p] :
+p ∈ P}. We deﬁne a distribution q(·) over J as follows:
+q(j) =
+
+Nj
+j ∈J
+
+Nj =
+
+Nj
+
+, where
+
+(4.3)
+
+Ep(z|x,ZL,θ ,θ) [φ(x, z)].
+˜
+(x,y)∈D
+
+Think of q(j) as a marginal distribution (since all our features are positive) which represents
+the relative frequencies with which the features j ∈ J ﬁre with respect to our training
+˜
+dataset D and trained model p(z | x, ZL,θ , θ). To appreciate the diﬀerence between what
+this distribution and raw feature weights each capture, suppose we had two features, j1
+and j2 , which are identical (φ(x, z)j1 ≡ φ(x, z)j2 ). The weights would be split across the
+two features, but the features would have the same marginal distribution (q(j1 ) = q(j2 )).
+Figure 4.2 shows some of the feature distributions learned.
+
+4.3.3
+
+Learning, Search, Bootstrapping
+
+Recall from Section 3.2.1 that a training example is feasible (with respect to our beam
+search) if the resulting candidate set contains a DCS tree with the correct answer. Infeasible
+examples are skipped, but an example may become feasible in a later iteration. A natural
+question is how many training examples are feasible in each iteration. Figure 4.3 shows the
+answer: Initially, only around 30% of the training examples are feasible; this is not surprising
+
+CHAPTER 4. EXPERIMENTS
+
+55
+
+given that all the parameters are zero, so our beam search is essentially unguided. However,
+training on just these examples improves the parameters, and over the next few iterations,
+the number of feasible examples steadily increases to around 97%.
+In our algorithm, learning and search are deeply intertwined. Search is of course needed
+to learn, but learning also improves search. The general approach is similar in spirit to Searn
+(Daume et al., 2009), although we do not have any formal guarantees at this point.
+Our algorithm also has a bootstrapping ﬂavor. The “easy” examples are processed ﬁrst,
+where easy is deﬁned by the ability of beam search to generate the correct answer. This
+bootstrapping occurs quite naturally: Unlike most bootstrapping algorithms, we do not have
+to set a conﬁdence threshold for accepting new training examples, something that can be
+quite tricky to do. Instead, our threshold falls out of the discrete nature of the beam search.
+
+4.3.4
+
+Eﬀect of Various Settings
+
+So far, we have used our approach with default settings (Section 4.1.2). How sensitive is the
+approach to these choices? Table 4.4 shows the impact of the feature templates. Figure 4.4
+shows the eﬀect of the number of training examples, number of training iterations, beam size,
+and regularization parameter. The overall conclusion is that there are no big surprises: Our
+default settings could be improved on slightly, but these diﬀerences are often smaller than
+the variation across diﬀerent development splits.
+Features
+Pred
+Pred + PredRel
+Pred + PredRel + PredRelPred
+Pred + TriggerPred
+Pred + TriggerPred + Trace∗
+Pred + PredRel + PredRelPred + TriggerPred + Trace∗
+
+Accuracy
+13.4 ± 1.6
+18.4 ± 3.5
+23.1 ± 5.0
+61.3 ± 1.1
+76.4 ± 2.3
+84.7 ± 3.5
+
+Table 4.4:
+There are two classes of feature templates:
+lexical features
+(TriggerPred,Trace*) and non-lexical features (PredRel,PredRelPred). The lexical features are relatively much more important for obtaining good accuracy (76.4% versus
+23.1%), but adding the non-lexical features makes a signiﬁcant contribution as well (84.7%
+versus 76.4%).
+We now consider the choice of optimization algorithm to update the parameters given
+candidate sets (see Figure 3.2). Thus far, we have been using L-BFGS (Nocedal, 1980),
+which is a batch algorithm: Each iteration, we construct the candidate sets C (t) (x) for
+all the training examples before solving the optimization problem argmaxθ O(θ, C (t) ). We
+now consider an online algorithm, stochastic gradient descent (SGD) (Robbins and Monro,
+
+CHAPTER 4. EXPERIMENTS
+
+56
+
+80
+
+Accuracy
+
+100
+
+80
+
+Accuracy
+
+100
+
+60
+
+40
+
+Random
+Random
+Random
+Random
+Random
+
+20
+
+100
+
+200
+
+300
+
+1
+2
+3
+4
+5
+
+40
+
+Random
+Random
+Random
+Random
+Random
+
+20
+
+400
+
+5
+
+iteration
+(a) Eﬀect of # training examples
+
+10
+
+15
+
+20
+
+1
+2
+3
+4
+5
+
+25
+
+30
+
+iteration
+(b) Eﬀect of # training iterations
+100
+
+80
+
+90
+
+Accuracy
+
+100
+
+Accuracy
+
+60
+
+60
+
+40
+
+80
+
+70
+
+60
+
+20
+
+1
+
+3
+
+10
+
+30
+
+100
+
+Beam size (K)
+(c) Eﬀect of beam size
+
+300
+
+0
+
+0.001 0.003 0.01
+
+0.03
+
+0.1
+
+0.3
+
+Regularization (λ)
+(d) Eﬀect of regularization
+
+Figure 4.4: (a) The learning curve shows test accuracy as the number of training examples
+increases; about 300 examples suﬃces to get around 80% accuracy. (b) Although our algorithm is not guaranteed to converge, the test accuracy is fairly stable (with one exception)
+with more training iterations—hardly any overﬁtting occurs. (c) As the beam size increases,
+the accuracy increases monotonically, although the computational burden also increases.
+There is a small gain from our default setting of K = 100 to the more expensive K = 300.
+(d) The accuracy is relatively insensitive to the choice of the regularization parameter for a
+wide range of values. In fact, no regularization is also acceptable. This is probably because
+the features are simple, and the lexical triggers and beam search already provide some helpful
+biases.
+
+CHAPTER 4. EXPERIMENTS
+
+57
+
+100
+
+100
+
+80
+
+Accuracy
+
+Accuracy
+
+90
+
+80
+
+70
+
+60
+
+40
+L-BFGS
+
+60
+
+20
+
+SGD (α = 0)
+SGD (α = 0.6)
+
+L-BFGS SGD
+α=0
+
+SGD
+SGD
+SGD
+SGD
+SGD
+SGD
+α = 0.1 α = 0.2 α = 0.3 α = 0.4 α = 0.5 α = 0.6
+
+Optimization algorithm
+(a) Eﬀect of optimization algorithm
+
+1
+
+2
+
+3
+
+4
+
+5
+
+iteration
+(b) Batch versus online
+
+Figure 4.5: (a) Given the same number of iterations, compared to default batch algorithm
+(L-BFGS), the online algorithm (stochastic gradient descent) is slightly better for aggressive
+step sizes (small α) and worse for conservative step sizes (large α). (b) The online algorithm
+(with an appropriate choice of α) obtains a reasonable accuracy must faster than L-BFGS.
+1951), which updates the parameters after computing the candidate set for each example.
+In particular, we iteratively scan through the training examples in a random order. For
+each example (x, y), we compute the candidate set using beam search. We then update the
+parameters in the direction of the gradient of the marginal log-likelihood for that example
+(see (3.8)) with step size t−α :
+θ(t+1) ← θ(t) + t−α
+
+˜
+∂ log p(y | x; ZL,θ(t) , θ)
+∂θ
+
+θ=θ(t)
+
+.
+
+(4.4)
+
+The trickiest part about using SGD is selecting the correct step size: a small α leads to quick
+progress but also instability; a large α leads to the opposite. We let L-BFGS and SGD both
+take the same number of iterations (passes over the training set). Figure 4.5 shows that a
+very small α (less than 0.2) is best for our task, even though only values between 0.5 and 1
+guarantee theoretical convergence. Our setting is slightly diﬀerent since we are interleaving
+the SGD updates with beam search, which might also lead to unpredictable consequences.
+Furthermore, the non-convexity of the objective function exacerbates the unpredictability
+(Liang and Klein, 2009). Nonetheless, with a proper α, SGD converges much faster than
+L-BFGS and even to a slightly better solution.
+
+58
+
+Chapter 5
+Discussion
+The work we have presented in this thesis contains three important themes. The ﬁrst
+theme is semantic representation (Section 5.1): How do we parametrize the mapping from
+utterances to their meanings? The second theme is program induction (Section 5.2): How
+do we eﬃciently search through the space of logical structures given a weak feedback signal?
+Finally, the last theme is grounded language (Section 5.3): How do we use constraints from
+the world to guide learning of language and conversely use language to interact with the
+world?
+
+5.1
+
+Semantic Representation
+
+Since the late nineteenth century, philosophers and linguists have worked on elucidating the
+relationship between an utterance and its meaning. One of the pillars of formal semantics is
+Frege’s principle of compositionality, that the meaning of an utterance is built by composing
+the meaning of its parts. What these parts are and how they are composed is the main
+question. The dominant paradigm, which stems from the seminal work of Richard Montague
+in the early 1970s (Montague, 1973), states that parts are lambda calculus expressions that
+correspond to syntactic constituents, and composition is function application.
+Consider the compositionality principle from a statistical point of view, where we liberally
+construe compositionality as factorization. Factorization, the way a statistical model breaks
+into features, is necessary for generalization: It enables us to learn from previously seen
+examples and interpret new utterances. Projecting back to Frege’s original principle, the
+parts are the features (Section 3.1.1), and composition is the DCS construction mechanism
+(Section 2.6) driven by parameters learned from training examples.
+Taking the statistical view of compositionality, ﬁnding a good semantic representation
+becomes designing a good statistical model. But statistical modeling must also deal with the
+additional issue of language acquisition or learning, which presents complications: In absorbing training examples, our learning algorithm must inevitably traverse through intermediate
+
+CHAPTER 5. DISCUSSION
+
+59
+
+models that are wrong or incomplete. The algorithms must therefore tolerate this degradation, and do so in a computationally eﬃcient way. For example, in the line of work on
+learning probabilistic CCGs (Zettlemoyer and Collins, 2005, 2007; Kwiatkowski et al., 2010),
+many candidate lexical entries must be entertained for each word even when polysemy does
+not actually exist (Section 2.6.4).
+To improve generalization, the lexicon can be further factorized (Kwiatkowski et al.,
+2011), but this is all done within the constraints of CCG. DCS represents a departure
+from this tradition, which replaces a heavily-lexicalized constituency-based formalism with a
+lightly-lexicalized dependency-based formalism. We can think of DCS as a shift in linguistic
+coordinate systems, which makes certain factorizations or features more accessible. For
+example, we can deﬁne features on paths between predicates in a DCS tree which capture
+certain lexical patterns much more easily than on a lambda calculus expression or a CCG
+derivation.
+The beneﬁts of working with dependency-based logical forms also led to the independent
+development of a semantic representation called natural logic form (Alshawi et al., 2011), but
+the details of the two semantic formalisms and the goals are both diﬀerent. Alshawi et al.
+(2011) focuses on parsing much complex sentences in an open-domain where a structured
+database or world does not exist. While they do equip their logical forms with a full modeltheoretic semantics, the logical forms are actually closer to dependency trees: quantiﬁer
+scope is left unspeciﬁed, and the predicates are simply the words.
+Perhaps not immediately apparent is the fact that DCS draws an important idea from
+Discourse Representation Theory (DRT) (Kamp and Reyle, 1993)—not from its treatment
+of anaphora and presupposition which it is known for, but something closer to its core.
+This is the idea of having a logical form where all variables are existentially quantiﬁed and
+constraints are combined via conjunction—a Discourse Representation Structure (DRS) in
+DRT, or a basic DCS tree with only join relations. Computationally, such these logical
+structures conveniently encode CSPs. Linguistically, it appears that existential quantiﬁers
+play an important role and should be treated specially (Kamp and Reyle, 1993). DCS
+takes this core and focuses more on semantic compositionality and computation, while DRT
+focuses more on discourse and pragmatics.
+In addition to the statistical view of DCS as a semantic representation, it is useful to
+think about DCS from the perspective of programming language design. Two programming
+languages can be equally expressive, but what matters is how simple it is to express a
+desired type of computation with in a given language. In some sense, we designed the DCS
+formal language to make it easy to represent computations expressed by natural language.
+An important part of DCS is the mark-execute construct, a uniform framework for dealing
+with the divergence between syntactic and semantic scope. This construct allows us to
+build simple DCS tree structures and still handle the complexities of phenomena such as
+quantiﬁer scope variation. Compared to lambda calculus, think of DCS as a higher-level
+programming language tailored to natural language, which results in simpler programs (DCS
+trees). Simpler programs are easier for us to work with and easier for an algorithm to learn.
+
+CHAPTER 5. DISCUSSION
+
+5.2
+
+60
+
+Program Induction
+
+Searching over the space of programs is hard though. This is the central computational
+challenge of program induction, that of inferring programs (logical forms) from their behavior
+(denotations). This problem has been tackled by diﬀerence communities in various forms:
+program induction in AI, programming by demonstration in HCI, and program synthesis in
+programming languages. The core computational diﬃculty is that the supervision signal—
+the behavior—is a complex function of the program which cannot be easily inverted. What
+program generated the output Arizona, Nevada, and Oregon?
+Perhaps somewhat counterintuitively, program induction is easier if we infer programs for
+not a single task but for multiple tasks. The intuition is that when the tasks are related, the
+solution to one task can help another task, both computationally in navigating the program
+space but statistically in choosing the appropriate program if there are multiple feasible
+possibilities (Liang et al., 2010). In our semantic parsing work, we want to infer a logical
+form for each utterance (task). Clearly the tasks are related because they use the same
+vocabulary to talk about the same domain.
+Natural language also makes program induction easier by providing side information
+(words) which can be used to guide the search. There has been several papers that induce
+programs in this setting: Eisenstein et al. (2009) induces conjunctive formulae from natural
+language instructions, Piantadosi et al. (2008) induces ﬁrst-order logic formulae using CCG
+in a small domain assuming observed lexical semantics, and Clarke et al. (2010) induces
+logical forms in semantic parsing. In the ideal case, the words would determine the program
+predicates, and the utterance would determine the entire program compositionally. But of
+course, this mapping is not given and must be learned.
+
+5.3
+
+Grounded Language
+
+In recent years, there has been an increased interest in connecting language with the world.1
+One of the primary issues in grounded language is alignment—ﬁguring out what fragments of
+utterances refer to what aspects of the world. In fact, semantic parsers trained on examples
+of utterances and annotated logical form (those discussed in Section 4.2.2) need to solve the
+task of aligning words to predicates. Some can learn from utterances paired with a set of
+logical forms, one of which is correct (Kate and Mooney, 2007; Chen and Mooney, 2008).
+Liang et al. (2009) tackles the even more diﬃcult alignment problem of segmenting and
+aligning a discourse to a database of facts, where many parts of either side are irrelevant
+(Liang et al., 2009).
+If we know how the world relates to language, we can leverage structure in the world
+to guide the learning and interpretation of language. We saw that type constraints from
+1
+
+Here, world need not refer to the physical world, but could be any virtual world. The point is that the
+world has non-trivial structure and exists extra-linguistically.
+
+CHAPTER 5. DISCUSSION
+
+61
+
+the database/world reduces the set of candidate logical forms and leads to more accurate
+systems (Popescu et al., 2003; Liang et al., 2011). Even for syntactic parsing, information
+from the denotation of an utterance can be helpful (Schuler, 2003).
+One of the exciting aspects about using the world for learning language is that it opens
+the door to many new types of supervision. We can obtain answers given a world, which are
+cheaper to obtain than logical forms (Clarke et al., 2010; Liang et al., 2011). Goldwasser
+et al. (2011) learns a semantic parser based on bootstrapping and estimating the conﬁdence
+of its own predictions. Artzi and Zettlemoyer (2011) learns a semantic parser not from
+annotated logical forms, but from user interactions with a dialog system. Branavan et al.
+(2009, 2010, 2011) use reinforcement learning learn to follow natural language instructions
+from a reward signal. In general, supervision from the world is more indirectly related to
+the learning task, but it is often much more plentiful and natural to obtain.
+The beneﬁts can also ﬂow from language to the world. For example, previous work learned
+to interpret language to troubleshoot a Windows machine (Branavan et al., 2009, 2010), win
+a game of Civilization (Branavan et al., 2011), play a legal game of solitaire (Eisenstein et al.,
+2009; Goldwasser and Roth, 2011), and navigate a map by following directions (Vogel and
+Jurafsky, 2010; Chen and Mooney, 2011). Even when the objective in the world is deﬁned
+independently of language (e.g., in Civilization), language can provide a useful bias towards
+the non-linguistic end goal.
+
+5.4
+
+Conclusions
+
+The main conceptual contribution of this thesis is a new semantic formalism, dependencybased compositional semantics (DCS), which has favorable linguistic, statistical, and computational properties. This enabled us to learn a semantic parser from question-answer pairs
+where the intermediate logical form (a DCS tree) is induced in an unsupervised manner.
+Our ﬁnal question answering system was able to outperform current state-of-the-art systems
+despite requiring no annotated logical forms.
+However, there is currently a large divide between our question answering system (which
+are natural language interfaces to databases) and open-domain question answering systems.
+The former focuses on understanding a question compositionally and computing the answer
+compositionally, while the latter focuses on retrieving and ranking answers from a large
+unstructured textual corpus. The former has depth; the latter has breadth. Developing
+methods that can both model the semantic richness of language and scale up to an opendomain setting remains an open challenge.
+We believe that it is possible to push our approach in that direction. Neither DCS nor
+the learning algorithm is tied to having a clean rigid database, which could instead be a
+database generated from a noisy information extraction process. The key is to drive the
+learning with the desired behavior, the question-answer pairs. The latent variable is the
+logical form or program, which just tries to compute the desired answer by piecing together
+
+CHAPTER 5. DISCUSSION
+
+62
+
+whatever information is available. Of course, there are many open challenges ahead, but
+with the proper combination of linguistic, statistical, and computational insight, we hope to
+eventually build systems with both breadth and depth.
+
+63
+
+Bibliography
+H. Alshawi, P. Chang, and M. Ringgaard. Deterministic statistical mapping of sentences
+to underspeciﬁed semantics. In International Conference on Compositional Semantics
+(IWCS), pages 15–24, 2011.
+I. Androutsopoulos, G. D. Ritchie, and P. Thanisch. Natural language interfaces to databases
+– an introduction. Journal of Natural Language Engineering, 1:29–81, 1995.
+Y. Artzi and L. Zettlemoyer. Bootstrapping semantic parsers from conversations. In Empirical Methods in Natural Language Processing (EMNLP), pages 421–432, 2011.
+J. Bos. A controlled fragment of DRT. In Workshop on Controlled Natural Language, pages
+1–5, 2009.
+S. Branavan, H. Chen, L. S. Zettlemoyer, and R. Barzilay. Reinforcement learning for
+mapping instructions to actions. In Association for Computational Linguistics and International Joint Conference on Natural Language Processing (ACL-IJCNLP), pages 82–90,
+Singapore, 2009. Association for Computational Linguistics.
+S. Branavan, L. Zettlemoyer, and R. Barzilay. Reading between the lines: Learning to map
+high-level instructions to commands. In Association for Computational Linguistics (ACL),
+pages 1268–1277. Association for Computational Linguistics, 2010.
+S. Branavan, D. Silver, and R. Barzilay. Learning to win by reading manuals in a MonteCarlo framework. In Association for Computational Linguistics (ACL), pages 268–277.
+Association for Computational Linguistics, 2011.
+B. Carpenter. Type-Logical Semantics. MIT Press, 1998.
+D. L. Chen and R. J. Mooney. Learning to sportscast: A test of grounded language acquisition. In International Conference on Machine Learning (ICML), pages 128–135. Omnipress, 2008.
+D. L. Chen and R. J. Mooney. Learning to interpret natural language navigation instructions
+from observations. In Association for the Advancement of Artiﬁcial Intelligence (AAAI),
+Cambridge, MA, 2011. MIT Press.
+
+BIBLIOGRAPHY
+
+64
+
+J. Clarke, D. Goldwasser, M. Chang, and D. Roth. Driving semantic parsing from the world’s
+response. In Computational Natural Language Learning (CoNLL), pages 18–27, 2010.
+M. Collins. Head-Driven Statistical Models for Natural Language Parsing. PhD thesis,
+University of Pennsylvania, 1999.
+P. Cousot and R. Cousot. Abstract interpretation: a uniﬁed lattice model for static analysis
+of programs by construction or approximation of ﬁxpoints. In Principles of Programming
+Languages (POPL), pages 238–252, 1977.
+H. Daume, J. Langford, and D. Marcu. Search-based structured prediction. Machine Learning Journal (MLJ), 75:297–325, 2009.
+R. Dechter. Constraint Processing. Morgan Kaufmann, 2003.
+J. Eisenstein, J. Clarke, D. Goldwasser, and D. Roth. Reading to learn: Constructing
+features from semantic abstracts. In Empirical Methods in Natural Language Processing
+(EMNLP), pages 958–967, Singapore, 2009.
+R. Ge and R. J. Mooney. A statistical semantic parser that integrates syntax and semantics.
+In Computational Natural Language Learning (CoNLL), pages 9–16, Ann Arbor, Michigan,
+2005.
+A. Giordani and A. Moschitti. Semantic mapping between natural language questions and
+SQL queries via syntactic pairing. In International Conference on Applications of Natural
+Language to Information Systems, pages 207–221, 2009.
+D. Goldwasser and D. Roth. Learning from natural instructions. In International Joint
+Conference on Artiﬁcial Intelligence (IJCAI), pages 1794–1800, 2011.
+D. Goldwasser, R. Reichart, J. Clarke, and D. Roth. Conﬁdence driven unsupervised semantic parsing. In Association for Computational Linguistics (ACL), pages 1486–1495.
+Association for Computational Linguistics, 2011.
+J. Judge, A. Cahill, and J. v. Genabith. Question-bank: creating a corpus of parse-annotated
+questions. In International Conference on Computational Linguistics and Association
+for Computational Linguistics (COLING/ACL), pages 497–504, Sydney, Australia, 2006.
+Association for Computational Linguistics.
+H. Kamp and U. Reyle. From Discourse to Logic: An Introduction to the Model-theoretic Semantics of Natural Language, Formal Logic and Discourse Representation Theory. Kluwer,
+Dordrecht, 1993.
+H. Kamp, J. v. Genabith, and U. Reyle. Discourse representation theory. In Handbook of
+Philosophical Logic. 2005.
+
+BIBLIOGRAPHY
+
+65
+
+R. J. Kate and R. J. Mooney. Using string-kernels for learning semantic parsers. In International Conference on Computational Linguistics and Association for Computational Linguistics (COLING/ACL), pages 913–920, Sydney, Australia, 2006. Association for Computational Linguistics.
+R. J. Kate and R. J. Mooney. Learning language semantics from ambiguous supervision. In
+Association for the Advancement of Artiﬁcial Intelligence (AAAI), pages 895–900, Cambridge, MA, 2007. MIT Press.
+R. J. Kate, Y. W. Wong, and R. J. Mooney. Learning to transform natural to formal
+languages. In Association for the Advancement of Artiﬁcial Intelligence (AAAI), pages
+1062–1068, Cambridge, MA, 2005. MIT Press.
+T. Kwiatkowski, L. Zettlemoyer, S. Goldwater, and M. Steedman. Inducing probabilistic
+CCG grammars from logical form with higher-order uniﬁcation. In Empirical Methods in
+Natural Language Processing (EMNLP), 2010.
+T. Kwiatkowski, L. Zettlemoyer, S. Goldwater, and M. Steedman. Lexical generalization in
+CCG grammar induction for semantic parsing. In Empirical Methods in Natural Language
+Processing (EMNLP), pages 1512–1523, 2011.
+P. Liang and D. Klein. Online EM for unsupervised models. In North American Association
+for Computational Linguistics (NAACL). Association for Computational Linguistics, 2009.
+P. Liang, M. I. Jordan, and D. Klein. Learning semantic correspondences with less supervision. In Association for Computational Linguistics and International Joint Conference
+on Natural Language Processing (ACL-IJCNLP), Singapore, 2009. Association for Computational Linguistics.
+P. Liang, M. I. Jordan, and D. Klein. Learning programs: A hierarchical Bayesian approach.
+In International Conference on Machine Learning (ICML). Omnipress, 2010.
+P. Liang, M. I. Jordan, and D. Klein. Learning dependency-based compositional semantics. In Association for Computational Linguistics (ACL), pages 590–599. Association for
+Computational Linguistics, 2011.
+W. Lu, H. T. Ng, W. S. Lee, and L. S. Zettlemoyer. A generative model for parsing natural language to meaning representations. In Empirical Methods in Natural Language
+Processing (EMNLP), pages 783–792, 2008.
+M. P. Marcus, M. A. Marcinkiewicz, and B. Santorini. Building a large annotated corpus of
+English: the Penn Treebank. Computational Linguistics, 19:313–330, 1993.
+
+BIBLIOGRAPHY
+
+66
+
+S. Miller, D. Stallard, R. Bobrow, and R. Schwartz. A fully statistical approach to natural
+language interfaces. In Association for Computational Linguistics (ACL), pages 55–61.
+Association for Computational Linguistics, 1996.
+R. Montague. The proper treatment of quantiﬁcation in ordinary English. In Approaches to
+Natural Language, pages 221–242, 1973.
+J. Nocedal. Updating quasi-newton matrices with limited storage. Mathematics of Computation, 35:773–782, 1980.
+S. Petrov, L. Barrett, R. Thibaux, and D. Klein. Learning accurate, compact, and interpretable tree annotation. In International Conference on Computational Linguistics and
+Association for Computational Linguistics (COLING/ACL), pages 433–440. Association
+for Computational Linguistics, 2006.
+S. T. Piantadosi, N. D. Goodman, B. A. Ellis, and J. B. Tenenbaum. A Bayesian model of the
+acquisition of compositional semantics. In Proceedings of the Thirtieth Annual Conference
+of the Cognitive Science Society, 2008.
+A. Popescu, O. Etzioni, and H. Kautz. Towards a theory of natural language interfaces to
+databases. In International Conference on Intelligent User Interfaces (IUI), pages 149–
+157, 2003.
+M. F. Porter. An algorithm for suﬃx stripping. Program, 14:130–137, 1980.
+H. Robbins and S. Monro. A stochastic approximation method. Annals of Mathematical
+Statistics, 22(3):400–407, 1951.
+W. Schuler. Using model-theoretic semantic interpretation to guide statistical parsing and
+word recognition in a spoken language interface. In Association for Computational Linguistics (ACL), pages 529–536. Association for Computational Linguistics, 2003.
+M. Steedman. The Syntactic Process. MIT Press, 2000.
+L. R. Tang and R. J. Mooney. Using multiple clause constructors in inductive logic programming for semantic parsing. In European Conference on Machine Learning, pages 466–477,
+2001.
+A. Vogel and D. Jurafsky. Learning to follow navigational directions. In Association for Computational Linguistics (ACL), pages 806–814. Association for Computational Linguistics,
+2010.
+M. Wainwright and M. I. Jordan. Graphical models, exponential families, and variational
+inference. Foundations and Trends in Machine Learning, 1:1–307, 2008.
+
+BIBLIOGRAPHY
+
+67
+
+D. Warren and F. Pereira. An eﬃcient easily adaptable system for interpreting natural
+language queries. Computational Linguistics, 8:110–122, 1982.
+Y. W. Wong and R. J. Mooney. Learning for semantic parsing with statistical machine
+translation. In North American Association for Computational Linguistics (NAACL),
+pages 439–446, New York City, 2006. Association for Computational Linguistics.
+Y. W. Wong and R. J. Mooney. Learning synchronous grammars for semantic parsing with
+lambda calculus. In Association for Computational Linguistics (ACL), pages 960–967,
+Prague, Czech Republic, 2007. Association for Computational Linguistics.
+W. A. Woods, R. M. Kaplan, and B. N. Webber. The lunar sciences natural language
+information system: Final report. Technical report, BBN Report 2378, Bolt Beranek and
+Newman Inc., 1972.
+M. Zelle and R. J. Mooney. Learning to parse database queries using inductive logic proramming. In Association for the Advancement of Artiﬁcial Intelligence (AAAI), pages
+1050–1055, Cambridge, MA, 1996. MIT Press.
+L. S. Zettlemoyer and M. Collins. Learning to map sentences to logical form: Structured classiﬁcation with probabilistic categorial grammars. In Uncertainty in Artiﬁcial Intelligence
+(UAI), pages 658–666, 2005.
+L. S. Zettlemoyer and M. Collins. Online learning of relaxed CCG grammars for parsing to
+logical form. In Empirical Methods in Natural Language Processing and Computational
+Natural Language Learning (EMNLP/CoNLL), pages 678–687, 2007.
+
+68
+
+Appendix A
+Details
+A.1
+
+Denotation Computation
+
+This section describes the details of how we compute the denotations of basic DCS trees
+according to (2.15). We could simply convert DCS trees into SQL or relational algebra
+and use an oﬀ-the-shelf database management system (DBMS). After all, our bottom-up
+approach to computing the denotation of a DCS tree is not necessarily optimal. For example,
+if the predicate at the root contains only one tuple, then a top-down approach would most
+likely be preferable, and a global query optimizer might choose that query execution plan.
+While this might have been a viable route, we use a custom implementation for several
+reasons:
+1. We wanted to present a simple algorithm with a transparent computational complexity;
+2. DCS trees can be built from custom predicates (e.g., for generalized quantiﬁcation and
+superlatives), which are more cumbersome to incorporate into standard engines;
+3. We need to compute denotations not of one DCS tree but of a forest of DCS trees which
+share many subtrees. Exploiting this structure requires a particular form of multiple
+query optimization which is readily incorporated into our construction mechanism.
+In (2.15), we have reduced the computation of denotations to two operations, join and
+project, but there is still much to be said regarding how these operations are implemented.
+For example, for two ﬁnite sets of tuples, A and B, their join, A j,j B can either be
+computed by enumerating the elements of A and querying B for each one, or by enumerating
+B and querying A. We can estimate the costs of these operations and choose the cheaper
+option. We also build various indices to make these operations more eﬃcient. Many of these
+ideas are based on standard database query optimization techniques.
+Recall that our worlds are only conceptually databases, for they contain inﬁnite sets of
+tuples, which arise due to predicates such as >. Performing join and project operations on
+
+APPENDIX A. DETAILS
+
+69
+
+Set-expression
+city
+
+Denotation
+
+explicit-predicate1
+
+{(x) : city(x) ∧ ∃y.population(x, y) ∧ y > 106 }
+
+explicit-predicate2
+
+{(x, y) : population(x, y) ∧ y > 106 }
+
+>{·2 = 106 }
+
+{(x, 106 ) : x > 106 }
+
+1million
+
+{(106 )}
+
+1
+1
+
+population
+2
+1
+
+>
+2
+1
+
+1million
+
+Figure A.1: Shows the computation and representation of the denotations for the DCS tree
+corresponding to city with population greater than 1 million. For each node, we compute the
+denotation for the subtree rooted at that node, which is represented by set-expressions.
+these inﬁnite sets can produce other inﬁnite sets. To handle these manipulations, we need a
+way of representing these inﬁnite sets symbolically.
+
+A.1.1
+
+Set-expressions
+
+We deﬁne a language for representing sets of tuples and show how to perform join and project
+operations on expressions in that language (set-expressions). As a running example, consider
+computing the denotation for the DCS tree corresponding to city with population greater than 1 million,
+shown in Figure A.1.
+Our language for representing sets is given by the following grammar:
+set
+
+::=
+|
+|
+|
+|
+
+predicate
+set{·i = v}
+set[i]
+set × set
+set ∪ set
+
+[base case]
+[select]
+[project]
+[product]
+[union]
+
+(A.1)
+(A.2)
+(A.3)
+(A.4)
+(A.5)
+
+Perhaps not surprisingly, set-expressions bear a striking similarity to relational algebra. Each
+set-expression e denotes the set e w speciﬁed below for each case:
+• Predicate (e.g., population): a predicate p ∈ P represents its semantics p
+• Filter (e.g., >{·2 = 106 }): e{·i = v}
+• Project (e.g., population[2]): e[i]
+
+w
+
+w
+
+= {x ∈ e
+
+w
+
+w
+
+= w(p).
+
+: x[i] = v}.
+
+= {xi : x ∈ e w }.
+
+• Product (e.g., population × area): e1 × e2
+
+w
+
+= {x + y : x ∈ e1
+
+w, y
+
+∈ e2
+
+w }.
+
+APPENDIX A. DETAILS
+
+70
+
+• Union (e.g., city ∪ river): e1 ∪ e2
+
+w
+
+= e1
+
+w
+
+∪ e2
+
+w.
+
+At this point, it is worth stressing the diﬀerence between three kinds of objects: DCS
+trees, set-expressions, and the actual sets of tuples in the world. DCS trees have denotations
+given by (2.15), which are sets of tuples. These denotations are computed by manipulating
+set-expressions, which themselves denote the same sets of tuples in the world.
+
+A.1.2
+
+Join and Project on Set-Expressions
+
+We now deﬁne join and project operations that operate on set-expressions rather than sets
+of tuples. To distinguish these operations, we use J(e1 , j, j , e2 ) and P(i, e) for the operations
+that work on set-expressions, reserving A j,j B and A[i] for the operations that work on
+sets of tuples.
+For convenience, deﬁne a caching function Cw (A), which takes a set of tuples A and
+returns a fresh new predicate p with denotation A (think of Cw as a technical trick which
+implements the inverse of · w ):
+def
+
+Cw (A) = p such that w(p) = A.
+
+(A.6)
+
+We also deﬁne a reduction function R(e), which takes a set-expression e and caches the
+result if e denotes a ﬁnite set:
+def
+
+R(e) =
+
+Cw ( e w ) if | e w | < ∞
+e
+otherwise.
+
+(A.7)
+
+The idea is that we want to reduce set-expressions to predicates whenever possible.
+We implement the join operation J using two operations: (i) enumerate E(e), which
+returns the set of tuples denoted by e; and (ii) select S(i, v, e), which returns a set-expression
+denoting the subset e w which matches the select condition. Using enumerate and select,
+we implement the join of two set-expressions e1 and e2 by enumerating the tuples in e1 and
+using each one to select e2 or vice-versa:
+def
+
+Cw ({x}) × S(j , e1j , e2 ) or
+
+J(e1 , j, j , e2 ) =
+
+x∈E(e1 )
+
+S(j, e2j , e1 ) × Cw ({x}). (A.8)
+x∈E(e2 )
+
+Now, it suﬃces to deﬁne enumerate (E), select (S), and project (P) for each type of
+set-expression. First, the enumerate operation E simply computes the semantics of setexpressions, with the added caveat that the set of tuples must be ﬁnite:
+def
+
+E(e) = e
+
+w
+
+if | e w | < ∞.
+
+The select operation S is deﬁned for each type of set-expression as follows:
+
+(A.9)
+
+APPENDIX A. DETAILS
+
+71
+
+• Predicate: S(i, v, p) = R(p{·i = v}). If we know that the resulting set of tuples is ﬁnite,
+then we simply return a predicate corresponding to those tuples. For ﬁnite predicates
+such as p = city, the result is always ﬁnite. For inﬁnite predicates where the select
+condition is restrictive enough, such as p = count with i = (1) and v = ({(1), (2), (3)}),
+then the resulting set is still ﬁnite—in this case, {({(1), (2), (3)}, 3)}. Otherwise, we
+represent the computation symbolically and return p{·i = v}.
+• Select: S(i, v, e{·j = t}) = R(p{·i+j = v + t}) (simply concatenate the select conditions).
+• Project: S(i, v, e[j]) = R(e{·ji = v}[j]) (push the select operation inside the project).
+• Product: S(i, v, e1 × e2 ) = R(S(ij , vj , e1 ) ∩ S(i−j , v−j , e2 )), where j = {j : ij <
+Arity( e1 w )} are the indices corresponding to the e1 part.
+• Union: S(i, v, e1 ∪ e2 ) = R(S(i, v, e1 ) ∪ S(i, v, e2 )).
+The project operation P is deﬁned for each type of set-expression as follows:
+• Predicate: P(i, p) = R(p[i]).
+• Select: P(i, e{·j = v}) = e{·j = v}[i] (leave the project outside the select).
+• Project: P(i, e[j]) = R(e[ji ]) (accumulate the two project operations).
+• Product: P(i, e1 × e2 ) = R(P(ij , e1 ) × P(i−j , e2 )), where j = {j : ij < Arity( e1
+are the indices corresponding to the e1 part.
+
+w )}
+
+• Union: P(i, e1 ∪ e2 ) = R(P(i, e1 ) ∪ P(i, e2 )).
+The basic strategy when operating on set-expressions is to try to push the select operations as far in as possible, followed by project operations. Whenever we detect that a
+set-expression denotes a ﬁnite set, we evaluate the set-expression to get a concrete set of
+tuples and assign a new predicate to it. Note that it is not necessarily optimal to always
+construct a new predicate when possible. However, note that this does result in caching the
+results of the computation, which can be reused later.
+At the root of the DCS tree, we obtain a set-expression. If the set-expression is a single
+predicate, we happily return the corresponding set of tuples as the ﬁnal answer. Otherwise,
+we say that we have failed to compute the denotation, because the set is probably inﬁnite.
+This happens mostly in strange cases, such as with the DCS tree ø; 1 : count; 2 : 3 , whose
+1
+1
+denotation is all sets (of primitive values) with cardinality 3. Though this denotation is
+semantically meaningful, it never arises in our intended applications. Thus, the failure to
+compute a denotation serves as a pragmatic ﬁlter on the set of DCS trees (see Section 2.6.3).
+Let us walk through the example in Figure A.1. At the bottom of the DCS tree, we
+start with the set-expression corresponding to the constant predicate 1million. We then
+
+APPENDIX A. DETAILS
+
+72
+
+join > with 1million, which results in the set-expression >{·2 = 106 }. Note that we cannot
+reduce this set-expression to a predicate because it has an inﬁnite denotation. Next, we
+join >{·2 = 106 } with population, which does produce a ﬁnite set, which is cached as
+explicit-predicate2. Finally, explicit-predicate2 is joined with city, which yields
+the answer, which can be stored in explicit-predicate1.
+Local Query Optimization The computation of the denotation is driven by the join
+operation (A.8). There are two points worth making. First, the core computation is in
+taking a set-expression (usually a predicate p) and performing a select operation (S(j, x, p)).
+To avoid na¨
+ıvely enumerating the tuples in E(p) and checking the select condition on each
+tuple, we perform some indexing to improve eﬃciency. Speciﬁcally, let A = w(p) be the
+set of tuples. For each component j = 1, . . . , Arity(A), we maintain a map IA from each
+component j and value v to the set of matching tuples in A; formally,
+IA (j, x) = {t ∈ A : tj = x}.
+
+(A.10)
+
+Now, each S(j, x, p) operation simply returns Iw(p) (j, x) using a single lookup.
+Second, when joining two set-expressions e1 and e2 (A.8), there is the choice of whether
+to enumerate e1 or e2 . We ﬁrst estimate the costs of each option and choose the cheaper
+one. Speciﬁcally, let NA (j) be the average size of IA (j, x), where v is drawn from a uniform
+distribution over A[j]:
+NA (j) =
+
+1
+|A[j]|
+
+|IA (j, x)|.
+
+(A.11)
+
+x∈A[j]
+
+More sophisticated query optimization techniques can be used to improve this estimate,
+but we do not pursue them here. For example, suppose we would like to join A and B,
+which both have arity 1. Then the only possible join relation is 1, which corresponds to
+1
+set intersection. The cost for the enumerate-A-query-B option is |A| and the cost form the
+enumerate-B-query-A option is |B| (recall that querying is constant time). We would choose
+the former option if |A| < |B| and the latter otherwise.
+The other common case is when A has arity 2 and B has arity 1; assume the join relation
+j
+is 1 with j ∈ {1, 2}. The enumerate-A-query-B option is the same as before, with a cost
+of |A|. The enumerate-B-query-A option is a bit diﬀerent, because querying A is no longer
+just a simple set-containment check. Instead, each query to A returns a set of arity 2 tuples.
+We take the union of these results: ∪x∈B IA (j, x); this operation has an estimated cost of
+|B|NA (j).
+
+

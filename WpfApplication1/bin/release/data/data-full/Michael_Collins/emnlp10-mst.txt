@@ -1,0 +1,1385 @@
+Dual Decomposition for Parsing with Non-Projective Head Automata
+Terry Koo
+
+Alexander M. Rush Michael Collins Tommi Jaakkola David Sontag
+MIT CSAIL, Cambridge, MA 02139, USA
+{maestro,srush,mcollins,tommi,dsontag}@csail.mit.edu
+
+Abstract
+This paper introduces algorithms for nonprojective parsing based on dual decomposition. We focus on parsing algorithms for nonprojective head automata, a generalization of
+head-automata models to non-projective structures. The dual decomposition algorithms are
+simple and efﬁcient, relying on standard dynamic programming and minimum spanning
+tree algorithms. They provably solve an LP
+relaxation of the non-projective parsing problem. Empirically the LP relaxation is very often tight: for many languages, exact solutions
+are achieved on over 98% of test sentences.
+The accuracy of our models is higher than previous work on a broad range of datasets.
+
+1
+
+Introduction
+
+Non-projective dependency parsing is useful for
+many languages that exhibit non-projective syntactic
+structures. Unfortunately, the non-projective parsing
+problem is known to be NP-hard for all but the simplest models (McDonald and Satta, 2007). There has
+been a long history in combinatorial optimization of
+methods that exploit structure in complex problems,
+using methods such as dual decomposition or Lagrangian relaxation (Lemar´ chal, 2001). Thus far,
+e
+however, these methods are not widely used in NLP.
+This paper introduces algorithms for nonprojective parsing based on dual decomposition. We
+focus on parsing algorithms for non-projective head
+automata, a generalization of the head-automata
+models of Eisner (2000) and Alshawi (1996) to nonprojective structures. These models include nonprojective dependency parsing models with higherorder (e.g., sibling and/or grandparent) dependency
+relations as a special case. Although decoding of full
+parse structures with non-projective head automata
+is intractable, we leverage the observation that key
+components of the decoding can be efﬁciently computed using combinatorial algorithms. In particular,
+
+1. Decoding for individual head-words can be accomplished using dynamic programming.
+2. Decoding for arc-factored models can be accomplished using directed minimum-weight
+spanning tree (MST) algorithms.
+The resulting parsing algorithms have the following
+properties:
+• They are efﬁcient and easy to implement, relying
+on standard dynamic programming and MST algorithms.
+• They provably solve a linear programming (LP)
+relaxation of the original decoding problem.
+• Empirically the algorithms very often give an exact solution to the decoding problem, in which
+case they also provide a certiﬁcate of optimality.
+In this paper we ﬁrst give the deﬁnition for nonprojective head automata, and describe the parsing
+algorithm. The algorithm can be viewed as an instance of Lagrangian relaxation; we describe this
+connection, and give convergence guarantees for the
+method. We describe a generalization to models
+that include grandparent dependencies. We then introduce a perceptron-driven training algorithm that
+makes use of point 1 above.
+We describe experiments on non-projective parsing for a number of languages, and in particular compare the dual decomposition algorithm to
+approaches based on general-purpose linear programming (LP) or integer linear programming (ILP)
+solvers (Martins et al., 2009). The accuracy of our
+models is higher than previous work on a broad
+range of datasets. The method gives exact solutions
+to the decoding problem, together with a certiﬁcate
+of optimality, on over 98% of test examples for many
+of the test languages, with parsing times ranging between 0.021 seconds/sentence for the most simple
+languages/models, to 0.295 seconds/sentence for the
+
+most complex settings. The method compares favorably to previous work using LP/ILP formulations,
+both in terms of efﬁciency, and also in terms of the
+percentage of exact solutions returned.
+While the focus of the current paper is on nonprojective dependency parsing, the approach opens
+up new ways of thinking about parsing algorithms
+for lexicalized formalisms such as TAG (Joshi and
+Schabes, 1997), CCG (Steedman, 2000), and projective head automata.
+
+2
+
+Related Work
+
+McDonald et al. (2005) describe MST-based parsing
+for non-projective dependency parsing models with
+arc-factored decompositions; McDonald and Pereira
+(2006) make use of an approximate (hill-climbing)
+algorithm for parsing with more complex models.
+McDonald and Pereira (2006) and McDonald and
+Satta (2007) describe complexity results for nonprojective parsing, showing that parsing for a variety
+of models is NP-hard. Riedel and Clarke (2006) describe ILP methods for the problem; Martins et al.
+(2009) recently introduced alternative LP and ILP
+formulations. Our algorithm differs in that we do not
+use general-purpose LP or ILP solvers, instead using
+an MST solver in combination with dynamic programming; thus we leverage the underlying structure of the problem, thereby deriving more efﬁcient
+decoding algorithms.
+Both dual decomposition and Lagrangian relaxation have a long history in combinatorial optimization. Our work was originally inspired by recent
+work on dual decomposition for inference in graphical models (Wainwright et al., 2005; Komodakis
+et al., 2007). However, the non-projective parsing
+problem has a very different structure from these
+models, and the decomposition we use is very different in nature from those used in graphical models. Other work has made extensive use of decomposition approaches for efﬁciently solving LP
+relaxations for graphical models (e.g., Sontag et
+al. (2008)). Methods that incorporate combinatorial solvers within loopy belief propagation (LBP)
+(Duchi et al., 2007; Smith and Eisner, 2008) are
+also closely related to our approach. Unlike LBP,
+our method has strong theoretical guarantees, such
+as guaranteed convergence and the possibility of a
+certiﬁcate of optimality.
+
+Finally, in other recent work, Rush et al. (2010)
+describe dual decomposition approaches for other
+NLP problems.
+
+3
+
+Sibling Models
+
+This section describes a particular class of models,
+sibling models; the next section describes a dualdecomposition algorithm for decoding these models.
+Consider the dependency parsing problem for a
+sentence with n words. We deﬁne the index set
+for dependency parsing to be I = {(i, j) : i ∈
+{0 . . . n}, j ∈ {1 . . . n}, i = j}. A dependency
+parse is a vector y = {y(i, j) : (i, j) ∈ I}, where
+y(i, j) = 1 if a dependency with head word i and
+modiﬁer j is in the parse, 0 otherwise. We use i = 0
+for the root symbol. We deﬁne Y to be the set of all
+well-formed non-projective dependency parses (i.e.,
+the set of directed spanning trees rooted at node 0).
+Given a function f : Y → R that assigns scores to
+parse trees, the optimal parse is
+y ∗ = argmax f (y)
+
+(1)
+
+y∈Y
+
+A particularly simple deﬁnition of f (y) is f (y) =
+(i,j)∈I y(i, j)θ(i, j) where θ(i, j) is the score for
+dependency (i, j). Models with this form are often
+referred to as arc-factored models. In this case the
+optimal parse tree y ∗ can be found efﬁciently using
+MST algorithms (McDonald et al., 2005).
+This paper describes algorithms that compute y ∗
+for more complex deﬁnitions of f (y); in this section, we focus on algorithms for models that capture
+interactions between sibling dependencies. To this
+end, we will ﬁnd it convenient to deﬁne the following notation. Given a vector y, deﬁne
+y|i = {y(i, j) : j = 1 . . . n, j = i}
+Hence y|i speciﬁes the set of modiﬁers to word i;
+note that the vectors y|i for i = 0 . . . n form a partition of the full set of variables.
+We then assume that f (y) takes the form
+n
+
+f (y) =
+
+fi (y|i )
+
+(2)
+
+i=0
+
+Thus f (y) decomposes into a sum of terms, where
+each fi considers modiﬁers to the i’th word alone.
+In the general case, ﬁnding y ∗
+=
+argmaxy∈Y f (y) under this deﬁnition of f (y)
+is an NP-hard problem. However for certain
+
+deﬁnitions of fi , it is possible to efﬁciently compute
+argmaxy|i ∈Zi fi (y|i ) for any value of i, typically
+using dynamic programming. (Here we use Zi to
+refer to the set of all possible values for y|i : speciﬁcally, Z0 = {0, 1}n and for i = 0, Zi = {0, 1}n−1 .)
+In these cases we can efﬁciently compute
+z ∗ = argmax f (z) = argmax
+z∈Z
+
+z∈Z
+
+fi (z|i )
+
+(3)
+
+i
+
+where Z = {z : z|i ∈ Zi
+for i = 0 . . . n} by
+∗ = argmax
+simply computing z|i
+z|i ∈Zi fi (z|i ) for
+i = 0 . . . n. Eq. 3 can be considered to be an approximation to Eq. 1, where we have replaced Y with
+Z. We will make direct use of this approximation
+in the dual decomposition parsing algorithm. Note
+that Y ⊆ Z, and in all but trivial cases, Y is a strict
+subset of Z. For example, a structure z ∈ Z could
+have z(i, j) = z(j, i) = 1 for some (i, j); it could
+contain longer cycles; or it could contain words that
+do not modify exactly one head. Nevertheless, with
+suitably powerful functions fi —for example functions based on discriminative models—z ∗ may be a
+good approximation to y ∗ . Later we will see that
+dual decomposition can effectively use MST inference to rule out ill-formed structures.
+We now give the main assumption underlying sibling models:
+Assumption 1 (Sibling Decompositions) A model
+f (y) satisﬁes the sibling-decomposition assumption
+if: 1) f (y) = n fi (y|i ) for some set of functions
+i=0
+f0 . . . fn . 2) For any i ∈ {0 . . . n}, for any value
+of the variables u(i, j) ∈ R for j = 1 . . . n, it is
+possible to compute
+
+
+
+
+argmax fi (y|i ) −
+y|i ∈Zi
+
+u(i, j)y(i, j)
+j
+
+the sequence of left modiﬁers to word i under y|i ,
+and r1 . . . rq to be the set of right modiﬁers (e.g.,
+consider the case where n = 5, i = 3, and we have
+y(3, 1) = y(3, 5) = 0, and y(3, 2) = y(3, 4) = 1:
+in this case p = 1, l1 = 2, and q = 1, r1 = 4). In
+bigram sibling models, we have
+p+1
+
+fi (y|i ) =
+
+q+1
+
+gL (i, lk−1 , lk ) +
+k=1
+
+gR (i, rk−1 , rk )
+k=1
+
+where l0 = r0 = START is the initial state, and
+lp+1 = rq+1 = END is the end state. The functions
+gL and gR assign scores to bigram dependencies to
+the left and right of the head. Under this model calculating argmaxy|i ∈Zi fi (y|i ) − j u(i, j)y(i, j)
+takes O(n2 ) time using dynamic programming,
+hence the model satisﬁes Assumption 1.
+Example 2: Head Automata Head-automata
+models constitute a second important model type
+that satisfy the sibling-decomposition assumption
+(bigram sibling models are a special case of head
+automata). These models make use of functions
+gR (i, s, s , r) where s ∈ S, s ∈ S are variables in a
+set of possible states S, and r is an index of a word
+in the sentence such that i < r ≤ n. The function
+gR returns a cost for taking word r as the next dependency, and transitioning from state s to s . A similar
+function gL is deﬁned for left modiﬁers. We deﬁne
+fi (y|i , s0 . . . sq , t0 . . . tp ) =
+q
+
+p
+
+gR (i, sk−1 , sk , rk ) +
+k=1
+
+gL (i, tk−1 , tk , ll )
+k=1
+
+to be the joint score for dependencies y|i , and left
+and right state sequences s0 . . . sq and t0 . . . tp . We
+specify that s0 = t0 = START and sq = tp = END.
+In this case we deﬁne
+fi (y|i ) =
+
+in polynomial time.
+
+max
+
+s0 ...sq ,t0 ...tp
+
+fi (y|i , s0 . . . sq , t0 . . . tp )
+
+The second condition includes additional terms involving u(i, j) variables that modify the scores of
+individual dependencies. These terms are benign for
+most deﬁnitions of fi , in that they do not alter decoding complexity. They will be of direct use in the
+dual decomposition parsing algorithm.
+
+and it follows that argmaxy|i ∈Zi fi (y|i ) can be computed in O(n|S|2 ) time using a variant of the Viterbi
+algorithm, hence the model satisﬁes the siblingdecomposition assumption.
+
+Example 1: Bigram Sibling Models. Recall that
+y|i is a binary vector specifying which words are
+modiﬁers to the head-word i. Deﬁne l1 . . . lp to be
+
+We now describe the dual decomposition parsing algorithm for models that satisfy Assumption 1. Consider the following generalization of the decoding
+
+4
+
+The Parsing Algorithm
+
+Set u(1) (i, j) ← 0 for all (i, j) ∈ I
+for k = 1 to K do
+y (k) ← argmax
+y∈Y
+
+γ(i, j) + u(k) (i, j) y(i, j)
+(i,j)∈I
+
+4.1
+
+for i ∈ {0 . . . n},
+(k)
+
+u(k) (i, j)z(i, j))
+
+z|i ← argmax (fi (z|i ) −
+z|i ∈Zi
+
+for some (i, j); these updates modify the objective
+functions for the two decoding steps, and intuitively
+encourage the y (k) and z (k) variables to be equal.
+
+j
+
+(k)
+
+if y (i, j) = z (k) (i, j) for all (i, j) ∈ I then
+return (y (k) , z (k) )
+for all (i, j) ∈ I,
+u(k+1) (i, j) ← u(k) (i, j)+αk (z (k) (i, j)−y (k) (i, j))
+return (y (K) , z (K) )
+
+Figure 1: The parsing algorithm for sibling decomposable models. αk ≥ 0 for k = 1 . . . K are step sizes, see
+Appendix A for details.
+
+problem from Eq. 1, where f (y) =
+i fi (y|i ),
+h(y) = (i,j)∈I γ(i, j)y(i, j), and γ(i, j) ∈ R for
+all (i, j):1
+argmax f (z) + h(y)
+
+(4)
+
+z∈Z,y∈Y
+
+such that z(i, j) = y(i, j) for all (i, j) ∈ I (5)
+Although the maximization w.r.t. z is taken over the
+set Z, the constraints in Eq. 5 ensure that z = y for
+some y ∈ Y, and hence that z ∈ Y.
+Without the z(i, j) = y(i, j) constraints, the
+objective would decompose into the separate maximizations z ∗ = argmaxz∈Z f (z), and y ∗ =
+argmaxy∈Y h(y), which can be easily solved using dynamic programming and MST, respectively.
+Thus, it is these constraints that complicate the optimization. Our approach gets around this difﬁculty
+by introducing new variables, u(i, j), that serve to
+enforce agreement between the y(i, j) and z(i, j)
+variables. In the next section we will show that these
+u(i, j) variables are actually Lagrange multipliers
+for the z(i, j) = y(i, j) constraints.
+Our parsing algorithm is shown in Figure 1. At
+each iteration k, the algorithm ﬁnds y (k) ∈ Y using an MST algorithm, and z (k) ∈ Z through separate decoding of the (n + 1) sibling models. The
+u(k) variables are updated if y (k) (i, j) = z (k) (i, j)
+1
+This is equivalent to Eq. 1 when γ(i, j) = 0 for all (i, j).
+In some cases, however, it is convenient to have a model with
+non-zero values for the γ variables; see the Appendix. Note that
+this deﬁnition of h(y) allows argmaxy∈Y h(y) to be calculated
+efﬁciently, using MST inference.
+
+Lagrangian Relaxation
+
+Recall that the main difﬁculty in solving Eq. 4 was
+the z = y constraints. We deal with these constraints using Lagrangian relaxation (Lemar´ chal,
+e
+2001). We ﬁrst introduce Lagrange multipliers u =
+{u(i, j) : (i, j) ∈ I}, and deﬁne the Lagrangian
+L(u, y, z) =
+
+(6)
+u(i, j) y(i, j) − z(i, j)
+
+f (z) + h(y) +
+(i,j)∈I
+
+If L∗ is the optimal value of Eq. 4 subject to the
+constraints in Eq. 5, then for any value of u,
+L∗ =
+
+max
+
+z∈Z,y∈Y,y=z
+
+L(u, y, z)
+
+(7)
+
+This follows because if y = z, the right term in Eq. 6
+is zero for any value of u. The dual objective L(u)
+is obtained by omitting the y = z constraint:
+L(u) =
+
+max L(u, y, z)
+
+z∈Z,y∈Y
+
+= max f (z) −
+z∈Z
+
+u(i, j)z(i, j)
+i,j
+
+u(i, j)y(i, j) .
+
++ max h(y) +
+y∈Y
+
+i,j
+
+Since L(u) maximizes over a larger space (y may
+not equal z), we have that L∗ ≤ L(u) (compare this
+to Eq. 7). The dual problem, which our algorithm
+optimizes, is to obtain the tightest such upper bound,
+(Dual problem)
+
+min L(u).
+u∈R
+
+|I|
+
+(8)
+
+The dual objective L(u) is convex, but not differentiable. However, we can use a subgradient method
+to derive an algorithm that is similar to gradient descent, and which minimizes L(u). A subgradient of
+a convex function L(u) at u is a vector du such that
+for all v ∈ R|I| , L(v) ≥ L(u) + du · (v − u). By
+standard results,
+du(k) = y (k) − z (k)
+is a subgradient for L(u) at u = u(k) , where z (k) =
+argmaxz∈Z f (z) − i,j u(k) (i, j)z(i, j) and y (k) =
+
+argmaxy∈Y h(y) + i,j u(k) (i, j)y(i, j). Subgradient optimization methods are iterative algorithms
+with updates that are similar to gradient descent:
+u(k+1) = u(k) − αk du(k) = u(k) − αk (y (k) − z (k) ),
+where αk is a step size. It is easily veriﬁed that the
+algorithm in Figure 1 uses precisely these updates.
+4.2
+
+Formal Guarantees
+
+With an appropriate choice of the step sizes αk , the
+subgradient method can be shown to solve the dual
+problem, i.e.
+lim L(u(k) ) = min L(u).
+
+k→∞
+
+z∈Z,y∈Y,y=z
+
+5
+
+Grandparent Dependency Models
+
+In this section we extend the approach to consider
+grandparent relations. In grandparent models each
+parse tree y is represented as a vector
+y = {y(i, j) : (i, j) ∈ I} ∪ {y↑ (i, j) : (i, j) ∈ I}
+where we have added a second set of duplicate variables, y↑ (i, j) for all (i, j) ∈ I. The set of all valid
+parse trees is then deﬁned as
+
+u
+
+Y = {y : y(i, j) variables form a directed tree,
+
+See Korte and Vygen (2008), page 120, for details.
+As mentioned before, the dual provides an upper bound on the optimum of the primal problem
+(Eq. 4),
+max
+
+we omit the details, except to note that when the LP
+relaxation is not tight, the optimal primal solution to
+the LP relaxation could be recovered by averaging
+methods (Nedi´ and Ozdaglar, 2009).
+c
+
+f (z) + h(y) ≤ min L(u).
+u∈R
+
+|I|
+
+(9)
+
+y↑ (i, j) = y(i, j) for all (i, j) ∈ I}
+We again partition the variables into n + 1 subsets,
+y|0 . . . y|n , by (re)deﬁning
+{y(i, j) : j = 1 . . . n, j = i}
+
+y|i =
+
+∪{y↑ (k, i) : k = 0 . . . n, k = i}
+
+However, we do not necessarily have strong
+duality—i.e., equality in the above equation—
+because the sets Z and Y are discrete sets. That
+said, for some functions h(y) and f (z) strong duality does hold, as stated in the following:
+
+So as before y|i contains variables y(i, j) which indicate which words modify the i’th word. In addition, y|i includes y↑ (k, i) variables that indicate the
+word that word i itself modiﬁes.
+The set of all possible values of y|i is now
+
+Theorem 1 If for some k ∈ {1 . . . K} in the algorithm in Figure 1, y (k) (i, j) = z (k) (i, j) for all
+(i, j) ∈ I, then (y (k) , z (k) ) is a solution to the maximization problem in Eq. 4.
+
+Zi = {y|i : y(i, j) ∈ {0, 1} for j = 1 . . . n, j = i;
+
+Proof.
+We have that f (z (k) ) + h(y (k) ) =
+(k) , z (k) , y (k) ) = L(u(k) ), where the last equalL(u
+ity is because y (k) , z (k) are deﬁned as the respective
+argmax’s. Thus, the inequality in Eq. 9 is tight, and
+(y (k) , z (k) ) and u(k) are primal and dual optimal.
+Although the algorithm is not guaranteed to satisfy y (k) = z (k) for some k, by Theorem 1 if it does
+reach such a state, then we have the guarantee of an
+exact solution to Eq. 4, with the dual solution u providing a certiﬁcate of optimality. We show in the
+experiments that this occurs very frequently, in spite
+of the parsing problem being NP-hard.
+It can be shown that Eq. 8 is the dual of an LP
+relaxation of the original problem. When the conditions of Theorem 1 are satisﬁed, it means that the
+LP relaxation is tight for this instance. For brevity
+
+Hence the y(i, j) variables can take any values, but
+only one of the y↑ (k, i) variables can be equal to 1
+(as only one word can be a parent of word i). As before, we deﬁne Z = {y : y|i ∈ Zi for i = 0 . . . n}.
+We introduce the following assumption:
+Assumption 2 (GS Decompositions)
+A model f (y) satisﬁes the grandparent/siblingdecomposition (GSD) assumption if: 1) f (z) =
+n
+i=0 fi (z|i ) for some set of functions f0 . . . fn . 2)
+For any i ∈ {0 . . . n}, for any value of the variables
+u(i, j) ∈ R for j = 1 . . . n, and v(k, i) ∈ R for
+k = 0 . . . n, it is possible to compute
+
+y↑ (k, i) ∈ {0, 1} for k = 0 . . . n, k = i;
+y↑ (k, i) = 1}
+k
+
+argmax(fi (z|i )−
+z|i ∈Zi
+
+u(i, j)z(i, j)−
+j
+
+in polynomial time.
+
+v(k, i)z↑ (k, i))
+k
+
+Again, it follows that we can approximate y ∗
+=
+argmaxy∈Y n fi (y|i ) by
+i=0
+z ∗ = argmaxz∈Z n fi (z|i ), by deﬁning
+i=0
+∗
+z|i = argmaxz|i ∈Zi fi (z|i ) for i = 0 . . . n. The
+resulting vector z ∗ may be deﬁcient in two respects.
+First, the variables z ∗ (i, j) may not form a wellformed directed spanning tree. Second, we may
+∗
+have z↑ (i, j) = z ∗ (i, j) for some values of (i, j).
+
+Set u(1) (i, j) ← 0, v (1) (i, j) ← 0 for all (i, j) ∈ I
+for k = 1 to K do
+y (k) ← argmax
+y∈Y
+
+y(i, j)θ(i, j)
+(i,j)∈I
+
+where θ(i, j) = γ(i, j) + u(k) (i, j) + v (k) (i, j).
+for i ∈ {0 . . . n},
+(k)
+z|i ← argmax (fi (z|i ) −
+
+u(k) (i, j)z(i, j)
+
+z|i ∈Zi
+
+j
+
+v (k) (j, i)z↑ (j, i))
+
+−
+
+Example 3: Grandparent/Sibling Models An
+important class of models that satisfy Assumption 2
+are deﬁned as follows. Again, for a vector y|i deﬁne l1 . . . lp to be the sequence of left modiﬁers to
+word i under y|i , and r1 . . . rq to be the set of right
+modiﬁers. Deﬁne k ∗ to the value for k such that
+y↑ (k, i) = 1. Then the model is deﬁned as follows:
+p+1
+
+q+1
+
+gL (i, k ∗ , lj−1 , lj )+
+
+fi (y|i ) =
+j=1
+
+j
+(k)
+
+if y (k) (i, j) = z (k) (i, j) = z↑ (i, j) for all (i, j) ∈ I
+then
+return (y (k) , z (k) )
+for all (i, j) ∈ I,
+u(k+1) (i, j) ← u(k) (i, j)+αk (z (k) (i, j)−y (k) (i, j))
+(k)
+v (k+1) (i, j) ← v (k) (i, j)+αk (z↑ (i, j)−y (k) (i, j))
+return (y (K) , z (K) )
+
+Figure 2: The parsing algorithm for grandparent/sibling-
+
+gR (i, k ∗ , rj−1 , rj ) decomposable models.
+j=1
+
+6
+This is very similar to the bigram-sibling model, but
+with the modiﬁcation that the gL and gR functions
+depend in addition on the value for k ∗ . This allows these functions to model grandparent dependencies such as (k ∗ , i, lj ) and sibling dependencies
+∗
+such as (i, lj−1 , lj ). Finding z|i under the deﬁnition
+can be accomplished in O(n3 ) time, by decoding the
+model using dynamic programming separately for
+each of the O(n) possible values of k ∗ , and picking the value for k ∗ that gives the maximum value
+under these decodings.
+A dual-decomposition algorithm for models that
+satisfy the GSD assumption is shown in Figure 2.
+The algorithm can be justiﬁed as an instance of Lagrangian relaxation applied to the problem
+argmax f (z) + h(y)
+
+(10)
+
+z∈Z,y∈Y
+
+with constraints
+z(i, j) = y(i, j) for all (i, j) ∈ I
+
+(11)
+
+z↑ (i, j) = y(i, j) for all (i, j) ∈ I
+
+(12)
+
+The algorithm employs two sets of Lagrange multipliers, u(i, j) and v(i, j), corresponding to constraints in Eqs. 11 and 12. As in Theorem 1, if at any
+point in the algorithm z (k) = y (k) , then (z (k) , y (k) )
+is an exact solution to the problem in Eq. 10.
+
+The Training Algorithm
+
+In our experiments we make use of discriminative
+linear models, where for an input sentence x, the
+score for a parse y is f (y) = w · φ(x, y) where
+w ∈ Rd is a parameter vector, and φ(x, y) ∈ Rd
+is a feature-vector representing parse tree y in conjunction with sentence x. We will assume that the
+features decompose in the same way as the siblingdecomposable or grandparent/sibling-decomposable
+models, that is φ(x, y) = n φ(x, y|i ) for some
+i=0
+feature vector deﬁnition φ(x, y|i ). In the bigram sibling models in our experiments, we assume that
+p+1
+
+φ(x, y|i ) =
+
+q+1
+
+φL (x, i, lk−1 , lk ) +
+k=1
+
+φR (x, i, rk−1 , rk )
+k=1
+
+where as before l1 . . . lp and r1 . . . rq are left and
+right modiﬁers under y|i , and where φL and φR
+are feature vector deﬁnitions. In the grandparent
+models in our experiments, we use a similar deﬁnition with feature vectors φL (x, i, k ∗ , lk−1 , lk ) and
+φR (x, i, k ∗ , rk−1 , rk ), where k ∗ is the parent for
+word i under y|i .
+We train the model using the averaged perceptron
+for structured problems (Collins, 2002). Given the
+i’th example in the training set, (x(i) , y (i) ), the perceptron updates are as follows:
+• z ∗ = argmaxy∈Z w · φ(x(i) , y)
+• If z ∗ = y (i) , w = w +φ(x(i) , y (i) )−φ(x(i) , z ∗ )
+
+The ﬁrst step involves inference over the set Z,
+rather than Y as would be standard in the perceptron. Thus, decoding during training can be achieved
+by dynamic programming over head automata alone,
+which is very efﬁcient.
+Our training approach is closely related to local
+training methods (Punyakanok et al., 2005). We
+have found this method to be effective, very likely
+because Z is a superset of Y. Our training algorithm is also related to recent work on training using
+outer bounds (see, e.g., (Taskar et al., 2003; Finley and Joachims, 2008; Kulesza and Pereira, 2008;
+Martins et al., 2009)). Note, however, that the LP relaxation optimized by dual decomposition is signiﬁcantly tighter than Z. Thus, an alternative approach
+would be to use the dual decomposition algorithm
+for inference during training.
+
+7
+
+Experiments
+
+We report results on a number of data sets. For
+comparison to Martins et al. (2009), we perform experiments for Danish, Dutch, Portuguese, Slovene,
+Swedish and Turkish data from the CoNLL-X
+shared task (Buchholz and Marsi, 2006), and English data from the CoNLL-2008 shared task (Surdeanu et al., 2008). We use the ofﬁcial training/test
+splits for these data sets, and the same evaluation
+methodology as Martins et al. (2009). For comparison to Smith and Eisner (2008), we also report results on Danish and Dutch using their alternate training/test split. Finally, we report results on
+the English WSJ treebank, and the Prague treebank.
+We use feature sets that are very similar to those
+described in Carreras (2007). We use marginalbased pruning, using marginals calculated from an
+arc-factored spanning tree model using the matrixtree theorem (McDonald and Satta, 2007; Smith and
+Smith, 2007; Koo et al., 2007).
+In all of our experiments we set the value K, the
+maximum number of iterations of dual decomposition in Figures 1 and 2, to be 5,000. If the algorithm does not terminate—i.e., it does not return
+(y (k) , z (k) ) within 5,000 iterations—we simply take
+the parse y (k) with the maximum value of f (y (k) ) as
+the output from the algorithm. At ﬁrst sight 5,000
+might appear to be a large number, but decoding is
+still fast—see Sections 7.3 and 7.4 for discussion.2
+2
+
+Note also that the feature vectors φ and inner products w ·φ
+
+The strategy for choosing step sizes αk is described
+in Appendix A, along with other details.
+We ﬁrst discuss performance in terms of accuracy, success in recovering an exact solution, and
+parsing speed. We then describe additional experiments examining various aspects of the algorithm.
+7.1 Accuracy
+Table 1 shows results for previous work on the various data sets, and results for an arc-factored model
+with pure MST decoding with our features. (We use
+the acronym UAS (unlabeled attachment score) for
+dependency accuracy.) We also show results for the
+bigram-sibling and grandparent/sibling (G+S) models under dual decomposition. Both the bigramsibling and G+S models show large improvements
+over the arc-factored approach; they also compare
+favorably to previous work—for example the G+S
+model gives better results than all results reported in
+the CoNLL-X shared task, on all languages. Note
+that we use different feature sets from both Martins
+et al. (2009) and Smith and Eisner (2008).
+7.2
+
+Success in Recovering Exact Solutions
+
+Next, we consider how often our algorithms return
+an exact solution to the original optimization problem, with a certiﬁcate—i.e., how often the algorithms in Figures 1 and 2 terminate with y (k) = z (k)
+for some value of k < 5000 (and are thus optimal,
+by Theorem 1). The CertS and CertG columns in Table 1 give the results for the sibling and G+S models
+respectively. For all but one setting3 over 95% of the
+test sentences are decoded exactly, with 99% exactness in many cases.
+For comparison, we also ran both the singlecommodity ﬂow and multiple-commodity ﬂow LP
+relaxations of Martins et al. (2009) with our models and features. We measure how often these relaxations terminate with an exact solution. The results in Table 2 show that our method gives exact
+solutions more often than both of these relaxations.4
+In computing the accuracy ﬁgures for Martins et al.
+only need to be computed once, thus saving computation.
+3
+The exception is Slovene, which has the smallest training
+set at only 1534 sentences.
+4
+Note, however, that it is possible that the Martins et al. relaxations would have given a higher proportion of integral solutions if their relaxation was used during training.
+
+Dan
+Dut
+Por
+Slo
+Swe
+Tur
+Eng1
+Eng2
+Dan
+Dut
+PTB
+PDT
+
+Ma09
+91.18
+85.57
+92.11
+85.61
+90.60
+76.34
+91.16
+—
+Sm08
+86.5
+88.5
+Mc06
+91.5
+85.2
+
+MST
+89.74
+82.33
+90.68
+82.39
+88.79
+75.66
+89.20
+90.29
+MST
+87.89
+88.86
+MST
+90.10
+84.36
+
+Sib
+91.08
+84.81
+92.57
+84.89
+90.10
+77.14
+91.18
+92.03
+Sib
+89.58
+90.87
+Sib
+91.96
+86.44
+
+G+S
+91.78
+85.81
+93.03
+86.21
+91.36
+77.55
+91.59
+92.57
+G+S
+91.00
+91.76
+G+S
+92.46
+87.32
+
+Best
+91.54
+85.57
+92.11
+85.61
+90.60
+76.36
+—
+—
+—
+—
+—
+—
+—
+—
+
+CertS
+99.07
+98.19
+99.65
+90.55
+98.71
+98.72
+98.65
+98.96
+CertS
+98.50
+98.00
+CertS
+98.89
+96.67
+
+CertG
+98.45
+97.93
+99.31
+95.27
+98.97
+99.04
+99.18
+99.12
+CertG
+98.50
+99.50
+CertG
+98.63
+96.43
+
+TimeS
+0.053
+0.035
+0.047
+0.158
+0.035
+0.021
+0.082
+0.081
+TimeS
+0.043
+0.036
+TimeS
+0.062
+0.063
+
+TimeG
+0.169
+0.120
+0.257
+0.295
+0.141
+0.047
+0.200
+0.168
+TimeG
+0.120
+0.046
+TimeG
+0.210
+0.221
+
+TrainS
+0.051
+0.046
+0.077
+0.054
+0.036
+0.016
+0.032
+0.032
+TrainS
+0.053
+0.050
+TrainS
+0.028
+0.019
+
+TrainG
+0.109
+0.048
+0.103
+0.130
+0.055
+0.036
+0.076
+0.076
+TrainG
+0.065
+0.054
+TrainG
+0.078
+0.051
+
+Table 1: A comparison of non-projective automaton-based parsers with results from previous work. MST: Our ﬁrstorder baseline. Sib/G+S: Non-projective head automata with sibling or grandparent/sibling interactions, decoded via
+dual decomposition. Ma09: The best UAS of the LP/ILP-based parsers introduced in Martins et al. (2009). Sm08:
+The best UAS of any LBP-based parser in Smith and Eisner (2008). Mc06: The best UAS reported by McDonald
+and Pereira (2006). Best: For the CoNLL-X languages only, the best UAS for any parser in the original shared task
+(Buchholz and Marsi, 2006) or in any column of Martins et al. (2009, Table 1); note that the latter includes McDonald
+and Pereira (2006), Nivre and McDonald (2008), and Martins et al. (2008). CertS/CertG: Percent of test examples
+for which dual decomposition produced a certiﬁcate of optimality, for Sib/G+S. TimeS/TimeG: Seconds/sentence for
+test decoding, for Sib/G+S. TrainS/TrainG: Seconds/sentence during training, for Sib/G+S. For consistency of timing,
+test decoding was carried out on identical machines with zero additional load; however, training was conducted on
+machines with varying hardware and load. We ran two tests on the CoNLL-08 corpus. Eng1 : UAS when testing on
+the CoNLL-08 validation set, following Martins et al. (2009). Eng2 : UAS when testing on the CoNLL-08 test set.
+
+7.3
+
+Speed
+
+Table 1, columns TimeS and TimeG, shows decoding times for the dual decomposition algorithms.
+Table 2 gives speed comparisons to Martins et al.
+(2009). Our method gives signiﬁcant speed-ups over
+
+30
+
+% of Head Automata Recomputed
+
+(2009), we project fractional solutions to a wellformed spanning tree, as described in that paper.
+Finally, to better compare the tightness of our
+LP relaxation to that of earlier work, we consider
+randomly-generated instances. Table 2 gives results
+for our model and the LP relaxations of Martins et al.
+(2009) with randomly generated scores on automata
+transitions. We again recover exact solutions more
+often than the Martins et al. relaxations. Note that
+with random parameters the percentage of exact solutions is signiﬁcantly lower, suggesting that the exactness of decoding of the trained models is a special
+case. We speculate that this is due to the high performance of approximate decoding with Z in place of
+Y under the trained models for fi ; the training algorithm described in section 6 may have the tendency
+to make the LP relaxation tight.
+
+% recomputed, g+s
+% recomputed, sib
+
+25
+20
+15
+10
+5
+0
+0
+
+1000
+
+2000
+3000
+4000
+Iterations of Dual Decomposition
+
+5000
+
+Figure 3: The average percentage of head automata that
+must be recomputed on each iteration of dual decomposition on the PTB validation set.
+
+the Martins et al. (2009) method, presumably because it leverages the underlying structure of the
+problem, rather than using a generic solver.
+7.4
+
+Lazy Decoding
+
+Here we describe an important optimization in the
+dual decomposition algorithms. Consider the algorithm in Figure 1. At each iteration we must ﬁnd
+(k)
+
+u(k) (i, j)z(i, j))
+
+z|i = argmax(fi (z|i ) −
+z|i ∈Zi
+
+j
+
+Acc
+92.14
+92.17
+92.19
+92.19
+92.23
+Acc
+92.60
+92.58
+92.70
+92.71
+92.66
+
+Int
+88.29
+93.18
+100.0
+98.82
+89.29
+Int
+91.64
+94.41
+100.0
+98.76
+85.47
+
+Time
+0.14
+0.58
+1.44
+0.08
+0.03
+Time
+0.23
+0.75
+1.79
+0.23
+0.12
+
+Rand
+11.7
+30.6
+100.0
+35.6
+10.2
+Rand
+0.0
+0.0
+100.0
+6.8
+0.0
+
+100
+90
+Percentage
+
+Sib
+LP(S)
+LP(M)
+ILP
+DD-5000
+DD-250
+G+S
+LP(S)
+LP(M)
+ILP
+DD-5000
+DD-250
+
+(k−1)
+
+= z|i
+
+0
+
+if
+
+u(k) (i, j) = u(k−1) (i, j) for all j; this check takes
+O(n) time, and saves us from decoding with the i’th
+automaton. In practice, the updates to u are very
+sparse, and this condition occurs very often in practice. Figure 3 demonstrates the utility of this method
+for both sibling automata and G+S automata.
+7.5
+
+% validation UAS
+% certificates
+% match K=5000
+
+50
+
+for i = 0 . . . n. However, if for some i, u(k) (i, j) =
+(k)
+(k−1)
+u(k−1) (i, j) for all j, then z|i = z|i
+. In
+(k)
+
+70
+60
+
+Table 2: A comparison of dual decomposition with linear programs described by Martins et al. (2009). LP(S):
+Linear Program relaxation based on single-commodity
+ﬂow. LP(M): Linear Program relaxation based on
+multi-commodity ﬂow. ILP: Exact Integer Linear Program. DD-5000/DD-250: Dual decomposition with nonprojective head automata, with K = 5000/250. Upper
+results are for the sibling model, lower results are G+S.
+Columns give scores for UAS accuracy, percentage of solutions which are integral, and solution speed in seconds
+per sentence. These results are for Section 22 of the PTB.
+The last column is the percentage of integral solutions on
+a random problem of length 10 words. The (I)LP experiments were carried out using Gurobi, a high-performance
+commercial-grade solver.
+
+lazy decoding we immediately set z|i
+
+80
+
+Early Stopping
+
+We also ran experiments varying the value of K—
+the maximum number of iterations—in the dual decomposition algorithms. As before, if we do not ﬁnd
+y (k) = z (k) for some value of k ≤ K, we choose
+the y (k) with optimal value for f (y (k) ) as the ﬁnal
+solution. Figure 4 shows three graphs: 1) the accuracy of the parser on PTB validation data versus the
+value for K; 2) the percentage of examples where
+y (k) = z (k) at some point during the algorithm,
+hence the algorithm returns a certiﬁcate of optimality; 3) the percentage of examples where the solution
+
+200
+400
+600
+800
+Maximum Number of Dual Decomposition Iterations
+
+1000
+
+Figure 4: The behavior of the dual-decomposition parser
+with sibling automata as the value of K is varied.
+
+PTB
+PDT
+
+Sib
+92.19
+86.41
+
+P-Sib
+92.34
+85.67
+
+G+S
+92.71
+87.40
+
+P-G+S
+92.70
+86.43
+
+Table 3: UAS of projective and non-projective decoding
+for the English (PTB) and Czech (PDT) validation sets.
+Sib/G+S: as in Table 1. P-Sib/P-G+S: Projective versions
+of Sib/G+S, where the MST component has been replaced with the Eisner (2000) ﬁrst-order projective parser.
+
+returned is the same as the solution for the algorithm
+with K = 5000 (our original setting). It can be seen
+for K as small as 250 we get very similar accuracy
+to K = 5000 (see Table 2). In fact, for this setting the algorithm returns the same solution as for
+K = 5000 on 99.59% of the examples. However
+only 89.29% of these solutions are produced with a
+certiﬁcate of optimality (y (k) = z (k) ).
+7.6
+
+How Good is the Approximation z ∗ ?
+
+We ran experiments measuring the quality of z ∗ =
+argmaxz∈Z f (z), where f (z) is given by the
+perceptron-trained bigram-sibling model. Because
+z ∗ may not be a well-formed tree with n dependencies, we report precision and recall rather than conventional dependency accuracy. Results on the PTB
+validation set were 91.11%/88.95% precision/recall,
+which is accurate considering the unconstrained nature of the predictions. Thus the z ∗ approximation is
+clearly a good one; we suspect that this is one reason
+for the good convergence results for the method.
+7.7
+
+Importance of Non-Projective Decoding
+
+It is simple to adapt the dual-decomposition algorithms in ﬁgures 1 and 2 to give projective dependency structures: the set Y is redeﬁned to be the set
+
+of all projective structures, with the arg max over Y
+being calculated using a projective ﬁrst-order parser
+(Eisner, 2000). Table 3 shows results for projective and non-projective parsing using the dual decomposition approach. For Czech data, where nonprojective structures are common, non-projective
+decoding has clear beneﬁts. In contrast, there is little
+difference in accuracy between projective and nonprojective decoding on English.
+
+8
+
+Conclusions
+
+We have described dual decomposition algorithms
+for non-projective parsing, which leverage existing
+dynamic programming and MST algorithms. There
+are a number of possible areas for future work. As
+described in section 7.7, the algorithms can be easily
+modiﬁed to consider projective structures by replacing Y with the set of projective trees, and then using
+ﬁrst-order dependency parsing algorithms in place
+of MST decoding. This method could be used to
+derive parsing algorithms that include higher-order
+features, as an alternative to specialized dynamic
+programming algorithms. Eisner (2000) describes
+extensions of head automata to include word senses;
+we have not discussed this issue in the current paper, but it is simple to develop dual decomposition
+algorithms for this case, using similar methods to
+those used for the grandparent models. The general approach should be applicable to other lexicalized syntactic formalisms, and potentially also to decoding in syntax-driven translation. In addition, our
+dual decomposition approach is well-suited to parallelization. For example, each of the head-automata
+could be optimized independently in a multi-core or
+GPU architecture. Finally, our approach could be
+used with other structured learning algorithms, e.g.
+Meshi et al. (2010).
+
+iteration (note that we always have δ ≥ 0 since
+f (z (1) ) = L(u(1) )). Then deﬁne αk = δ/(1 + ηk ),
+where ηk is the number of times that L(u(k ) ) >
+L(u(k −1) ) for k ≤ k. Hence the learning rate drops
+at a rate of 1/(1 + t), where t is the number of times
+that the dual increases from one iteration to the next.
+A.2
+
+Use of the γ(i, j) Parameters
+
+The parsing algorithms both consider a generalized problem that includes γ(i, j) parameters. We
+now describe how these can be useful.
+Recall that the optimization problem is to solve
+argmaxz∈Z,y∈Y f (z) + h(y), subject to a set of
+agreement constraints. In our models, f (z) can
+be written as f (z) + i,j α(i, j)z(i, j) where
+f (z) includes only terms depending on higherorder (non arc-factored features), and α(i, j) are
+weights that consider the dependency between i
+and j alone. For any value of 0 ≤ β ≤
+1, the problem argmaxz∈Z,y∈Y f2 (z) + h2 (y) is
+equivalent to the original problem, if f2 (z) =
+f (z) + (1 − β) i,j α(i, j)z(i, j) and h2 (y) =
+β i,j α(i, j)y(i, j). We have simply shifted the
+α(i, j) weights from one model to the other. While
+the optimization problem remains the same, the algorithms in Figure 1 and 2 will converge at different rates depending on the value for β. In our experiments we set β = 0.001, which puts almost
+all the weight in the head-automata models, but allows weights on spanning tree edges to break ties in
+MST inference in a sensible way. We suspect this is
+important in early iterations of the algorithm, when
+many values for u(i, j) or v(i, j) will be zero, and
+where with β = 0 many spanning tree solutions y (k)
+would be essentially random, leading to very noisy
+updates to the u(i, j) and v(i, j) values. We have
+not tested other values for β.
+Acknowledgments MIT gratefully acknowledges the
+
+A
+
+Implementation Details
+
+This appendix describes details of the algorithm,
+speciﬁcally choice of the step sizes αk , and use of
+the γ(i, j) parameters.
+A.1
+
+Choice of Step Sizes
+
+We have found the following method to be effective. First, deﬁne δ = f (z (1) ) − f (y (1) ), where
+(z (1) , y (1) ) is the output of the algorithm on the ﬁrst
+
+support of Defense Advanced Research Projects Agency
+(DARPA) Machine Reading Program under Air Force Research
+Laboratory (AFRL) prime contract no. FA8750-09-C-0181.
+Any opinions, ﬁndings, and conclusion or recommendations expressed in this material are those of the author(s) and do not
+necessarily reﬂect the view of the DARPA, AFRL, or the US
+government. A. Rush was supported by the GALE program of
+the DARPA, Contract No. HR0011-06-C-0022. D. Sontag was
+supported by a Google PhD Fellowship.
+
+References
+H. Alshawi. 1996. Head Automata and Bilingual Tiling:
+Translation with Minimal Representations. In Proc.
+ACL, pages 167–176.
+S. Buchholz and E. Marsi. 2006. CoNLL-X Shared
+Task on Multilingual Dependency Parsing. In Proc.
+CoNLL, pages 149–164.
+X. Carreras. 2007. Experiments with a Higher-Order
+Projective Dependency Parser. In Proc. EMNLPCoNLL, pages 957–961.
+M. Collins. 2002. Discriminative Training Methods
+for Hidden Markov Models: Theory and Experiments
+with Perceptron Algorithms. In Proc. EMNLP, pages
+1–8.
+J. Duchi, D. Tarlow, G. Elidan, and D. Koller. 2007. Using Combinatorial Optimization within Max-Product
+Belief Propagation. In NIPS, pages 369–376.
+J. Eisner. 2000. Bilexical grammars and their cubictime parsing algorithms. Advances in Probabilistic
+and Other Parsing Technologies, pages 29–62.
+T. Finley and T. Joachims. 2008. Training structural
+svms when exact inference is intractable. In ICML,
+pages 304–311.
+A.K. Joshi and Y. Schabes. 1997. Tree-Adjoining
+Grammars. Handbook of Formal Languages: Beyond
+Words, 3:69–123.
+N. Komodakis, N. Paragios, and G. Tziritas. 2007. MRF
+Optimization via Dual Decomposition: MessagePassing Revisited. In Proc. ICCV.
+T. Koo, A. Globerson, X. Carreras, and M. Collins. 2007.
+Structured Prediction Models via the Matrix-Tree Theorem. In Proc. EMNLP-CoNLL, pages 141–150.
+B.H. Korte and J. Vygen. 2008. Combinatorial Optimization: Theory and Algorithms. Springer Verlag.
+A. Kulesza and F. Pereira. 2008. Structured learning
+with approximate inference. In NIPS.
+C. Lemar´ chal. 2001. Lagrangian Relaxation. In Come
+putational Combinatorial Optimization, Optimal or
+Provably Near-Optimal Solutions [based on a Spring
+School], pages 112–156, London, UK. SpringerVerlag.
+A.F.T. Martins, D. Das, N.A. Smith, and E.P. Xing. 2008.
+Stacking Dependency Parsers. In Proc. EMNLP,
+pages 157–166.
+A.F.T. Martins, N.A. Smith., and E.P. Xing. 2009. Concise Integer Linear Programming Formulations for Dependency Parsing. In Proc. ACL, pages 342–350.
+R. McDonald and F. Pereira. 2006. Online Learning
+of Approximate Dependency Parsing Algorithms. In
+Proc. EACL, pages 81–88.
+R. McDonald and G. Satta. 2007. On the Complexity of
+Non-Projective Data-Driven Dependency Parsing. In
+Proc. IWPT.
+
+R. McDonald, F. Pereira, K. Ribarov, and J. Hajiˇ . 2005.
+c
+Non-Projective Dependency Parsing using Spanning
+Tree Algorithms. In Proc. HLT-EMNLP, pages 523–
+530.
+O. Meshi, D. Sontag, T. Jaakkola, and A. Globerson.
+2010. Learning Efﬁciently with Approximate Inference via Dual Losses. In Proc. ICML.
+A. Nedi´ and A. Ozdaglar.
+c
+2009.
+Approximate
+Primal Solutions and Rate Analysis for Dual Subgradient Methods. SIAM Journal on Optimization,
+19(4):1757–1780.
+J. Nivre and R. McDonald. 2008. Integrating GraphBased and Transition-Based Dependency Parsers. In
+Proc. ACL, pages 950–958.
+V. Punyakanok, D. Roth, W. Yih, and D. Zimak. 2005.
+Learning and Inference over Constrained Output. In
+Proc. IJCAI, pages 1124–1129.
+S. Riedel and J. Clarke. 2006. Incremental Integer Linear
+Programming for Non-projective Dependency Parsing.
+In Proc. EMNLP, pages 129–137.
+A.M. Rush, D. Sontag, M. Collins, and T. Jaakkola.
+2010. On Dual Decomposition and Linear Programming Relaxations for Natural Language Processing. In
+Proc. EMNLP.
+D.A. Smith and J. Eisner. 2008. Dependency Parsing by
+Belief Propagation. In Proc. EMNLP, pages 145–156.
+D.A. Smith and N.A. Smith. 2007. Probabilistic Models of Nonprojective Dependency Trees. In Proc.
+EMNLP-CoNLL, pages 132–140.
+D. Sontag, T. Meltzer, A. Globerson, T. Jaakkola, and
+Y. Weiss. 2008. Tightening LP Relaxations for MAP
+using Message Passing. In Proc. UAI.
+M. Steedman. 2000. The Syntactic Process. MIT Press.
+M. Surdeanu, R. Johansson, A. Meyers, L. M` rquez, and
+a
+J. Nivre. 2008. The CoNLL-2008 Shared Task on
+Joint Parsing of Syntactic and Semantic Dependencies.
+In Proc. CoNLL.
+B. Taskar, C. Guestrin, and D. Koller. 2003. Max-margin
+Markov networks. In NIPS.
+M. Wainwright, T. Jaakkola, and A. Willsky. 2005. MAP
+estimation via agreement on trees: message-passing
+and linear programming. In IEEE Transactions on Information Theory, volume 51, pages 3697–3717.
+
+

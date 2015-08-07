@@ -1,0 +1,3702 @@
+Speech and Language Processing: An introduction to natural language processing,
+computational linguistics, and speech recognition. Daniel Jurafsky & James H. Martin.
+Copyright c 2006, All rights reserved. Draft of September 18, 2007. Do not cite
+without permission.
+
+D
+RA
+FT
+
+6
+
+HIDDEN MARKOV AND
+MAXIMUM ENTROPY
+MODELS
+
+Numquam ponenda est pluralitas sine necessitat
+‘Plurality should never be proposed unless needed’
+William of Occam
+
+Her sister was called Tatiana.
+For the ﬁrst time with such a name
+the tender pages of a novel,
+we’ll whimsically grace.
+
+Pushkin, Eugene Onegin, in the Nabokov translation
+
+Alexander Pushkin’s novel in verse, Eugene Onegin, serialized in the early 19th
+century, tells of the young dandy Onegin, his rejection of the love of young Tatiana,
+his duel with his friend Lenski, and his later regret for both mistakes. But the novel is
+mainly beloved for its style and structure rather than its plot. Among other interesting
+structural innovations, the novel is written in a form now known as the Onegin stanza,
+iambic tetrameter with an unusual rhyme scheme. These elements have caused complications and controversy in its translation into other languages. Many of the translations
+have been in verse, but Nabokov famously translated it strictly literally into English
+prose. The issue of its translation, and the tension between literal and verse translations have inspired much commentary (see for example Hofstadter (1997)).
+In 1913 A. A. Markov asked a less controversial question about Pushkin’s text:
+could we use frequency counts from the text to help compute the probability that the
+next letter in sequence would be a vowel. In this chapter we introduce two important classes of statistical models for processing text and speech, both descendants of
+Markov’s models. One of them is the Hidden Markov Model (HMM). The other,
+is the Maximum Entropy model (MaxEnt), and particularly a Markov-related variant of MaxEnt called the Maximum Entropy Markov Model (MEMM). All of these
+are machine learning models. We have already touched on some aspects of machine
+learning; indeed we brieﬂy introduced the Hidden Markov Model in the previous chapter, and we have introduced the N-gram model in the chapter before. In this chapter we
+
+2
+
+Chapter 6.
+
+give a more complete and formal introduction to these two important models.
+HMMs and MEMMs are both sequence classiﬁers. A sequence classiﬁer or sequence labeler is a model whose job is to assign some label or class to each unit in a
+sequence. The ﬁnite-state transducer we studied in Ch. 3 is a kind of non-probabilistic
+sequence classiﬁer, for example transducing from sequences of words to sequences of
+morphemes. The HMM and MEMM extend this notion by being probabilistic sequence
+classiﬁers; given a sequence of units (words, letters, morphemes, sentences, whatever)
+their job is to compute a probability distribution over possible labels and choose the
+best label sequence.
+We have already seen one important sequence classiﬁcation task: part-of-speech
+tagging, where each word in a sequence has to be assigned a part-of-speech tag. Sequence labeling tasks come up throughout speech and language processing, a fact that
+isn’t too surprising if we consider that language consists of sequences at many representational levels. Besides part-of-speech tagging, in this book we will see the application
+of these sequence models to tasks like speech recognition (Ch. 9), sentence segmentation and grapheme-to-phoneme conversion (Ch. 8), partial parsing/chunking (Ch. 13),
+and named entity recognition and information extraction (Ch. 22).
+This chapter is roughly divided into two sections: Hidden Markov Models followed
+by Maximum Entropy Markov Models. Our discussion of the Hidden Markov Model
+extends what we said about HMM part-of-speech tagging. We begin in the next section by introducing the Markov Chain, then give a detailed overview of HMMs and
+the forward and Viterbi algorithms with more formalization, and ﬁnally introduce the
+important EM algorithm for unsupervised (or semi-supervised) learning of a Hidden
+Markov Model.
+In the second half of the chapter, we introduce Maximum Entropy Markov Models
+gradually, beginning with techniques that may already be familiar to you from statistics: linear regression and logistic regression. We next introduce MaxEnt. MaxEnt by
+itself is not a sequence classiﬁer; it is used to assign a class to a single element. The
+name Maximum Entropy comes from the idea that the classiﬁer ﬁnds the probabilistic model which follows Occam’s Razor in being the simplest (least constrained; has
+the maximum entropy) yet still consistent with some speciﬁc constraints. The Maximum Entropy Markov Model is the extension of MaxEnt to the sequence labeling task,
+adding components such as the Viterbi algorithm.
+Although this chapter introduces MaxEnt, which is a classiﬁer, we will not focus
+in general on non-sequential classiﬁcation. Non-sequential classiﬁcation will be addressed in later chapters with the introduction of classiﬁers like the Gaussian Mixture
+Model in (Ch. 9) and the Naive Bayes and decision list classiﬁers in (Ch. 20).
+
+D
+RA
+FT
+
+SEQUENCE
+CLASSIFIERS
+
+Hidden Markov and Maximum Entropy Models
+
+6.1
+
+M ARKOV C HAINS
+
+The Hidden Markov Model is one of the most important machine learning models in
+speech and language processing. In order to deﬁne it properly, we need to ﬁrst introduce the Markov chain, sometimes called the observed Markov model. Markov
+chains and Hidden Markov Models are both extensions of the ﬁnite automata of Ch. 2.
+
+Section 6.1.
+
+WEIGHTED
+
+3
+
+Recall that a ﬁnite automaton is deﬁned by a set of states, and a set of transitions between states that are taken based on the input observations. A weighted ﬁnite-state
+automaton is a simple augmentation of the ﬁnite automaton in which each arc is associated with a probability, indicating how likely that path is to be taken. The probability
+on all the arcs leaving a node must sum to 1.
+A Markov chain is a special case of a weighted automaton in which the input
+sequence uniquely determines which states the automaton will go through. Because
+it can’t represent inherently ambiguous problems, a Markov chain is only useful for
+assigning probabilities to unambiguous sequences.
+
+D
+RA
+FT
+
+MARKOV CHAIN
+
+Markov Chains
+
+(a)
+
+(b)
+
+Figure 6.1
+A Markov chain for weather (a) and one for words (b). A Markov chain is speciﬁed by the structure,
+the transition between states, and the start and end states.
+
+Fig. 6.1a shows a Markov chain for assigning a probability to a sequence of weather
+events, where the vocabulary consists of HOT, COLD, and RAINY. Fig. 6.1b shows
+another simple example of a Markov chain for assigning a probability to a sequence
+of words w1 ...wn . This Markov chain should be familiar; in fact it represents a bigram
+language model. Given the two models in Figure 6.1 we can assign a probability to any
+sequence from our vocabulary. We’ll go over how to do this shortly.
+First, let’s be more formal. We’ll view a Markov chain as a kind of probabilistic graphical model; a way of representing probabilistic assumptions in a graph. A
+Markov chain is speciﬁed by the following components:
+Q = q1 q2 . . . qN
+A = a01 a02 . . . an1 . . . ann
+
+q0 , qF
+
+FIRST-ORDER
+
+a set of N states
+a transition probability matrix A, each ai j representing the probability of moving from state i
+to state j, s.t. ∑n ai j = 1 ∀i
+j=1
+a special start state and end (ﬁnal) state which
+are not associated with observations.
+
+Fig. 6.1 shows that we represent the states (including start and end states) as nodes
+in the graph, and the transitions as edges between nodes.
+A Markov chain embodies an important assumption about these probabilities. In a
+ﬁrst-order Markov chain, the probability of a particular state is dependent only on the
+
+4
+
+Chapter 6.
+
+Hidden Markov and Maximum Entropy Models
+
+previous state:
+Markov Assumption: P(qi |q1 ...qi−1 ) = P(qi |qi−1 )
+
+(6.1)
+
+Note that because each ai j expresses the probability p(q j |qi ), the laws of probability require that the values of the outgoing arcs from a given state must sum to 1:
+n
+
+∑ ai j = 1
+
+(6.2)
+
+∀i
+
+j=1
+
+D
+RA
+FT
+
+An alternate representation that is sometimes used for Markov chains doesn’t rely
+on a start or end state, instead representing the distribution over initial states and accepting states explicitly:
+π = π1 , π2 , ..., πN an initial probability distribution over states. πi is the
+probability that the Markov chain will start in state i. Some
+states j may have π j = 0, meaning that they cannot be initial
+states. Also, ∑n πi = 1
+i=1
+
+QA = {qx , qy ...} a set QA ⊂ Q of legal accepting states
+
+Thus the probability of state 1 being the ﬁrst state can be represented either as a01
+or as π1 . Note that because each πi expresses the probability p(qi |START ), all the π
+probabilities must sum to 1:
+n
+
+∑ πi = 1
+
+(6.3)
+
+i=1
+
+(a)
+
+(b)
+
+Figure 6.2 Another representation of the same Markov chain for weather shown in Fig. 6.1. Instead of using
+a special start state with a01 transition probabilities, we use the π vector, which represents the distribution over
+starting state probabilities. The ﬁgure in (b) shows sample probabilities.
+
+Section 6.2.
+
+The Hidden Markov Model
+
+5
+
+Before you go on, use the sample probabilities in Fig. 6.2b to compute the probability of each of the following sequences:
+
+(6.4)
+
+hot hot hot hot
+
+(6.5)
+
+cold hot cold hot
+
+D
+RA
+FT
+
+What does the difference in these probabilities tell you about a real-world weather
+fact encoded in Fig. 6.2b?
+
+6.2
+
+T HE H IDDEN M ARKOV M ODEL
+
+HIDDEN MARKOV
+MODEL
+
+A Markov chain is useful when we need to compute a probability for a sequence of
+events that we can observe in the world. In many cases, however, the events we are
+interested in may not be directly observable in the world. For example, in part-ofspeech tagging (Ch. 5) we didn’t observe part of speech tags in the world; we saw
+words, and had to infer the correct tags from the word sequence. We call the part-ofspeech tags hidden because they are not observed. The same architecture will come
+up in speech recognition; in that case we’ll see acoustic events in the world, and have
+to infer the presence of ‘hidden’ words that are the underlying causal source of the
+acoustics. A Hidden Markov Model (HMM) allows us to talk about both observed
+events (like words that we see in the input) and hidden events (like part-of-speech tags)
+that we think of as causal factors in our probabilistic model.
+To exemplify these models, we’ll use a task conceived of by Jason Eisner (2002).
+Imagine that you are a climatologist in the year 2799 studying the history of global
+warming. You cannot ﬁnd any records of the weather in Baltimore, Maryland, for the
+summer of 2007, but you do ﬁnd Jason Eisner’s diary, which lists how many ice creams
+Jason ate every day that summer. Our goal is to use these observations to estimate the
+temperature every day. We’ll simplify this weather task by assuming there are only two
+kinds of days: cold (C) and hot (H). So the Eisner task is as follows:
+
+Given a sequence of observations O, each observation an integer corresponding to the number of ice creams eaten on a given day, ﬁgure out the
+correct ‘hidden’ sequence Q of weather states (H or C) which caused Jason
+to eat the ice cream.
+
+HMM
+
+Let’s begin with a formal deﬁnition of a Hidden Markov Model, focusing on how
+it differs from a Markov chain. An HMM is speciﬁed by the following components:
+
+6
+
+Chapter 6.
+
+Hidden Markov and Maximum Entropy Models
+
+Q = q1 q2 . . . qN
+A = a11 a12 . . . an1 . . . ann
+
+a set of N states
+a transition probability matrix A, each ai j representing the probability of moving from state i
+to state j, s.t. ∑n ai j = 1 ∀i
+j=1
+
+O = o1 o2 . . . oT
+
+a sequence of T observations, each one drawn
+from a vocabulary V = v1 , v2 , ..., vV .
+a sequence of observation likelihoods:, also
+called emission probabilities, each expressing
+the probability of an observation ot being generated from a state i.
+
+D
+RA
+FT
+
+B = bi (ot )
+
+q0 , qF
+
+a special start state and end (ﬁnal) state which
+are not associated with observations, together
+with transition probabilities a01 a02 ..a0n out of the
+start state and a1F a2F ...anF into the end state.
+
+As we noted for Markov chains, an alternate representation that is sometimes used
+for HMMs doesn’t rely on a start or end state, instead representing the distribution over
+initial and accepting states explicitly. We won’t be using the π notation in this textbook,
+but you may see it in the literature:
+π = π1 , π2 , ..., πN an initial probability distribution over states. πi is the
+probability that the Markov chain will start in state i. Some
+states j may have π j = 0, meaning that they cannot be initial
+states. Also, ∑n πi = 1
+i=1
+
+QA = {qx , qy ...} a set QA ⊂ Q of legal accepting states
+
+A ﬁrst-order Hidden Markov Model instantiates two simplifying assumptions. First,
+as with a ﬁrst-order Markov chain, the probability of a particular state is dependent only
+on the previous state:
+
+(6.6)
+
+Markov Assumption: P(qi |q1 ...qi−1 ) = P(qi |qi−1 )
+
+Second, the probability of an output observation oi is dependent only on the state
+that produced the observation qi , and not on any other states or any other observations:
+Output Independence Assumption: P(oi |q1 . . . qi , . . . , qT , o1 , . . . , oi , . . . , oT ) = P(oi |qi )
+
+(6.7)
+
+FULLY-CONNECTED
+ERGODIC HMM
+LEFT-TO-RIGHT
+BAKIS
+
+Fig. 6.3 shows a sample HMM for the ice cream task. The two hidden states (H
+and C) correspond to hot and cold weather, while the observations (drawn from the
+alphabet O = {1, 2, 3}) correspond to the number of ice creams eaten by Jason on a
+given day.
+Notice that in the HMM in Fig. 6.3, there is a (non-zero) probability of transitioning
+between any two states. Such an HMM is called a fully-connected or ergodic HMM.
+Sometimes, however, we have HMMs in which many of the transitions between states
+have zero probability. For example, in left-to-right (also called Bakis) HMMs, the
+state transitions proceed from left to right, as shown in Fig. 6.4. In a Bakis HMM,
+
+The Hidden Markov Model
+
+D
+RA
+FT
+
+Section 6.2.
+
+7
+
+Figure 6.3 A Hidden Markov Model for relating numbers of ice creams eaten by Jason
+(the observations) to the weather (H or C, the hidden variables). For this example we are
+not using an end-state, instead allowing both states 1 and 2 to be a ﬁnal (accepting) state.
+
+there are no transitions going from a higher-numbered state to a lower-numbered state
+(or, more accurately, any transitions from a higher-numbered state to a lower-numbered
+state have zero probability). Bakis HMMs are generally used to model temporal processes like speech; we will see more of them in Ch. 9.
+
+Figure 6.4 Two 4-state Hidden Markov Models; a left-to-right (Bakis) HMM on the
+left, and a fully-connected (ergodic) HMM on the right. In the Bakis model, all transitions
+not shown have zero probability.
+
+Now that we have seen the structure of an HMM, we turn to algorithms for computing things with them. An inﬂuential tutorial by Rabiner (1989), based on tutorials
+by Jack Ferguson in the 1960s, introduced the idea that Hidden Markov Models should
+be characterized by three fundamental problems:
+Problem 1 (Computing Likelihood): Given an HMM λ = (A, B) and
+an observation sequence O, determine the likelihood P(O|λ).
+Problem 2 (Decoding): Given an observation sequence O and an HMM
+λ = (A, B), discover the best hidden state sequence Q.
+
+8
+
+Chapter 6.
+
+Hidden Markov and Maximum Entropy Models
+
+Problem 3 (Learning): Given an observation sequence O and the set
+of states in the HMM, learn the HMM parameters A and B.
+We already saw an example of problem (2) in Ch. 5. In the next three sections we
+introduce all three problems more formally.
+
+C OMPUTING L IKELIHOOD : T HE F ORWARD A LGORITHM
+Our ﬁrst problem is to compute the likelihood of a particular observation sequence. For
+example, given the HMM in Fig. 6.2b, what is the probability of the sequence 3 1 3?
+More formally:
+
+D
+RA
+FT
+
+6.3
+
+Computing Likelihood: Given an HMM λ = (A, B) and an observation
+sequence O, determine the likelihood P(O|λ).
+
+For a Markov chain, where the surface observations are the same as the hidden
+events, we could compute the probability of 3 1 3 just by following the states labeled 3 1
+3 and multiplying the probabilities along the arcs. For a Hidden Markov Model, things
+are not so simple. We want to determine the probability of an ice-cream observation
+sequence like 3 1 3, but we don’t know what the hidden state sequence is!
+Let’s start with a slightly simpler situation. Suppose we already knew the weather,
+and wanted to predict how much ice cream Jason would eat. This is a useful part of
+many HMM tasks. For a given hidden state sequence (e.g. hot hot cold) we can easily
+compute the output likelihood of 3 1 3.
+Let’s see how. First, recall that for Hidden Markov Models, each hidden state produces only a single observation. Thus the sequence of hidden states and the sequence
+of observations have the same length. 1
+Given this one-to-one mapping, and the Markov assumptions expressed in Eq. 6.6,
+for a particular hidden state sequence Q = q0 , q1 , q2 , ..., qT and an observation sequence
+O = o1 , o2 , ..., oT , the likelihood of the observation sequence is:
+T
+
+(6.8)
+
+P(O|Q) = ∏ P(oi |qi )
+i=1
+
+The computation of the forward probability for our ice-cream observation 3 1 3
+from one possible hidden state sequence hot hot cold is as follows (Fig. 6.5 shows a
+graphic representation of this):
+
+(6.9)
+
+P(3 1 3|hot hot cold) = P(3|hot) × P(1|hot) × P(3|cold)
+
+But of course, we don’t actually know what the hidden state (weather) sequence
+was. We’ll need to compute the probability of ice-cream events 3 1 3 instead by summing over all possible weather sequences, weighted by their probability. First, let’s
+1 There are variants of HMMs called segmental HMMs (in speech recognition) or semi-HMMs (in natural
+language processing) in which this one-to-one mapping between the length of the hidden state sequence and
+the length of the observation sequence does not hold.
+
+Section 6.3.
+
+Computing Likelihood: The Forward Algorithm
+
+9
+
+Figure 6.5
+The computation of the observation likelihood for the ice-cream events 3 1
+3 given the hidden state sequence hot hot cold.
+
+D
+RA
+FT
+
+compute the joint probability of being in a particular weather sequence Q and generating a particular sequence O of ice-cream events. In general, this is:
+n
+
+n
+
+i=1
+
+(6.10)
+
+i=1
+
+P(O, Q) = P(O|Q) × P(Q) = ∏ P(oi |qi ) × ∏ P(qi |qi−1 )
+
+The computation of the joint probability of our ice-cream observation 3 1 3 and
+one possible hidden state sequence hot hot cold is as follows (Fig. 6.6 shows a graphic
+representation of this):
+
+(6.11)
+
+P(3 1 3, hot hot cold) = P(hot|start) × P(hot|hot) × P(cold|hot)
+×P(3|hot) × P(1|hot) × P(3|cold)
+
+Figure 6.6 The computation of the joint probability of the ice-cream events 3 1 3 and
+the hidden state sequence hot hot cold.
+
+Now that we know how to compute the joint probability of the observations with a
+particular hidden state sequence, we can compute the total probability of the observations just by summing over all possible hidden state sequences:
+
+(6.12)
+
+P(O) = ∑ P(O, Q) = ∑ P(O|Q)P(Q)
+Q
+
+Q
+
+For our particular case, we would sum over the 8 three-event sequences cold cold
+cold, cold cold hot, i.e.:
+P(3 1 3) = P(3 1 3, cold cold cold)+P(3 1 3, cold cold hot)+P(3 1 3, hot hot cold)+...
+(6.13)
+
+10
+
+Chapter 6.
+
+Hidden Markov and Maximum Entropy Models
+
+For an HMM with N hidden states and an observation sequence of T observations,
+there are N T possible hidden sequences. For real tasks, where N and T are both large,
+N T is a very large number, and so we cannot compute the total observation likelihood
+by computing a separate observation likelihood for each hidden state sequence and then
+summing them up.
+Instead of using such an extremely exponential algorithm, we use an efﬁcient
+(O(N 2 T )) algorithm called the forward algorithm. The forward algorithm is a kind
+of dynamic programming algorithm, i.e., an algorithm that uses a table to store intermediate values as it builds up the probability of the observation sequence. The forward
+algorithm computes the observation probability by summing over the probabilities of
+all possible hidden state paths that could generate the observation sequence, but it does
+so efﬁciently by implicitly folding each of these paths into a single forward trellis.
+Fig. 6.7 shows an example of the forward trellis for computing the likelihood of 3
+1 3 given the hidden state sequence hot hot cold.
+
+D
+RA
+FT
+
+FORWARD
+ALGORITHM
+
+qF
+
+end
+
+end
+
+end
+
+α2(2)= .32*.014 + .02*.08 = .00608
+
+α1(2)=.32
+
+q1
+
+H
+
+H
+
+sta
+r
+.8 t)*P
+* . (3|
+4
+H)
+
+q2
+
+P(C
+
+P(H|H) * P(1|H)
+.7 * .2
+
+|H)
+*
+.3 * P(1|C
+.5
+)
+
+)
+(1|H
+*P
+|C) * .2
+P(H .4
+P(C|C) * P(1|C)
+.6 * .5
+
+α1(1) = .02
+
+H
+
+H
+
+α2(1) = .32*.15 + .02*.30 = .054
+
+H|
+
+P(
+
+C
+
+start
+
+start
+
+start
+
+1
+
+3
+
+o1
+
+)
+
+C
+
+3
+
+C
+
+C
+
+end
+
+o2
+
+o3
+
+|C
+
+3
+P(
+
+*
+t)
+ar .1
+|st .2 *
+(C
+
+P
+
+q0
+
+start
+
+t
+
+Figure 6.7 The forward trellis for computing the total observation likelihood for the ice-cream events 3 1 3.
+Hidden states are in circles, observations in squares. White (unﬁlled) circles indicate illegal transitions. The
+ﬁgure shows the computation of αt ( j) for two states at two time steps. The computation in each cell follows
+Eq˙ 6.15: αt ( j) = ∑N αt−1 (i)ai j b j (ot ). The resulting probability expressed in each cell is Eq˙ 6.14: αt ( j) =
+i=1
+P(o1 , o2 . . . ot , qt = j|λ).
+
+Section 6.4.
+
+Decoding: The Viterbi Algorithm
+
+11
+
+Each cell of the forward algorithm trellis αt ( j) represents the probability of being
+in state j after seeing the ﬁrst t observations, given the automaton λ. The value of each
+cell αt ( j) is computed by summing over the probabilities of every path that could lead
+us to this cell. Formally, each cell expresses the following probability:
+αt ( j) = P(o1 , o2 . . . ot , qt = j|λ)
+
+(6.14)
+
+D
+RA
+FT
+
+Here qt = j means “the probability that the tth state in the sequence of states is state
+j”. We compute this probability by summing over the extensions of all the paths that
+lead to the current cell. For a given state q j at time t, the value αt ( j) is computed as:
+N
+
+αt ( j) = ∑ αt−1 (i)ai j b j (ot )
+
+(6.15)
+
+i=1
+
+The three factors that are multiplied in Eq˙ 6.15 in extending the previous paths to
+compute the forward probability at time t are:
+αt−1 (i)
+ai j
+
+the previous forward path probability from the previous time step
+the transition probability from previous state qi to current state q j
+
+b j (ot )
+
+the state observation likelihood of the observation symbol ot given
+the current state j
+
+Consider the computation in Fig. 6.7 of α2 (1), the forward probability of being at
+time step 2 in state 1 having generated the partial observation 3 1. This is computed by
+extending the α probabilities from time step 1, via two paths, each extension consisting
+of the three factors above: α1 (1) × P(H|H) × P(1|H) and α1 (2) × P(H|C) × P(1|H).
+Fig. 6.8 shows another visualization of this induction step for computing the value
+in one new cell of the trellis.
+We give two formal deﬁnitions of the forward algorithm; the pseudocode in Fig. 6.9
+and a statement of the deﬁnitional recursion here:
+1. Initialization:
+
+α1 ( j) = a0 j b j (o1 ) 1 ≤ j ≤ N
+
+(6.16)
+
+2. Recursion (since states 0 and F are non-emitting):
+N
+
+αt ( j) = ∑ αt−1 (i)ai j b j (ot ); 1 ≤ j ≤ N, 1 < t ≤ T
+
+(6.17)
+
+i=1
+
+3. Termination:
+N
+
+(6.18)
+
+P(O|λ) = αT (qF ) = ∑ αT (i) aiF
+i=1
+
+12
+
+Chapter 6.
+αt-2(N)
+
+αt-1(N)
+
+qN
+
+Hidden Markov and Maximum Entropy Models
+
+qN
+
+aNj
+
+αt(j)= Σi αt-1(i) aij bj(ot)
+
+qN
+
+qj
+αt-2(3)
+
+αt-1(3)
+
+q3
+
+a3j
+
+q3
+
+αt-2(2)
+
+αt-2(1)
+
+q1
+
+ot-2
+
+q2
+
+ot-1
+
+bj(ot)
+
+αt-1(1)
+
+q1
+
+a1j
+
+q2
+
+q1
+
+q2
+
+q1
+
+D
+RA
+FT
+
+q2
+
+q3
+
+a2j
+
+αt-1(2)
+
+ot
+
+ot+1
+
+Figure 6.8
+Visualizing the computation of a single element αt (i) in the trellis by summing all the previous values αt−1 weighted by their transition probabilities a and multiplying by the observation probability bi (ot+1 ). For many applications of HMMs, many of the
+transition probabilities are 0, so not all previous states will contribute to the forward probability of the current state. Hidden states are in circles, observations in squares. Shaded
+nodes are included in the probability computation for αt (i). Start and end states are not
+shown.
+
+function F ORWARD(observations of len T, state-graph of len N) returns forward-prob
+create a probability matrix forward[N+2,T]
+for each state s from 1 to N do
+forward[s,1] ← a0,s ∗ bs (o1 )
+for each time step t from 2 to T do
+for each state s from 1 to N do
+N
+
+forward[s,t] ←
+
+∑
+
+;initialization step
+;recursion step
+
+forward[s′ ,t − 1] ∗ as′ ,s ∗ bs (ot )
+
+s′ =1
+
+N
+
+forward[qF ,T] ←
+
+∑
+
+forward[s, T ] ∗ as,qF
+
+; termination step
+
+s=1
+
+return forward[qF , T ]
+
+Figure 6.9
+αt (s).
+
+6.4
+
+The forward algorithm. We’ve used the notation forward[s,t] to represent
+
+D ECODING : T HE V ITERBI A LGORITHM
+
+DECODING
+DECODER
+
+For any model, such as an HMM, that contains hidden variables, the task of determining
+which sequence of variables is the underlying source of some sequence of observations
+is called the decoding task. In the ice cream domain, given a sequence of ice cream
+observations 3 1 3 and an HMM, the task of the decoder is to ﬁnd the best hidden
+
+Section 6.4.
+
+Decoding: The Viterbi Algorithm
+
+13
+
+weather sequence (H H H). More formally,
+Decoding: Given as input an HMM λ = (A, B) and a sequence of observations O = o1 , o2 , ..., oT , ﬁnd the most probable sequence of states
+Q = q1 q2 q3 . . . qT .
+
+D
+RA
+FT
+
+We might propose to ﬁnd the best sequence as follows: for each possible hidden
+state sequence (HHH, HHC, HCH, etc.), we could run the forward algorithm and compute the likelihood of the observation sequence given that hidden state sequence. Then
+we could choose the hidden state sequence with the max observation likelihood. It
+should be clear from the previous section that we cannot do this because there are an
+exponentially large number of state sequences!
+Instead, the most common decoding algorithms for HMMs is the Viterbi algorithm. Like the forward algorithm, Viterbi is a kind of dynamic programming, and
+makes uses of a dynamic programming trellis. Viterbi also strongly resembles another
+dynamic programming variant, the minimum edit distance algorithm of Ch. 3.
+
+VITERBI ALGORITHM
+
+qF
+
+end
+
+end
+
+end
+
+v2(2)= max(.32*.014, .02*.08) = .0448
+
+v1(2)=.32
+
+q1
+
+H
+
+H
+
+sta
+r
+.8 t)*P
+* . (3|
+4
+H)
+
+q2
+
+v1(1) = .02
+
+P(C
+
+P(H|H) * P(1|H)
+.7 * .2
+
+|H)
+*
+.3 * P(1|C
+.5
+)
+
+)
+(1|H
+*P
+|C) * .2
+P(H .4
+P(C|C) * P(1|C)
+.6 * .5
+
+H
+
+H
+
+v2(1) = max(.32*.15 + .02*.30) = .048
+
+H|
+
+P(
+
+C
+
+start
+
+start
+
+start
+
+1
+
+3
+
+o1
+
+)
+
+C
+
+3
+
+C
+
+C
+
+end
+
+o2
+
+o3
+
+|C
+
+3
+P(
+
+*
+t)
+ar .1
+|st .2 *
+(C
+
+P
+
+q0
+
+start
+
+t
+
+Figure 6.10 The Viterbi trellis for computing the best path through the hidden state space for the ice-cream
+eating events 3 1 3. Hidden states are in circles, observations in squares. White (unﬁlled) circles indicate illegal
+transitions. The ﬁgure shows the computation of vt ( j) for two states at two time steps. The computation in each
+cell follows Eq˙ 6.20: vt ( j) = max1≤i≤N−1 vt−1 (i) ai j b j (ot ) The resulting probability expressed in each cell is
+Eq˙ 6.19: vt ( j) = P(q0 , q1 , . . . , qt−1 , o1 , o2 , . . . , ot , qt = j|λ).
+
+14
+
+Chapter 6.
+
+Hidden Markov and Maximum Entropy Models
+
+Fig. 6.10 shows an example of the Viterbi trellis for computing the best hidden state
+sequence for the observation sequence 3 1 3. The idea is to process the observation sequence left to right, ﬁlling out the trellis. Each cell of the Viterbi trellis, vt ( j) represents
+the probability that the HMM is in state j after seeing the ﬁrst t observations and passing through the most probable state sequence q0 , q1 , ..., qt−1 , given the automaton λ.
+The value of each cell vt ( j) is computed by recursively taking the most probable path
+that could lead us to this cell. Formally, each cell expresses the following probability:
+vt ( j) =
+
+(6.19)
+
+max
+
+q0 ,q1 ,...,qt−1
+
+P(q0 , q1 ...qt−1 , o1 , o2 . . . ot , qt = j|λ)
+
+D
+RA
+FT
+
+Note that we represent the most probable path by taking the maximum over all
+possible previous state sequences max . Like other dynamic programming algoq0 ,q1 ,...,qt−1
+
+rithms, Viterbi ﬁlls each cell recursively. Given that we had already computed the
+probability of being in every state at time t − 1, We compute the Viterbi probability by
+taking the most probable of the extensions of the paths that lead to the current cell. For
+a given state q j at time t, the value vt ( j) is computed as:
+N
+
+vt ( j) = max vt−1 (i) ai j b j (ot )
+
+(6.20)
+
+i=1
+
+The three factors that are multiplied in Eq. 6.20 for extending the previous paths to
+compute the Viterbi probability at time t are:
+vt−1 (i)
+ai j
+b j (ot )
+
+BACKTRACE
+
+the previous Viterbi path probability from the previous time step
+the transition probability from previous state qi to current state q j
+the state observation likelihood of the observation symbol ot given
+the current state j
+
+Fig. 6.11 shows pseudocode for the Viterbi algorithm. Note that the Viterbi algorithm is identical to the forward algorithm except that it takes the max over the previous
+path probabilities where the forward algorithm takes the sum. Note also that the Viterbi
+algorithm has one component that the forward algorithm doesn’t have: backpointers.
+This is because while the forward algorithm needs to produce an observation likelihood, the Viterbi algorithm must produce a probability and also the most likely state
+sequence. We compute this best state sequence by keeping track of the path of hidden
+states that led to each state, as suggested in Fig. 6.12, and then at the end tracing back
+the best path to the beginning (the Viterbi backtrace).
+Finally, we can give a formal deﬁnition of the Viterbi recursion as follows:
+1. Initialization:
+
+(6.21)
+(6.22)
+
+v1 ( j) = a0 j b j (o1 ) 1 ≤ j ≤ N
+bt1 ( j) = 0
+
+Section 6.5.
+
+Training HMMs: The Forward-Backward Algorithm
+
+15
+
+function V ITERBI(observations of len T, state-graph of len N) returns best-path
+create a path probability matrix viterbi[N+2,T]
+for each state s from 1 to N do
+;initialization step
+viterbi[s,1] ← a0,s ∗ bs (o1 )
+backpointer[s,1] ← 0
+for each time step t from 2 to T do
+;recursion step
+for each state s from 1 to N do
+N
+viterbi[s,t] ← max viterbi[s′ ,t − 1] ∗ as′ ,s ∗ bs (ot )
+′
+s =1
+
+N
+
+backpointer[s,t] ← argmax viterbi[s′ ,t − 1] ∗ as′ ,s
+
+D
+RA
+FT
+
+s′ =1
+
+N
+
+viterbi[qF ,T] ← max viterbi[s, T ] ∗ as,qF
+
+; termination step
+
+s=1
+
+N
+
+backpointer[qF ,T] ← argmax viterbi[s, T ] ∗ as,qF
+
+; termination step
+
+s=1
+
+return the backtrace path by following backpointers to states back in time from
+backpointer[qF , T ]
+Figure 6.11
+Viterbi algorithm for ﬁnding optimal sequence of hidden states. Given an
+observation sequence and an HMM λ = (A, B), the algorithm returns the state-path through
+the HMM which assigns maximum likelihood to the observation sequence. Note that states
+0 and qF are non-emitting.
+
+2. Recursion (recall states 0 and qF are non-emitting):
+
+(6.23)
+(6.24)
+
+N
+
+vt ( j) = max vt−1 (i) ai j b j (ot ); 1 ≤ j ≤ N, 1 < t ≤ T
+i=1
+N
+
+btt ( j) = argmax vt−1 (i) ai j b j (ot ); 1 ≤ j ≤ N, 1 < t ≤ T
+i=1
+
+3. Termination:
+
+(6.25)
+(6.26)
+
+N
+
+The best score: P∗ = vt (qF ) = max vT (i) ∗ ai,F
+i=1
+N
+
+The start of backtrace: qT ∗ = btT (qF ) = argmax vT (i) ∗ ai,F
+i=1
+
+6.5
+
+T RAINING HMM S : T HE F ORWARD -BACKWARD A LGORITHM
+We turn to the third problem for HMMs: learning the parameters of an HMM, i.e., the
+A and B matrices. Formally,
+Learning: Given an observation sequence O and the set of possible states
+in the HMM, learn the HMM parameters A and B.
+The input to such a learning algorithm would be an unlabeled sequence of observations O and a vocabulary of potential hidden states Q. Thus for the ice cream task,
+
+16
+
+Chapter 6.
+
+F
+
+F
+
+end
+
+Hidden Markov and Maximum Entropy Models
+
+end
+
+end
+
+v2(2)= max(.32*.014, .02*.08) = .0448
+
+v1(2)=.32
+  
+
+H
+
+$
+!
+"& % $
+#
+"! 
+
+H
+
+GF
+
+.3 *
+
+¡ 
+¢
+§¦ ¥¤ £
+© ¨¥
+¡ 
+
+¨¢ £
+765
+98
+BA @
+D C@
+65
+78E
+C
+
+H
+
+H
+
+.2
+.4 *
+
+v2(1) = max(.32*.15, .02*.30) = .048
+
+start
+
+start
+
+start
+
+3
+
+1
+
+3
+
+I
+
+RQ
+
+.8
+
+C
+
+D
+RA
+FT
+
+C
+
+Q
+
+* .4
+
+  
+('
+3 210)
+
+C
+
+.7 * .2
+
+.5
+
+4( '
+2)0
+
+v1(1) = .02
+
+end
+
+C
+
+.
+
+HF
+
+1
+
+0
+
+start
+
+*.
+
+P
+
+.2
+
+3
+
+F
+
+t
+
+Figure 6.12
+The Viterbi backtrace. As we extend each path to a new state account for the next observation, we
+keep a backpointer (shown with broken blue lines) to the best path that led us to this state.
+
+FORWARDBACKWARD
+
+BAUM-WELCH
+
+EM
+
+we would start with a sequence of observations O = {1, 3, 2, ..., }, and the set of hidden
+states H and C. For the part-of-speech tagging task we would start with a sequence of
+observations O = {w1 , w2 , w3 . . .} and a set of hidden states NN, NNS, VBD, IN,... and
+so on.
+The standard algorithm for HMM training is the forward-backward or BaumWelchalgorithm (Baum, 1972), a special case of the Expectation-Maximization or
+EM algorithm (Dempster et al., 1977). The algorithm will let us train both the transition probabilities A and the emission probabilities B of the HMM.
+Let us begin by considering the much simpler case of training a Markov chain
+rather than a Hidden Markov Model. Since the states in a Markov chain are observed,
+we can run the model on the observation sequence and directly see which path we took
+through the model, and which state generated each observation symbol. A Markov
+chain of course has no emission probabilities B (alternatively we could view a Markov
+chain as a degenerate Hidden Markov Model where all the b probabilities are 1.0 for
+the observed symbol and 0 for all other symbols.). Thus the only probabilities we need
+to train are the transition probability matrix A.
+We get the maximum likelihood estimate of the probability ai j of a particular transition between states i and j by counting the number of times the transition was taken,
+
+Section 6.5.
+
+Training HMMs: The Forward-Backward Algorithm
+
+17
+
+which we could call C(i → j), and then normalizing by the total count of all times we
+took any transition from state i:
+ai j =
+
+(6.27)
+
+C(i → j)
+∑q∈Q C(i → q)
+
+D
+RA
+FT
+
+We can directly compute this probability in a Markov chain because we know which
+states we were in. For an HMM we cannot compute these counts directly from an
+observation sequence since we don’t know which path of states was taken through the
+machine for a given input. The Baum-Welch algorithm uses two neat intuitions to solve
+this problem. The ﬁrst idea is to iteratively estimate the counts. We will start with an
+estimate for the transition and observation probabilities, and then use these estimated
+probabilities to derive better and better probabilities. The second idea is that we get
+our estimated probabilities by computing the forward probability for an observation
+and then dividing that probability mass among all the different paths that contributed
+to this forward probability.
+In order to understand the algorithm, we need to deﬁne a useful probability related
+to the forward probability, called the backward probability.
+The backward probability β is the probability of seeing the observations from time
+t + 1 to the end, given that we are in state j at time t (and of course given the automaton
+λ):
+
+BACKWARD
+PROBABILITY
+
+βt (i) = P(ot+1 , ot+2 . . . oT |qt = i, λ)
+
+(6.28)
+
+It is computed inductively in a similar manner to the forward algorithm.
+
+1. Initialization:
+
+βT (i) = ai,F , 1 ≤ i ≤ N
+
+(6.29)
+
+2. Recursion (again since states 0 and qF are non-emitting):
+
+(6.30)
+
+βt (i) =
+
+N
+
+∑ ai j b j (ot+1 ) βt+1 ( j),
+
+1 ≤ i ≤ N, 1 ≤ t < T
+
+j=1
+
+3. Termination:
+
+P(O|λ) = αT (qF ) = β1 (0) =
+
+(6.31)
+
+N
+
+∑ a0 j b j (o1) β1( j)
+
+j=1
+
+Fig. 6.13 illustrates the backward induction step.
+We are now ready to understand how the forward and backward probabilities can
+help us compute the transition probability ai j and observation probability bi (ot ) from
+an observation sequence, even though the actual path taken through the machine is
+hidden.
+Let’s begin by showing how to estimate ai j by a variant of (6.27):
+ˆ
+
+(6.32)
+
+ai j =
+ˆ
+
+expected number of transitions from state i to state j
+expected number of transitions from state i
+
+18
+
+Chapter 6.
+
+qN
+
+Hidden Markov and Maximum Entropy Models
+βt+1(N)
+
+βt(i)= Σj βt+1(j) aij bj(ot+1)
+aiN
+
+qN
+
+qi
+
+ai3
+
+q3
+
+ai2
+q2
+
+q2
+
+q1
+
+ai1
+
+q1
+
+βt+1(3)
+
+q3
+
+b2(ot+1)
+
+βt+1(2)
+
+b2(ot+1)
+
+q2
+βt+1(1)
+
+b1(ot+1)
+
+D
+RA
+FT
+
+q1
+
+b2(ot+1)
+
+ot-1
+
+ot
+
+ot+1
+
+Figure 6.13
+The computation of βt (i) by summing all the successive values βt+1 ( j)
+weighted by their transition probabilities ai j and their observation probabilities b j (ot+1 ).
+Start and end states not shown.
+
+How do we compute the numerator? Here’s the intuition. Assume we had some
+estimate of the probability that a given transition i → j was taken at a particular point
+in time t in the observation sequence. If we knew this probability for each particular
+time t, we could sum over all times t to estimate the total count for the transition i → j.
+More formally, let’s deﬁne the probability ξt as the probability of being in state i at
+time t and state j at time t + 1, given the observation sequence and of course the model:
+
+(6.33)
+
+ξt (i, j) = P(qt = i, qt+1 = j|O, λ)
+
+In order to compute ξt , we ﬁrst compute a probability which is similar to ξt , but
+differs in including the probability of the observation; note the different conditioning
+of O from Equation (6.33):
+
+(6.34)
+
+not-quite-ξt (i, j) = P(qt = i, qt+1 = j, O|λ)
+
+Fig. 6.14 shows the various probabilities that go into computing not-quite-ξt : the
+transition probability for the arc in question, the α probability before the arc, the β
+probability after the arc, and the observation probability for the symbol just after the
+arc. These four are multiplied together to produce not-quite-ξt as follows:
+
+(6.35)
+
+not-quite-ξt (i, j) = αt (i) ai j b j (ot+1 )βt+1 ( j)
+
+In order to compute ξt from not-quite-ξt , the laws of probability instruct us to divide
+by P(O|λ), since:
+(6.36)
+
+P(X|Y, Z) =
+
+P(X,Y |Z)
+P(Y |Z)
+
+Section 6.5.
+
+Training HMMs: The Forward-Backward Algorithm
+
+19
+
+si
+
+sj
+aijbj(ot+1)
+
+αt(i)
+
+D
+RA
+FT
+
+βt+1(j)
+
+ot-1
+
+ot
+
+ot+1
+
+ot+2
+
+Figure 6.14 Computation of the joint probability of being in state i at time t and state
+j at time t + 1. The ﬁgure shows the various probabilities that need to be combined to
+produce P(qt = i, qt+1 = j, O|λ): the α and β probabilities, the transition probability ai j
+and the observation probability b j (ot+1 ). After Rabiner (1989).
+
+The probability of the observation given the model is simply the forward probability of the whole utterance, (or alternatively the backward probability of the whole
+utterance!), which can thus be computed in a number of ways:
+
+(6.37)
+
+P(O|λ) = αT (N) = βT (1) =
+
+N
+
+∑ αt ( j)βt ( j)
+
+j=1
+
+So, the ﬁnal equation for ξt is:
+
+(6.38)
+
+ξt (i, j) =
+
+αt (i) ai j b j (ot+1 )βt+1 ( j)
+αT (N)
+
+The expected number of transitions from state i to state j is then the sum over all t
+of ξ. For our estimate of ai j in (6.32), we just need one more thing: the total expected
+number of transitions from state i. We can get this by summing over all transitions out
+of state i. Here’s the ﬁnal formula for ai j :
+ˆ
+
+(6.39)
+
+ai j =
+ˆ
+
+T −1
+∑t=1 ξt (i, j)
+T −1
+∑t=1 ∑N ξt (i, j)
+j=1
+
+We also need a formula for recomputing the observation probability. This is the
+probability of a given symbol vk from the observation vocabulary V , given a state j:
+ˆ
+b j (vk ). We will do this by trying to compute:
+
+(6.40)
+
+expected number of times in state j and observing symbol vk
+ˆ
+b j (vk ) =
+expected number of times in state j
+
+20
+
+Chapter 6.
+
+Hidden Markov and Maximum Entropy Models
+
+For this we will need to know the probability of being in state j at time t, which we
+will call γt ( j):
+γt ( j) = P(qt = j|O, λ)
+
+(6.41)
+
+Once again, we will compute this by including the observation sequence in the
+probability:
+P(qt = j, O|λ)
+P(O|λ)
+
+γt ( j) =
+
+D
+RA
+FT
+
+(6.42)
+
+sj
+
+αt(j)
+
+ot-1
+
+βt(j)
+
+ot
+
+ot+1
+
+Figure 6.15
+The computation of γt ( j), the probability of being in state j at time t. Note
+that γ is really a degenerate case of ξ and hence this ﬁgure is like a version of Fig. 6.14
+with state i collapsed with state j. After Rabiner (1989).
+
+As Fig. 6.15 shows, the numerator of (6.42) is just the product of the forward probability and the backward probability:
+
+(6.43)
+
+γt ( j) =
+
+αt ( j)βt ( j)
+P(O|λ)
+
+We are ready to compute b. For the numerator, we sum γt ( j) for all time steps t in
+which the observation ot is the symbol vk that we are interested in. For the denominator,
+we sum γt ( j) over all time steps t. The result will be the percentage of the times that
+T
+we were in state j and we saw symbol vk (the notation ∑t=1s.t.Ot =vk means “sum over
+all t for which the observation at time t was vk ”):
+
+(6.44)
+
+ˆ
+b j (vk ) =
+
+T
+∑t=1s.t.Ot =vk γt ( j)
+T
+∑t=1 γt ( j)
+
+We now have ways in (6.39) and (6.44) to re-estimate the transition A and observation B probabilities from an observation sequence O assuming that we already have a
+previous estimate of A and B.
+
+Section 6.5.
+
+EXPECTATION
+E-STEP
+MAXIMIZATION
+
+21
+
+These re-estimations form the core of the iterative forward-backward algorithm.
+The forward-backward algorithm starts with some initial estimate of the HMM
+parameters λ = (A, B). We then iteratively run two steps. Like other cases of the EM
+(expectation-maximization) algorithm, the forward-backward algorithm has two steps:
+the expectation step, or E-step, and the maximization step, or M-step.
+In the E-step, we compute the expected state occupancy count γ and the expected
+state transition count ξ, from the earlier A and B probabilities. In the M-step, we use γ
+and ξ to recompute new A and B probabilities.
+
+function F ORWARD -BACKWARD( observations of len T, output vocabulary V, hidden
+state set Q) returns HMM=(A,B)
+
+D
+RA
+FT
+
+M-STEP
+
+Training HMMs: The Forward-Backward Algorithm
+
+initialize A and B
+iterate until convergence
+E-step
+
+αt ( j)βt ( j)
+∀ t and j
+P(O|λ)
+α (i) ai j b j (ot+1 )βt+1( j)
+ξt (i, j) = t
+∀ t, i, and j
+αT (N)
+
+γt ( j) =
+
+M-step
+
+T −1
+
+∑
+
+ai j =
+ˆ
+
+ξt (i, j)
+
+t=1
+T −1 N
+
+∑ ∑ ξt (i, j)
+
+t=1 j=1
+T
+
+∑
+
+ˆ
+b j (vk ) =
+
+γt ( j)
+
+t=1s.t. Ot =vk
+T
+
+∑
+
+γt ( j)
+
+t=1
+
+return A, B
+
+Figure 6.16
+
+The forward-backward algorithm.
+
+Although in principle the forward-backward algorithm can do completely unsupervised learning of the A and B parameters, in practice the initial conditions are very
+important. For this reason the algorithm is often given extra information. For example,
+for speech recognition, in practice the HMM structure is very often set by hand, and
+only the emission (B) and (non-zero) A transition probabilities are trained from a set
+of observation sequences O. Sec. ?? in Ch. 9 will also discuss how initial A and B
+estimates are derived in speech recognition. We will also see that for speech that the
+forward-backward algorithm can be extended to inputs which are non-discrete (“continuous observation densities”).
+
+22
+
+Chapter 6.
+
+M AXIMUM E NTROPY M ODELS : BACKGROUND
+We turn now to a second probabilistic machine learning framework called Maximum
+Entropy modeling, MaxEnt for short. MaxEnt is more widely known as multinomial
+logistic regression.
+Our goal in this chapter is to introduce the use of MaxEnt for sequence classiﬁcation. Recall that the task of sequence classiﬁcation or sequence labelling is to assign
+a label to each element in some sequence, such as assigning a part-of-speech tag to
+a word. The most common MaxEnt sequence classiﬁer is the Maximum Entropy
+Markov Model or MEMM, to be introduced in Sec. 6.8. But before we see this use
+of MaxEnt as a sequence classiﬁer, we need to introduce non-sequential classiﬁcation.
+The task of classiﬁcation is to take a single observation, extract some useful features
+describing the observation, and then based on these features, to classify the observation
+into one of a set of discrete classes. A probabilistic classiﬁer does slightly more than
+this; in addition to assigning a label or class, it gives the probability of the observation
+being in that class; indeed, for a given observation a probabilistic classiﬁer gives a
+probability distribution over all classes.
+Such non-sequential classiﬁcation tasks occur throughout speech and language processing. For example, in text classiﬁcation we might need to decide whether a particular email should be classiﬁed as spam or not. In sentiment analysis we have to
+determine whether a particular sentence or document expresses a positive or negative
+opinion. In many tasks, we’ll need to know where the sentence boundaries are, and
+so we’ll need to classify a period character (‘.’) as either a sentence boundary or not.
+We’ll see more examples of the need for classiﬁcation throughout this book.
+MaxEnt belongs to the family of classiﬁers known as the exponential or log-linear
+classiﬁers. MaxEnt works by extracting some set of features from the input, combining
+them linearly (meaning that we multiply each by a weight and then add them up), and
+then, for reasons we will see below, using this sum as an exponent.
+Let’s ﬂesh out this intuition just a bit more. Assume that we have some input x
+(perhaps it is a word that needs to be tagged, or a document that needs to be classiﬁed)
+from which we extract some features. A feature for tagging might be this word ends in
+-ing or the previous word was ‘the’. For each such feature fi , we have some weight wi .
+Given the features and weights, our goal is to choose a class (for example a partof-speech tag) for the word. MaxEnt does this by choosing the most probable tag; the
+probability of a particular class c given the observation x is:
+
+D
+RA
+FT
+
+6.6
+
+Hidden Markov and Maximum Entropy Models
+
+EXPONENTIAL
+
+LOG-LINEAR
+
+(6.45)
+
+p(c|x) =
+
+1
+exp(∑ wi fi )
+Z
+i
+
+Here Z is a normalizing factor, used to make the probabilities correctly sum to 1;
+and as usual exp(x) = ex . As we’ll see later, this is a simpliﬁed equation in various
+ways; for example in the actual MaxEnt model the features f and weights w are both
+dependent on the class c (i.e., we’ll have different features and weights for different
+classes).
+In order to explain the details of the MaxEnt classiﬁer, including the deﬁnition
+
+Section 6.6.
+
+Maximum Entropy Models: Background
+
+23
+
+of the normalizing term Z and the intuition of the exponential function, we’ll need
+to understand ﬁrst linear regression, which lays the groundwork for prediction using
+features, and logistic regression, which is our introduction to exponential models. We
+cover these areas in the next two sections. Readers who have had a grounding in
+these kinds of regression may want to skip the next two sections. Then in Sec. 6.7
+we introduce the details of the MaxEnt classiﬁer. Finally in Sec. 6.8 we show how
+the MaxEnt classiﬁer is used for sequence classiﬁcation in the Maximum Entropy
+Markov Model or MEMM.
+
+D
+RA
+FT
+
+6.6.1 Linear Regression
+In statistics we use two different names for tasks that map some input features into
+some output value: we use the word regression when the output is real-valued, and
+classiﬁcation when the output is one of a discrete set of classes.
+You may already be familiar with linear regression from a statistics class. The
+idea is that we are given a set of observations, each observation associated with some
+features, and we want to predict some real-valued outcome for each observation. Let’s
+see an example from the domain of predicting housing prices. Levitt and Dubner (2005)
+showed that the words used in a real estate ad can be used as a good predictor of whether
+a house will sell for more or less than its asking price. They showed, for example, that
+houses whose real estate ads had words like fantastic, cute, or charming, tended to sell
+for lower prices, while houses whose ads had words like maple and granite tended to
+sell for higher prices. Their hypothesis was that real estate agents used vague positive
+words like fantastic to mask the lack of any speciﬁc positive qualities in the house. Just
+for pedagogical purposes, we created the fake data in Fig. 6.17.
+Number of vague adjectives
+4
+3
+2
+2
+1
+0
+
+Amount house sold over asking price
+0
+$1000
+$1500
+$6000
+$14000
+$18000
+
+Figure 6.17
+Some made-up data on the number of vague adjectives (fantastic, cute,
+charming) in a real estate ad, and the amount the house sold for over the asking price.
+
+REGRESSION LINE
+
+Fig. 6.18 shows a graph of these points, with the feature (# of adjectives) on the
+x-axis, and the price on the y-axis. We have also plotted a regression line, which is
+the line that best ﬁts the observed data. The equation of any line is y = mx + b; as we
+show on the graph, the slope of this line is m = −4900, while the intercept is 16550.
+We can think of these two parameters of this line (slope m and intercept b) as a set of
+weights that we use to map from our features (in this case x, numbers of adjectives) to
+our output value y (in this case price). We can represent this linear function using w to
+refer to weights as follows:
+
+Chapter 6.
+
+Hidden Markov and Maximum Entropy Models
+
+D
+RA
+FT
+
+24
+
+Figure 6.18
+A plot of the (made-up) points in Fig. 6.17 and the regression line that best
+ﬁts them, with the equation y = −4900x + 16550.
+
+(6.46)
+
+price = w0 + w1 ∗ Num Adjectives
+
+Thus Eq. 6.46 gives us a linear function that lets us estimate the sales price for any
+number of these adjectives. For example, how much would we expect a house whose
+ad has 5 adjectives to sell for?
+The true power of linear models comes when we use more than one feature (technically we call this multiple linear regression). For example, the ﬁnal house price
+probably depends on many factors such as the average mortgage rate that month, the
+number of unsold houses on the market, and many other such factors. We could encode
+each of these as a variable, and the importance of each factor would be the weight on
+that variable, as follows:
+
+(6.47)
+
+FEATURE
+
+price = w0 +w1 ∗Num Adjectives+w2 ∗Mortgage Rate+w3 ∗Num Unsold Houses
+
+In speech and language processing, we often call each of these predictive factors
+like the number of adjectives or the mortgage rate a feature. We represent each observation (each house for sale) by a vector of these features. Suppose a house has 1 adjective in its ad, and the mortgage rate was 6.5 and there were 10,000 unsold houses in the
+city. The feature vector for the house would be f = (20000, 6.5, 10000). Suppose the
+weight vector that we had previously learned for this task was w = (w0 , w1 , w2 , w3 ) =
+(18000, −5000, −3000, −1.8). Then the predicted value for this house would be computed by multiplying each feature by its weight:
+N
+
+(6.48)
+
+price = w0 + ∑ wi × fi
+i=1
+
+Section 6.6.
+
+Maximum Entropy Models: Background
+
+25
+
+In general we will pretend that there is an extra feature f0 which has the value 1,
+an intercept feature, which makes the equations simpler with regard to that pesky w0 ,
+and so in general we can represent a linear regression for estimating the value of y as:
+N
+
+(6.49)
+
+y = ∑ wi × fi
+
+linear regression:
+
+i=0
+
+DOT PRODUCT
+
+Taking two vectors and creating a scalar by multiplying each element in a pairwise
+fashion and summing the results is called the dot product. Recall that the dot product
+a · b between two vectors a and b is deﬁned as:
+N
+
+a · b = ∑ ai bi = a1 b1 + a2 b2 + · · · + an bn
+
+D
+RA
+FT
+(6.50)
+
+dot product:
+
+i=1
+
+Thus Eq. 6.49 is equivalent to the dot product between the weights vector and the
+feature vector:
+y = w· f
+
+(6.51)
+
+Vector dot products occur very frequently in speech and language processing; we
+will often rely on the dot product notation to avoid the messy summation signs.
+Learning in linear regression
+
+How do we learn the weights for linear regression? Intuitively we’d like to choose
+weights that make the estimated values y as close as possible to the actual values that
+we saw in the training set.
+Consider a particular instance x( j) from the training set (we’ll use superscripts in
+parentheses to represent training instances), which has an observed label in the training
+( j)
+set yobs . Our linear regression model predicts a value for y( j) as follows:
+
+(6.52)
+
+N
+
+ypred = ∑ wi × fi
+( j)
+
+( j)
+
+i=0
+
+SUM-SQUARED
+ERROR
+
+We’d like to choose the whole set of weights W so as to minimize the difference
+( j)
+( j)
+between the predicted value ypred and the observed value yobs , and we want this difference minimized over all the M examples in our training set. Actually we want to
+minimize the absolute value of the difference (since we don’t want a negative distance
+in one example to cancel out a positive difference in another example), so for simplicity
+(and differentiability) we minimize the square of the difference. Thus the total value
+we want to minimize, which we call the sum-squared error, is this cost function of
+the current set of weights W :
+M
+
+(6.53)
+
+cost(W ) =
+
+∑
+
+j=0
+
+( j)
+
+( j)
+
+ypred − yobs
+
+2
+
+We won’t give here the details of choosing the optimal set of weights to minimize
+the sum-squared error. But, brieﬂy, it turns out that if we put the entire training set
+
+26
+
+Chapter 6.
+
+Hidden Markov and Maximum Entropy Models
+
+into a single matrix X with each row in the matrix consisting of the vector of features
+associated with each observation x(i) , and put all the observed y values in a vector y, that
+there is a closed-form formula for the optimal weight values W which will minimize
+cost(W ):
+W = (X T X)−1 X T y
+
+(6.54)
+
+Implementations of this equation are widely available in statistical packages like
+SPSS or R.
+
+D
+RA
+FT
+
+6.6.2 Logistic regression
+Linear regression is what we want when we are predicting a real-valued outcome. But
+somewhat more commonly in speech and language processing we are doing classiﬁcation, in which the output y we are trying to predict takes on one from a small set of
+discrete values.
+Consider the simplest case of binary classiﬁcation, where we want to classify
+whether some observation x is in the class (true) or not in the class (false). In other
+words y can only take on the values 1 (true) or 0 (false), and we’d like a classiﬁer that
+can take features of x and return true or false. Furthermore, instead of just returning
+the 0 or 1 value, we’d like a model that can give us the probability that a particular
+observation is in class 0 or 1. This is important because in most real-world tasks we’re
+passing the results of this classiﬁer onto some further classiﬁer to accomplish some
+task. Since we are rarely completely certain about which class an observation falls in,
+we’d prefer not to make a hard decision at this stage, ruling out all other classes. Instead, we’d like to pass on to the later classiﬁer as much information as possible: the
+entire set of classes, with the probability value that we assign to each class.
+Could we modify our linear regression model to use it for this kind of probabilistic
+classiﬁcation? Suppose we just tried to train a linear model to predict a probability as
+follows:
+N
+
+(6.55)
+
+P(y = true|x) =
+
+∑ wi × fi
+
+i=0
+
+(6.56)
+
+= w· f
+
+We could train such a model by assigning each training observation the target value
+y = 1 if it was in the class (true) and the target value y = 0 if it was not (false). Each
+observation x would have a feature vector f , and we would train the weight vector w to
+minimize the predictive error from 1 (for observations in the class) or 0 (for observations not in the class). After training, we would compute the probability of a class given
+an observation by just taking the dot product of the weight vector with the features for
+that observation.
+The problem with this model is that there is nothing to force the output to be a
+legal probability, i.e. to lie between zero and 1. The expression ∑N wi × fi produces
+i=0
+values from −∞ to ∞. How can we ﬁx this problem? Suppose that we keep our linear
+predictor w· f , but instead of having it predict a probability, we have it predict a ratio of
+
+Section 6.6.
+
+ODDS
+
+Maximum Entropy Models: Background
+
+27
+
+two probabilities. Speciﬁcally, suppose we predict the ratio of the probability of being
+in the class to the probability of not being in the class. This ratio is called the odds. If
+an event has probability .75 of occurring and probability .25 of not occurring, we say
+the odds of occurring is .75/.25 = 3. We could use the linear model to predict the odds
+of y being true:
+p(y = true)|x
+= w· f
+1 − p(y = true|x)
+
+(6.57)
+
+D
+RA
+FT
+
+This last model is close: a ratio of probabilities can lie between 0 and ∞. But we
+need the left-hand side of the equation to lie between −∞ and ∞. We can achieve this
+by taking the natural log of this probability:
+ln
+
+(6.58)
+
+LOGIT FUNCTION
+
+logit(p(x)) = ln
+
+p(x)
+1 − p(x)
+
+The model of regression in which we use a linear function to estimate, not the
+probability, but the logit of the probability, is known as logistic regression. If the
+linear function is estimating the logit, what is the actual formula in logistic regression
+for the probability P(y = true)? You should stop here and take Equation (6.58) and
+apply some simple algebra to solve for the probability P(y = true).
+Hopefully when you solved for P(y = true) you came up with a derivation something like the following:
+
+ln
+
+(6.60)
+
+= w· f
+
+Now both the left and right hand lie between −∞ and ∞. This function on the left
+(the log of the odds) is known as the logit function:
+
+(6.59)
+
+LOGISTIC
+REGRESSION
+
+p(y = true|x)
+1 − p(y = true|x)
+
+p(y = true|x)
+1 − p(y = true|x)
+
+= w· f
+
+p(y = true|x)
+= ew· f
+1 − p(y = true|x)
+
+p(y = true|x) = (1 − p(y = true|x))ew· f
+
+p(y = true|x) = ew· f − p(y = true|x)ew· f
+p(y = true|x) + p(y = true|x)ew· f = ew· f
+
+p(y = true|x)(1 + ew· f ) = ew· f
+
+(6.61)
+
+p(y = true|x) =
+
+ew· f
+1 + ew· f
+
+Once we have this probability, we can easily state the probability of the observation
+not belonging to the class, p(y = f alse|x), as the two must sum to 1:
+(6.62)
+
+p(y = f alse|x) =
+
+1
+1 + ew· f
+
+28
+
+Chapter 6.
+
+Hidden Markov and Maximum Entropy Models
+
+Here are the equations again using explicit summation notation:
+
+(6.63)
+(6.64)
+
+exp(∑N wi fi )
+i=0
+1 + exp(∑N wi fi )
+i=0
+1
+p(y = false|x) =
+1 + exp(∑N wi fi )
+i=0
+p(y = true|x) =
+
+We can express the probability P(y = true|x) in a slightly different way, by dividing
+the numerator and denominator in (6.61) by e−w· f :
+ew· f
+1 + ew· f
+1
+=
+1 + e−w· f
+
+D
+RA
+FT
+(6.65)
+(6.66)
+
+LOGISTIC FUNCTION
+
+(6.67)
+
+p(y = true|x) =
+
+These last equation is now in the form of what is called the logistic function, (the
+function that gives logistic regression its name). The general form of the logistic function is:
+1
+1 + e−x
+
+The logistic function maps values from −∞ and ∞ to lie between 0 and 1
+Again, we can express P(y = false|x) so as to make the probabilities sum to one:
+
+(6.68)
+
+p(y = false|x) =
+
+e−w· f
+1 + e−w· f
+
+6.6.3 Logistic regression: Classiﬁcation
+
+CLASSIFICATION
+
+INFERENCE
+
+Given a particular observation, how do we decide which of the two classes (‘true’ or
+‘false’) it belongs to? This is the task of classiﬁcation, also called inference. Clearly
+the correct class is the one with the higher probability. Thus we can safely say that our
+observation should be labeled ‘true’ if:
+p(y = true|x) > p(y = f alse|x)
+p(y = true|x)
+>1
+p(y = f alse|x)
+p(y = true|x)
+>1
+1 − p(y = true|x)
+
+and substituting from Eq. 6.60 for the odds ratio:
+
+(6.69)
+
+ew· f > 1
+w· f > 0
+
+Section 6.6.
+
+Maximum Entropy Models: Background
+
+29
+
+or with the explicit sum notation:
+N
+
+∑ wi fi > 0
+
+(6.70)
+
+i=0
+
+D
+RA
+FT
+
+Thus in order to decide if an observation is a member of the class we just need to
+compute the linear function, and see if its value is positive; if so, the observation is in
+the class.
+A more advanced point: the equation ∑N wi fi = 0 is the equation of a hyperplane
+i=0
+(a generalization of a line to N dimensions). The equation ∑N wi fi > 0 is thus the part
+i=0
+of N-dimensional space above this hyperplane. Thus we can see the logistic regression
+function as learning a hyperplane which separates points in space which are in the class
+(’true’) from points which are not in the class.
+
+6.6.4 Advanced: Learning in logistic regression
+
+CONDITIONAL
+MAXIMUM
+LIKELIHOOD
+ESTIMATION
+
+In linear regression, learning consisted of choosing the weights w which minimized the
+sum-squared error on the training set. In logistic regression, by contrast, we generally
+use conditional maximum likelihood estimation. What this means is that we choose
+the parameters w which makes the probability of the observed y values in the training
+data to be the highest, given the observations x. In other words, for an individual
+training observation x, we want to choose the weights as follows:
+w = argmax P(y(i) |x(i) )
+ˆ
+
+(6.71)
+
+w
+
+And we’d like to choose the optimal weights for the entire training set:
+w = argmax ∏ P(y(i) |x(i) )
+ˆ
+
+(6.72)
+
+w
+
+i
+
+We generally work with the log likelihood:
+
+w = argmax ∑ log P(y(i) |x(i) )
+ˆ
+
+(6.73)
+
+w
+
+i
+
+So, more explicitly:
+
+(6.74)
+
+w = argmax ∑ log
+ˆ
+w
+
+i
+
+P(y(i) = 1|x(i) )) for y(i) = 1
+P(y(i) = 0|x(i) )) for y(i) = 0
+
+This equation is unwieldy, and so we usually apply a convenient representational
+trick. Note that if y = 0 the ﬁrst term goes away, while if y = 1 the second term goes
+away:
+
+(6.75)
+
+w = argmax ∑ y(i) log P(y(i) = 1|x(i) )) + (1 − y(i)) log P(y(i) = 0|x(i) )
+ˆ
+w
+
+i
+
+Now if we substitute in (6.66) and (6.68), we get:
+
+30
+
+Chapter 6.
+
+(6.76)
+
+w = argmax ∑ y(i) log
+ˆ
+w
+
+e−w· f
+1
++ (1 − y(i)) log
+1 + e−w· f
+1 + e−w· f
+
+Finding the weights which result in the maximum log-likelihood according to (6.76)
+is a problem in the ﬁeld known as convex optimization. Among the most commonly used algorithms are quasi-Newton methods like L-BFGS, as well as gradient
+ascent, conjugate gradient, and various iterative scaling algorithms (Darroch and Ratcliff, 1972; Della Pietra et al., 1997; Malouf, 2002). These learning algorithms are
+available in the various MaxEnt modeling toolkits but are too complex to deﬁne here;
+interested readers should see the machine learning textbooks suggested at the end of
+the chapter.
+
+D
+RA
+FT
+
+CONVEX
+OPTIMIZATION
+
+i
+
+Hidden Markov and Maximum Entropy Models
+
+6.7
+
+M AXIMUM E NTROPY M ODELING
+
+MULTINOMIAL
+LOGISTIC
+REGRESSION
+MAXENT
+
+(6.77)
+
+We showed above how logistic regression can be used to classify an observation into
+one of two classes. But most of the time the kinds of classiﬁcation problems that
+come up in language processing involve larger numbers of classes (such as the set
+of part-of-speech classes). Logistic regression can also be deﬁned for such functions
+with many discrete values. In such cases it is called multinomial logistic regression.
+As we mentioned above, multinomial logistic regression is called MaxEnt in speech
+and language processing (see Sec. 6.7.1 on the intuition behind the name ‘maximum
+entropy’).
+The equations for computing the class probabilities for a MaxEnt classiﬁer are a
+generalization of Eqs. 6.63-6.64 above. Let’s assume that the target value y is a random
+variable which can take on C different values corresponding to the classes c1 , c2 ,...,cC .
+We said earlier in this chapter that in a MaxEnt model we estimate the probability
+that y is a particular class c as:
+1
+exp ∑ wi fi
+Z
+i
+
+p(c|x) =
+
+Let’s now add some details to this schematic equation. First we’ll ﬂesh out the
+normalization factor Z, specify the number of features as N, and make the value of the
+weight dependent on the class c. The ﬁnal equation is:
+N
+
+exp
+
+(6.78)
+
+∑ wci fi
+
+i=0
+
+p(c|x) =
+
+N
+
+∑ exp ∑ wc′ i fi
+′
+
+c ∈C
+
+i=0
+
+Note that the normalization factor Z is just used to make the exponential into a true
+probability;
+
+Section 6.7.
+
+(6.79)
+
+Maximum Entropy Modeling
+
+31
+
+Z = ∑ p(c|x) =
+C
+
+c ∈C
+
+i=0
+
+We need to make one more change to see the ﬁnal MaxEnt equation. So far we’ve
+been assuming that the features fi are real-valued. It is more common in speech and
+language processing, however, to use binary-valued features. A feature that only takes
+on the values 0 and 1 is also called an indicator function. In general, the features we
+use are indicator functions of some property of the observation and the class we are
+considering assigning. Thus in MaxEnt, instead of the notation fi , we will often use
+the notation fi (c, x), meaning a feature i for a particular class c for a given observation
+x.
+The ﬁnal equation for computing the probability of y being of class c given x in
+MaxEnt is:
+
+D
+RA
+FT
+
+INDICATOR
+FUNCTION
+
+N
+
+∑ exp ∑ wc′ i fi
+′
+
+N
+
+exp
+
+(6.80)
+
+∑ wci fi (c, x)
+
+i=0
+
+p(c|x) =
+
+N
+
+∑ exp ∑ wc′ i fi (c′ , x)
+′
+
+c ∈C
+
+i=0
+
+To get a clearer intuition of this use of binary features, let’s look at some sample
+features for the task of part-of-speech tagging. Suppose we are assigning a part-ofspeech tag to the word race in (6.81), repeated from (??):
+
+(6.81)
+
+Secretariat/NNP is/BEZ expected/VBN to/TO race/?? tomorrow/
+
+Again, for now we’re just doing classiﬁcation, not sequence classiﬁcation, so let’s
+consider just this single word. We’ll discuss in Sec. 6.8 how to perform tagging for a
+whole sequence of words.
+We would like to know whether to assign the class VB to race (or instead assign
+some other class like NN). One useful feature, we’ll call it f1 , would be the fact that the
+current word is race. We can thus add a binary feature which is true if this is the case:
+f1 (c, x) =
+
+1 if wordi = “race” & c = NN
+0 otherwise
+
+Another feature would be whether the previous word has the tag TO:
+
+f2 (c, x) =
+
+1 if ti−1 = TO & c = VB
+0 otherwise
+
+Two more part-of-speech tagging features might focus on aspects of a word’s spelling
+and case:
+
+f3 (c, x) =
+
+1 if sufﬁx(wordi ) = “ing” & c = VBG
+0 otherwise
+
+32
+
+Chapter 6.
+
+f4 (c, x) =
+
+Hidden Markov and Maximum Entropy Models
+
+1 if is lower case(wordi ) & c = VB
+0 otherwise
+
+Since each feature is dependent on both a property of the observation and the class
+being labeled, we would need to have separate feature for, e.g, the link between race
+and VB, or the link between a previous TO and NN:
+1 if wordi = ”race” & c = VB
+0 otherwise
+
+D
+RA
+FT
+
+f5 (c, x) =
+
+1 if ti−1 = TO & c = NN
+0 otherwise
+
+f6 (c, x) =
+
+Each of these features has a corresponding weight. Thus the weight w1 (c, x) would
+indicate how strong a cue the word race is for the tag VB, the weight w2 (c, x) would
+indicate how strong a cue the previous tag TO is for the current word being a VB, and
+so on.
+VB
+VB
+NN
+NN
+
+f
+w
+f
+w
+
+Figure 6.19
+(6.81).
+
+f1
+0
+
+f2
+1
+.8
+0
+
+1
+.8
+
+f3
+0
+0
+
+f4
+1
+.01
+0
+
+f5
+1
+.1
+0
+
+f6
+0
+1
+-1.3
+
+Some sample feature values and weights for tagging the word race in
+
+Let’s assume that the feature weights for the two classes VB and VN are as shown
+in Fig. 6.19. Let’s call the current input observation (where the current word is race) x.
+We can now compute P(NN|x) and P(V B|x), using Eq. 6.80:
+
+(6.82)
+(6.83)
+
+e.8 e−1.3
+= .20
+e.8 e−1.3 + e.8e.01 e.1
+e.8 e.01 e.1
+= .80
+P(V B|x) = .8 −1.3
+e e
++ e.8e.01 e.1
+
+P(NN|x) =
+
+Notice that when we use MaxEnt to perform classiﬁcation, MaxEnt naturally gives
+us a probability distribution over the classes. If we want to do a hard-classiﬁcation and
+choose the single-best class, we can choose the class that has the highest probability,
+i.e.:
+
+(6.84)
+
+c = argmax P(c|x)
+ˆ
+c∈C
+
+Section 6.7.
+
+Maximum Entropy Modeling
+
+33
+
+D
+RA
+FT
+
+Classiﬁcation in MaxEnt is thus a generalization of classiﬁcation in (boolean) logistic regression. In boolean logistic regression, classiﬁcation involves building one
+linear expression which separates the observations in the class from the observations
+not in the class. Classiﬁcation in MaxEnt, by contrast, involves building a separate
+linear expression for each of C classes.
+But as we’ll see later in Sec. 6.8, we generally don’t use MaxEnt for hard classiﬁcation. Usually we want to use MaxEnt as part of sequence classiﬁcation, where we
+want not the best single class for one unit, but the best total sequence. For this task,
+it’s useful to exploit the entire probability distribution for each individual unit, to help
+ﬁnd the best sequence. Indeed even in many non-sequence applications a probability
+distribution over the classes is more useful than a hard choice.
+The features we have described so far express a single binary property of an observation. But it is often useful to create more complex features that express combinations
+of properties of a word. Some kinds of machine learning models, like Support Vector
+Machines (SVMs), can automatically model the interactions between primitive properties, but in MaxEnt any kind of complex feature has to be deﬁned by hand. For example
+a word starting with a capital letter (like the word Day) is more likely to be a proper
+noun (NNP) than a common noun (for example in the expression United Nations Day).
+But a word which is capitalized but which occurs at the beginning of the sentence (the
+previous word is <s>), as in Day after day...., is not more likely to be a proper noun.
+Even if each of these properties were already a primitive feature, MaxEnt would not
+model their combination, so this boolean combination of properties would need to be
+encoded as a feature by hand:
+
+f125 (c, x) =
+
+1 if wordi−1 = <s> & isupperﬁrst(wordi ) & c = NNP
+0 otherwise
+
+A key to successful use of MaxEnt is thus the design of appropriate features and
+feature combinations.
+
+Learning Maximum Entropy Models
+
+Learning a MaxEnt model can be done via a generalization of the logistic regression
+learning algorithms described in Sec. 6.6.4; as we saw in (6.73), we want to ﬁnd the
+parameters w which maximize the likelihood of the M training samples:
+M
+
+(6.85)
+
+w = argmax ∏ P(y(i) |x(i) )
+ˆ
+w
+
+REGULARIZATION
+
+i
+
+As with binary logistic regression, we use some convex optimization algorithm to
+ﬁnd the weights which maximize this function.
+A brief note: one important aspect of MaxEnt training is a kind of smoothing of the
+weights called regularization. The goal of regularization is to penalize large weights;
+it turns out that otherwise a MaxEnt model will learn very high weights which overﬁt
+the training data. Regularization is implemented in training by changing the likelihood function that is optimized. Instead of the optimization in (6.85), we optimize the
+following:
+
+34
+
+Chapter 6.
+
+Hidden Markov and Maximum Entropy Models
+
+w = argmax ∑ log P(y(i) |x(i) ) − αR(w)
+ˆ
+
+(6.86)
+
+w
+
+i
+
+where R(w) is a regularization term used to penalize large weights. It is common to
+make the regularization term R(w) be a quadratic function of the weight values:
+N
+
+R(W ) =
+
+(6.87)
+
+∑ w2j
+
+j=1
+
+Subtracting squares of the weights will thus result in preferring smaller weights:
+
+D
+RA
+FT
+
+N
+
+w = argmax ∑ log P(y(i) |x(i) ) − α ∑ w2
+ˆ
+j
+
+(6.88)
+
+w
+
+i
+
+j=1
+
+It turns that this kind of regularization corresponds to assuming that weights are
+distributed according to a Gaussian distribution with mean µ = 0. In a Gaussian or
+normal distribution, the further away a value is from the mean, the lower its probability
+(scaled by the variance σ). By using a Gaussian prior on the weights, we are saying
+that weights prefer to have the value zero. A Gaussian for a weight w j is:
+1
+
+(6.89)
+
+2πσ2
+j
+
+exp −
+
+(w j − µ j )2
+2σ2
+j
+
+If we multiply each weight by a Gaussian prior on the weight, we are thus maximizing the following constraint:
+N
+
+M
+
+(6.90)
+
+w = argmax ∏ P(y(i) |x(i) ) × ∏
+ˆ
+w
+
+i
+
+j=1
+
+1
+
+2πσ2
+j
+
+exp −
+
+(w j − µ j )2
+2σ2
+j
+
+which in log space, with µ = 0, corresponds to
+
+N
+
+(6.91)
+
+w = argmax ∑ log P(y(i) |x(i) ) − ∑
+ˆ
+w
+
+i
+
+w2
+j
+
+2
+j=1 2σ j
+
+which is in the same form as Eq. 6.88.
+There is a vast literature on the details of learning in MaxEnt; see the end of the
+chapter for pointers to further details.
+
+6.7.1 Why do we call it Maximum Entropy?
+
+Why do we refer to multinomial logistic regression models as MaxEnt or Maximum
+Entropy models? Let’s give the intuition of this interpretation in the context of partof-speech tagging. Suppose we want to assign a tag to the word zzﬁsh (a word we
+made up for this example). What is the probabilistic tagging model (the distribution
+of part-of-speech tags across words) that makes the fewest assumptions, imposing no
+constraints at all? Intuitively it would be the equiprobable distribution:
+
+Section 6.7.
+
+Maximum Entropy Modeling
+
+35
+
+NN JJ NNS VB NNP IN MD UH SYM VBG POS PRP CC CD ...
+1
+45
+
+1
+45
+
+1
+45
+
+1
+45
+
+1
+45
+
+1
+45
+
+1
+45
+
+1
+45
+
+1
+45
+
+1
+45
+
+1
+45
+
+1
+45
+
+1
+45
+
+1
+45
+
+...
+
+Now suppose we had some training data labeled with part-of-speech tags, and from
+this data we learned only one fact: the set of possible tags for zzﬁsh are NN, JJ, NNS,
+and VB (so zzﬁsh is a word something like ﬁsh, but which can also be an adjective).
+What is the tagging model which relies on this constraint, but makes no further assumptions at all? Since one of these must be the correct tag, we know that
+P(NN) + P(JJ) + P(NNS) + P(VB) = 1
+
+(6.92)
+
+D
+RA
+FT
+
+Since we have no further information, a model which makes no further assumptions
+beyond what we know would simply assign equal probability to each of these words:
+NN JJ NNS VB NNP IN MD UH SYM VBG POS PRP CC CD ...
+1
+4
+
+1
+4
+
+1
+4
+
+1
+4
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+...
+
+In the ﬁrst example, where we wanted an uninformed distribution over 45 parts-ofspeech, and in this case, where we wanted an uninformed distribution over 4 parts-ofspeech, it turns out that of all possible distributions, the equiprobable distribution has
+the maximum entropy. Recall from Sec. ?? that the entropy of the distribution of a
+random variable x is computed as:
+
+(6.93)
+
+H(x) = − ∑ P(x) log2 P(x)
+x
+
+An equiprobable distribution in which all values of the random variable have the
+same probability has a higher entropy than one in which there is more information.
+1
+Thus of all distributions over four variables the distribution { 1 , 1 , 4 , 1 } has the maxi4 4
+4
+mum entropy. (To have an intuition for this, use Eq. 6.93 to compute the entropy for a
+1
+1
+few other distributions such as the distribution { 1 , 2 , 1 , 8 }, and make sure they are all
+4
+8
+lower than the equiprobable distribution.)
+The intuition of MaxEnt modeling is that the probabilistic model we are building
+should follow whatever constraints we impose on it, but beyond these constraints it
+should follow Occam’s Razor, i.e., make the fewest possible assumptions.
+Let’s add some more constraints into our tagging example. Suppose we looked at
+our tagged training data and noticed that 8 times out of 10, zzﬁsh was tagged as some
+sort of common noun, either NN or NNS. We can think of this as specifying the feature
+’word is zzﬁsh and ti = NN or ti = NNS’. We might now want to modify our distribution
+8
+so that we give 10 of our probability mass to nouns, i.e. now we have 2 constraints
+P(NN) + P(JJ) + P(NNS) + P(VB) = 1
+8
+P(word is zzﬁsh and ti = NN or ti = NNS) =
+10
+but make no further assumptions (keep JJ and VB equiprobable, and NN and NNS
+equiprobable).
+
+36
+
+Chapter 6.
+
+Hidden Markov and Maximum Entropy Models
+
+NN JJ NNS VB NNP ...
+4
+10
+
+1
+10
+
+4
+10
+
+1
+10
+
+0
+
+...
+
+Now suppose we don’t have have any more information about zzﬁsh. But we notice
+in the training data that for all English words (not just zzﬁsh) verbs (VB) occur as 1
+word in 20. We can now add this constraint (corresponding to the feature ti =VB):
+P(NN) + P(JJ) + P(NNS) + P(VB) = 1
+6
+10
+
+D
+RA
+FT
+
+P(word is zzﬁsh and ti = NN or ti = NNS) =
+P(V B) =
+
+1
+20
+
+The resulting maximum entropy distribution is now as follows:
+NN JJ NNS VB
+4
+10
+
+3
+20
+
+4
+10
+
+1
+20
+
+In summary, the intuition of maximum entropy is to build a distribution by continuously adding features. Each feature is an indicator function, which picks out a subset of
+the training observations. For each feature we add a constraint on our total distribution,
+specifying that our distribution for this subset should match the empirical distribution
+we saw in our training data. We then choose the maximum entropy distribution which
+otherwise accords with these constraints. Berger et al. (1996) pose the optimization
+problem of ﬁnding this distribution as follows:
+“To select a model from a set C of allowed probability distributions, choose
+the model p∗ ∈ C with maximum entropy H(p)”:
+
+(6.94)
+
+p∗ = argmax H(p)
+p∈C
+
+Now we come to the important conclusion. Berger et al. (1996) show that the
+solution to this optimization problem turns out to be exactly the probability distribution
+of a multinomial logistic regression model whose weights W maximize the likelihood
+of the training data! Thus the exponential model for multinomial logistic regression,
+when trained according to the maximum likelihood criterion, also ﬁnds the maximum
+entropy distribution subject to the constraints from the feature functions.
+
+6.8
+
+M AXIMUM E NTROPY M ARKOV M ODELS
+
+We began our discussion of MaxEnt by pointing out that the basic MaxEnt model is
+not in itself a classiﬁer for sequences. Instead, it is used to classify a single observation
+into one of a set of discrete classes, as in text classiﬁcation (choosing between possible
+authors of an anonymous text, or classifying an email as spam), or tasks like deciding
+whether a period marks the end of a sentence.
+
+Maximum Entropy Markov Models
+
+37
+
+We turn in this section to the Maximum Entropy Markov Model or MEMM,
+which is an augmentation of the basic MaxEnt classiﬁer so that it can be applied to
+assign a class to each element in a sequence, just as we do with HMMs. Why would
+we want a sequence classiﬁer built on MaxEnt? How might such a classiﬁer be better
+than an HMM?
+Consider the HMM approach to part-of-speech tagging. The HMM tagging model
+is based on probabilities of the form P(tag|tag) and P(word|tag). That means that
+if we want to include some source of knowledge into the tagging process, we must
+ﬁnd a way to encode the knowledge into one of these two probabilities. But many
+knowledge sources are hard to ﬁt into these models. For example, we saw in Sec. ??
+that for tagging unknown words, useful features include capitalization, the presence
+of hyphens, word endings, and so on. There is no easy way to ﬁt probabilities like
+P(capitalization|tag), P(hyphen|tag), P(sufﬁx|tag), and so on into an HMM-style model.
+We gave the initial part of this intuition in the previous section, when we discussed
+applying MaxEnt to part-of-speech tagging. Part-of-speech tagging is deﬁnitely a sequence labeling task, but we only discussed assigning a part-of-speech tag to a single
+word.
+How can we take this single local classiﬁer and turn it into a general sequence
+classiﬁer? When classifying each word we can rely on features from the current word,
+features from surrounding words, as well as the output of the classiﬁer from previous
+words. For example the simplest method is to run our local classiﬁer left-to-right, ﬁrst
+making a hard classiﬁcation of the ﬁrst word in the sentence, then the second word,
+and so on. When classifying each word, we can rely on the output of the classiﬁer from
+the previous word as a feature. For example, we saw in tagging the word race that a
+useful feature was the tag of the previous word; a previous TO is a good indication that
+race is a VB, whereas a previous DT is a good indication that race is a NN. Such a
+strict left-to-right sliding window approach has been shown to yield surprisingly good
+results across a wide range of applications.
+While it is possible to perform part-of-speech tagging in this way, this simple leftto-right classiﬁer has an important ﬂaw: it makes a hard decision on each word before
+moving on to the next word. This means that the classiﬁer is unable to use information
+from later words to inform its decision early on. Recall that in Hidden Markov Models,
+by contrast, we didn’t have to make a hard decision at each word; we used Viterbi
+decoding to ﬁnd the sequence of part-of-speech tags which was optimal for the whole
+sentence.
+The Maximum Entropy Markov Model (or MEMM) allows us to achieve this same
+advantage, by mating the Viterbi algorithm with MaxEnt. Let’s see how it works,
+again looking at part-of-speech tagging. It is easiest to understand an MEMM when
+comparing it to an HMM. Remember that in using an HMM to model the most probable
+part-of-speech tag sequence we rely on Bayes rule, computing P(W |T )P(W ) instead
+of directly computing P(T |W ):
+
+D
+RA
+FT
+
+Section 6.8.
+
+ˆ
+T = argmax P(T |W )
+T
+
+= argmax P(W |T )P(T )
+T
+
+38
+
+Chapter 6.
+
+= argmax ∏ P(wordi |tagi ) ∏ P(tagi |tagi−1 )
+
+(6.95)
+
+T
+
+DISCRIMINATIVE
+MODEL
+
+Hidden Markov and Maximum Entropy Models
+
+i
+
+i
+
+That is, an HMM as we’ve described it is a generative model that optimizes the
+likelihood P(W |T ), and we estimate the posterior by combining the likelihood and the
+prior P(T ).
+In an MEMM, by contrast, we compute the posterior P(T |W ) directly. Because we
+train the model directly to discriminate among the possible tag sequences, we call an
+MEMM a discriminative model rather than a generative model. In an MEMM, we
+break down the probabilities as follows:
+
+D
+RA
+FT
+
+ˆ
+T = argmax P(T |W )
+T
+
+= argmax ∏ P(tagi |wordi , tagi−1 )
+
+(6.96)
+
+T
+
+i
+
+Thus in an MEMM instead of having a separate model for likelihoods and priors,
+we train a single probabilistic model to estimate P(tagi |wordi , tagi−1 ). We will use
+MaxEnt for this last piece, estimating the probability of each local tag given the previous tag, the observed word, and, as we will see, any other features we want to include.
+We can see the HMM versus MEMM intuitions of the POS tagging task in Fig. 6.20,
+which repeats the HMM model of Fig. ??a from Ch. 5, and adds a new model for the
+MEMM. Note that the HMM model includes distinct probability estimates for each
+transition and observation, while the MEMM gives one probability estimate per hidden
+state, which is the probability of the next tag given the previous tag and the observation.
+
+#
+
+NNP
+
+Secretariat
+
+VBZ
+
+is
+
+VBN
+
+expected
+
+TO
+
+VB
+
+NR
+
+to
+
+race
+
+tomorrow
+
+Figure 6.20
+The HMM (top) and MEMM (bottom) representation of the probability
+computation for the correct sequence of tags for the Secretariat sentence. Each arc would
+be associated with a probability; the HMM computes two separate probabilities for the observation likelihood and the prior, while the MEMM computes a single probability function
+at each state, conditioned on the previous state and current observation.
+
+Section 6.8.
+
+Maximum Entropy Markov Models
+
+39
+
+Fig. 6.21 emphasizes another advantage of MEMMs over HMMs not shown in
+Fig. 6.20: unlike the HMM, the MEMM can condition on any useful feature of the input
+observation. In the HMM this wasn’t possible because the HMM is likelihood-based,
+hence would have needed to compute the likelihood of each feature of the observation.
+
+NNP
+
+VBZ
+
+VBN
+
+TO
+
+VB
+
+NR
+
+D
+RA
+FT
+
+#
+
+Secretariat
+
+expected
+
+is
+
+to
+
+race
+
+tomorrow
+
+Figure 6.21
+An MEMM for part-of-speech tagging, augmenting the description in
+Fig. 6.20 by showing that an MEMM can condition on many features of the input, such as
+capitalization, morphology (ending in -s or -ed), as well as earlier words or tags. We have
+shown some potential additional features for the ﬁrst three decisions, using different line
+styles for each class.
+
+More formally, in the HMM we compute the probability of the state sequence given
+the observations as:
+n
+
+n
+
+i=1
+
+(6.97)
+
+i=1
+
+P(Q|O) = ∏ P(oi |qi ) × ∏ P(qi |qi−1 )
+
+In the MEMM, we compute the probability of the state sequence given the observations as:
+n
+
+(6.98)
+
+P(Q|O) = ∏ P(qi |qi−1 , oi )
+i=1
+
+In practice, however, an MEMM can also condition on many more features than
+the HMM, so in general we condition the right-hand side on many more factors.
+To estimate the individual probability of a transition from a state q′ to a state q
+producing an observation o, we build a MaxEnt model as follows:
+
+(6.99)
+
+P(q|q′ , o) =
+
+1
+exp
+Z(o, q′ )
+
+∑ wi fi (o, q)
+i
+
+6.8.1 Decoding and Learning in MEMMs
+
+Like HMMs, the MEMM uses the Viterbi algorithm to perform the task of decoding
+(inference). Concretely, this involves ﬁlling an N × T array with the appropriate values
+for P(ti |ti−1 , wordi ), maintaining backpointers as we proceed. As with HMM Viterbi,
+when the table is ﬁlled we simply follow pointers back from the maximum value in
+the ﬁnal column to retrieve the desired set of labels. The requisite changes from the
+HMM-style application of Viterbi only have to do with how we ﬁll each cell. Recall
+
+40
+
+Chapter 6.
+
+Hidden Markov and Maximum Entropy Models
+
+from Eq. 6.23 that the recursive step of the Viterbi equation computes the Viterbi value
+of time t for state j as:
+N
+
+vt ( j) = max vt−1 (i) ai j b j (ot ); 1 ≤ j ≤ N, 1 < t ≤ T
+
+(6.100)
+
+i=1
+
+which is the HMM implementation of
+N
+
+vt ( j) = max vt−1 (i) P(s j |si ) P(ot |s j ) 1 ≤ j ≤ N, 1 < t ≤ T
+
+(6.101)
+
+D
+RA
+FT
+
+i=1
+
+The MEMM requires only a slight change to this latter formula, replacing the a and
+b prior and likelihood probabilities with the direct posterior:
+N
+
+vt ( j) = max vt−1 (i) P(s j |si , ot ) 1 ≤ j ≤ N, 1 < t ≤ T
+
+(6.102)
+
+i=1
+
+Fig. 6.22 shows an example of the Viterbi trellis for an MEMM applied to the icecream task from Sec. 6.4. Recall that the task is ﬁguring out the hidden weather (Hot
+or Cold) from observed numbers of ice-creams eaten in Jason Eisner’s diary. Fig. 6.22
+shows the abstract Viterbi probability calculation assuming that we have a MaxEnt
+model which computes P(si |si−1 , oi ) for us.
+Learning in MEMMs relies on the same supervised learning algorithms we presented for logistic regression and MaxEnt. Given a sequence of observations, feature functions, and corresponding hidden states, we train the weights so as maximize
+the log-likelihood of the training corpus. As with HMMs, it is also possible to train
+MEMMs in semi-supervised modes, for example when the sequence of labels for the
+training data is missing or incomplete in some way: a version of the EM algorithm can
+be used for this purpose.
+
+6.9
+
+S UMMARY
+
+This chapter described two important models for probabilistic sequence classiﬁcation:
+the Hidden Markov Model and the Maximum Entropy Markov Model. Both models are widely used throughout speech and language processing.
+• Hidden Markov Models (HMMs) are a way of relating a sequence of observations to a sequence of hidden classes or hidden states which explain the
+observations.
+• The process of discovering the sequence of hidden states given the sequence
+of observations is known as decoding or inference. The Viterbi algorithm is
+commonly used for decoding.
+• The parameters of an HMM are the A transition probability matrix and the B
+observation likelihood matrix. Both can be trained using the Baum-Welch or
+forward-backward algorithm.
+
+Section 6.9.
+
+qend
+
+Summary
+
+end
+
+41
+
+end
+
+H
+
+H
+
+C
+
+C
+
+P(H|C,1)*P(C|start,3) )
+
+H
+
+H
+
+end
+
+v2(2)= max( P(H|H,1)*P(H|start,3),
+
+v1(2)=P(H|start,3)
+q2
+
+end
+
+end
+
+P(H|H,1)
+
+P(C
+
+H
+
+|H,
+
+C
+
+1)
+
+C,
+(H|
+
+P
+
+C
+
+P(C|C,1)
+
+v2(1) = ( P(C|H,1)*P(H|start,3),
+P(C|C,1)*P(C|start,3)
+
+C
+
+)
+
+3)
+
+D
+RA
+FT
+
+q1
+
+P(
+H|
+sta
+
+rt,3
+)
+
+v1(1) = P(C|start,3)
+
+1)
+
+t,
+
+ar
+
+|st
+
+C
+P(
+
+q0
+
+start
+
+start
+
+start
+
+start
+
+3
+
+1
+
+3
+
+o1
+
+o2
+
+start
+
+o3
+
+t
+
+Figure 6.22
+Inference from ice-cream eating computed by an MEMM instead of an HMM. The Viterbi trellis
+for computing the best path through the hidden state space for the ice-cream eating events 3 1 3, modiﬁed from
+the HMM ﬁgure in Fig. 6.10.
+
+• A MaxEnt model is a classiﬁer which assigns a class to an observation by computing a probability from an exponential function of a weighted set of features
+of the observation.
+• MaxEnt models can be trained using methods from the ﬁeld of convex optimization although we don’t give the details in this textbook.
+• A Maximum Entropy Markov Model or MEMM is a sequence model augmentation of MaxEnt which makes use of the Viterbi decoding algorithm.
+• MEMMs can be trained by augmenting MaxEnt training with a version of EM.
+
+B IBLIOGRAPHICAL AND H ISTORICAL N OTES
+
+As we discussed at the end of Ch. 4, Markov chains were ﬁrst used by Markov (1913,
+2006), to predict whether an upcoming letter in Pushkin’s Eugene Onegin would be a
+vowel or a consonant.
+The Hidden Markov Model was developed by Baum and colleagues at the Institute
+for Defense Analyses in Princeton (Baum and Petrie, 1966; Baum and Eagon, 1967).
+The Viterbi algorithm was ﬁrst applied to speech and language processing in the
+context of speech recognition by Vintsyuk (1968), but has what Kruskal (1983) calls a
+
+42
+
+Chapter 6.
+
+Hidden Markov and Maximum Entropy Models
+
+‘remarkable history of multiple independent discovery and publication’.2 Kruskal and
+others give at least the following independently-discovered variants of the algorithm
+published in four separate ﬁelds:
+Field
+information theory
+speech processing
+molecular biology
+speech processing
+molecular biology
+molecular biology
+computer science
+
+D
+RA
+FT
+
+Citation
+Viterbi (1967)
+Vintsyuk (1968)
+Needleman and Wunsch (1970)
+Sakoe and Chiba (1971)
+Sankoff (1972)
+Reichert et al. (1973)
+Wagner and Fischer (1974)
+
+The use of the term Viterbi is now standard for the application of dynamic programming to any kind of probabilistic maximization problem in speech and language
+processing. For non-probabilistic problems (such as for minimum edit distance) the
+plain term dynamic programming is often used. Forney Jr. (1973) is an early survey
+paper which explores the origin of the Viterbi algorithm in the context of information
+and communications theory.
+Our presentation of the idea that Hidden Markov Models should be characterized
+by three fundamental problems was modeled after an inﬂuential tutorial by Rabiner
+(1989), which was itself based on tutorials by Jack Ferguson of IDA in the 1960s.
+Jelinek (1997) and Rabiner and Juang (1993) give very complete descriptions of the
+forward-backward algorithm, as applied to the speech recognition problem. Jelinek
+(1997) also shows the relationship between forward-backward and EM. See also the
+description of HMMs in other textbooks such as Manning and Sch¨ tze (1999). Bilmes
+u
+(1997) is a tutorial on EM.
+While logistic regression and other log-linear models have been used in many ﬁelds
+since the middle of the 20th century, the use of Maximum Entropy/multinomial logistic
+regression in natural language processing dates from work in the early 1990s at IBM
+(Berger et al., 1996; Della Pietra et al., 1997). This early work introduced the maximum
+entropy formalism, proposed a learning algorithm (improved iterative scaling), and
+proposed the use of regularization. A number of applications of MaxEnt followed. For
+further discussion of regularization and smoothing for maximum entropy models see
+(inter alia) Chen and Rosenfeld (2000), Goodman (2004), and Dud´k and Schapire
+ı
+(2006).
+Although the second part of this chapter focused on MaxEnt-style classiﬁcation,
+numerous other approaches to classiﬁcation are used throughout speech and language
+processing. Naive Bayes (Duda et al., 2000) is often employed as a good baseline
+method (often yielding results that are sufﬁciently good for practical use); we’ll cover
+naive Bayes in Ch. 20. Support Vector Machines (Vapnik, 1995) have been successfully
+used in text classiﬁcation and in a wide variety of sequence processing applications.
+Decision lists have been widely used in word sense discrimination, and decision trees
+(Breiman et al., 1984; Quinlan, 1986) have been used in many applications in speech
+processing. Good references to supervised machine learning approaches to classiﬁca2
+
+Seven is pretty remarkable, but see page ?? for a discussion of the prevalence of multiple discovery.
+
+Section 6.9.
+
+43
+
+tion include Duda et al. (2000), Hastie et al. (2001), and Witten and Frank (2005).
+Maximum Entropy Markov Models (MEMMs) were introduced by Ratnaparkhi
+(1996) and McCallum et al. (2000).
+There are many sequence models that augment the MEMM, such as the Conditional Random Field (CRF) (Lafferty et al., 2001; Sutton and McCallum, 2006). In
+addition, there are various generalizations of maximum margin methods (the insights
+that underlie SVM classiﬁers) to sequence tasks.
+
+D
+RA
+FT
+
+CONDITIONAL
+RANDOM FIELD
+CRF
+
+Summary
+
+44
+
+Chapter 6.
+
+Hidden Markov and Maximum Entropy Models
+
+Baum, L. E. (1972). An inequality and associated maximization technique in statistical estimation for probabilistic functions of Markov processes. In Shisha, O. (Ed.), Inequalities
+III: Proceedings of the Third Symposium on Inequalities, University of California, Los Angeles, pp. 1–8. Academic Press.
+
+Kruskal, J. B. (1983). An overview of sequence comparison. In Sankoff, D. and Kruskal, J. B. (Eds.), Time Warps,
+String Edits, and Macromolecules: The Theory and Practice
+of Sequence Comparison, pp. 1–44. Addison-Wesley, Reading, MA.
+
+Baum, L. E. and Eagon, J. A. (1967). An inequality with applications to statistical estimation for probabilistic functions of
+Markov processes and to a model for ecology. Bulletin of the
+American Mathematical Society, 73(3), 360–363.
+
+Lafferty, J. D., McCallum, A., and Pereira, F. C. N. (2001).
+Conditional random ﬁelds: Probabilistic models for segmenting and labeling sequence data. In ICML 2001, Stanford, CA.
+
+Baum, L. E. and Petrie, T. (1966). Statistical inference for probabilistic functions of ﬁnite-state Markov chains. Annals of
+Mathematical Statistics, 37(6), 1554–1563.
+
+Manning, C. D. and Sch¨ tze, H. (1999). Foundations of Statisu
+tical Natural Language Processing. MIT Press.
+
+D
+RA
+FT
+
+Berger, A., Della Pietra, S. A., and Della Pietra, V. J. (1996). A
+maximum entropy approach to natural language processing.
+Computational Linguistics, 22(1), 39–71.
+
+Levitt, S. D. and Dubner, S. J. (2005). Freakonomics. Morrow.
+Malouf, R. (2002). A comparison of algorithms for maximum
+entropy parameter estimation. In CoNNL-2002, pp. 49–55.
+
+Bilmes, J. (1997). A gentle tutorial on the EM algorithm and
+its application to parameter estimation for gaussian mixture
+and hidden markov models. Tech. rep. ICSI-TR-97-021, ICSI,
+Berkeley.
+
+Breiman, L., Friedman, J. H., Olshen, R. A., and Stone, C. J.
+(1984). Classiﬁcation and Regression Trees. Wadsworth &
+Brooks, Paciﬁc Grove, CA.
+Chen, S. F. and Rosenfeld, R. (2000). A survey of smoothing
+techniques for ME models. IEEE Transactions on Speech and
+Audio Processing, 8(1), 37–50.
+Darroch, J. N. and Ratcliff, D. (1972). Generalized iterative
+scaling for log-linear models. The Annals of Mathematical
+Statistics, 43(5), 1470–1480.
+
+Della Pietra, S. A., Della Pietra, V. J., and Lafferty, J. D. (1997).
+Inducing features of random ﬁelds. IEEE Transactions on Pattern Analysis and Machine Intelligence, 19(4), 380–393.
+Dempster, A. P., Laird, N. M., and Rubin, D. B. (1977). Maximum likelihood from incomplete data via the EM algorithm.
+Journal of the Royal Statistical Society, 39(1), 1–21.
+
+Duda, R. O., Hart, P. E., and Stork, D. G. (2000). Pattern Classiﬁcation. Wiley-Interscience Publication.
+
+Dud´k, M. and Schapire, R. E. (2006). Maximum entropy distriı
+bution estimation with generalized regularization. In Lugosi,
+G. and Simon, H. U. (Eds.), COLT 2006, Berlin, pp. 123–138.
+Springer-Verlag.
+
+Eisner, J. (2002). An interactive spreadsheet for teaching the
+forward-backward algorithm. In Proceedings of the ACL
+Workshop on Effective Tools and Methodologies for Teaching
+NLP and CL, pp. 10–18.
+
+Forney Jr., G. D. (1973). The Viterbi algorithm. Proceedings
+of the IEEE, 61(3), 268–278.
+
+Goodman, J. (2004). Exponential priors for maximum entropy
+models. In ACL-04.
+
+Hastie, T., Tibshirani, R., and Friedman, J. H. (2001). The Elements of Statistical Learning. Springer.
+Hofstadter, D. R. (1997). Le ton beau de marot. Basic Books.
+Jelinek, F. (1997). Statistical Methods for Speech Recognition.
+MIT Press.
+
+Markov, A. A. (1913). Essai d’une recherche statistique sur
+le texte du roman “Eugene Onegin” illustrant la liaison des
+epreuve en chain (‘Example of a statistical investigation of
+the text of “Eugene Onegin” illustrating the dependence between samples in chain’). Izvistia Imperatorskoi Akademii
+Nauk (Bulletin de l’Acad´ mie Imp´ riale des Sciences de St.e
+e
+P´ tersbourg), 7, 153–162. English translation by Morris
+e
+Halle, 1956.
+Markov, A. A. (2006). Classical text in translation: A. A.
+Markov, an example of statistical investigation of the text Eugene Onegin concerning the connection of samples in chains.
+Science in Context, 19(4), 591–600. Translated by David
+Link.
+McCallum, A., Freitag, D., and Pereira, F. C. N. (2000). Maximum Entropy Markov Models for Information Extraction and
+Segmentation. In ICML 2000, pp. 591–598.
+Needleman, S. B. and Wunsch, C. D. (1970). A general method
+applicable to the search for similarities in the amino-acid sequence of two proteins. Journal of Molecular Biology, 48,
+443–453.
+Quinlan, J. R. (1986). Induction of decision trees. Machine
+Learning, 1, 81–106.
+Rabiner, L. R. (1989). A tutorial on Hidden Markov Models
+and selected applications in speech recognition. Proceedings
+of the IEEE, 77(2), 257–286.
+
+Rabiner, L. R. and Juang, B. H. (1993).
+Speech Recognition. Prentice Hall.
+
+Fundamentals of
+
+Ratnaparkhi, A. (1996). A maximum entropy part-of-speech
+tagger. In EMNLP 1996, Philadelphia, PA, pp. 133–142.
+
+Reichert, T. A., Cohen, D. N., and Wong, A. K. C. (1973). An
+application of information theory to genetic mutations and the
+matching of polypeptide sequences. Journal of Theoretical
+Biology, 42, 245–261.
+
+Sakoe, H. and Chiba, S. (1971). A dynamic programming approach to continuous speech recognition. In Proceedings of
+the Seventh International Congress on Acoustics, Budapest,
+Budapest, Vol. 3, pp. 65–69. Akad´ miai Kiad´ .
+e
+o
+Sankoff, D. (1972). Matching sequences under deletioninsertion constraints. Proceedings of the Natural Academy
+of Sciences of the U.S.A., 69, 4–6.
+
+Section 6.9.
+
+Summary
+
+Sutton, C. and McCallum, A. (2006). An introduction to conditional random ﬁelds for relational learning. In Getoor, L. and
+Taskar, B. (Eds.), Introduction to Statistical Relational Learning. MIT Press.
+Vapnik, V. N. (1995). The Nature of Statistical Learning Theory. Springer-Verlag.
+Vintsyuk, T. K. (1968). Speech discrimination by dynamic programming. Cybernetics, 4(1), 52–57. Russian Kibernetika
+4(1):81-88 (1968).
+Viterbi, A. J. (1967). Error bounds for convolutional codes and
+an asymptotically optimum decoding algorithm. IEEE Transactions on Information Theory, IT-13(2), 260–269.
+
+D
+RA
+FT
+
+Wagner, R. A. and Fischer, M. J. (1974). The string-to-string
+correction problem. Journal of the Association for Computing
+Machinery, 21, 168–173.
+
+Witten, I. H. and Frank, E. (2005). Data Mining: Practical
+Machine Learning Tools and Techniques. Morgan Kaufmann.
+2nd ed.
+
+45
+
+

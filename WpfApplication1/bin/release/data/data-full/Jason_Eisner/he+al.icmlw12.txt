@@ -1,0 +1,584 @@
+Cost-sensitive Dynamic Feature Selection
+
+He He
+Hal Daum´ III
+e
+Dept. of Computer Science, University of Maryland, College Park, MD
+
+hhe@cs.umd.edu
+hal@umiacs.umd.edu
+
+Jason Eisner
+Dept. of Computer Science, Johns Hopkins University, Baltimore, MD
+
+jason@cs.jhu.edu
+
+Abstract
+We present an instance-speciﬁc test-time dynamic feature selection algorithm. Our algorithm sequentially chooses features given
+previously selected features and their values. It stops the selection process to make
+a prediction according to a user-speciﬁed
+accuracy-cost trade-oﬀ. We cast the sequential decision-making problem as a Markov
+Decision Process and apply imitation learning techniques. We address the problem of
+learning and inference jointly in a simple multiclass classiﬁcation setting. Experimental
+results on UCI datasets show that our approach achieves the same or higher accuracy
+using only a small fraction of features than
+static feature selection methods.
+
+1. Introduction
+In a practical machine learning task, features are usually acquired at a cost with unknown discriminative
+powers. In many cases, expensive features often imply better performance. For example, in medical diagnosis, some tests can be very informative (e.g., Xray, electrocardiogram) but are expensive to run or
+have side-eﬀects on human body. Oftentimes, while
+at training time we can devote large amounts of time
+and resources to collecting data and building models,
+at test time we may not aﬀord to obtain a complete
+set of features for all instances. This leaves us the
+cost-accuracy trade-oﬀ problem.
+We consider the setting where a pretrained model using a complete set of features is given and each feaPresented at the International Conference on Machine
+Learning (ICML) workshop on Inferning: Interactions between Inference and Learning, Edinburgh, Scotland, UK,
+2012. Copyright 2012 by the author(s)/owner(s).
+
+ture has a known cost. At test time, we would like
+to dynamically select a subset of features for each
+instance and be able to explicitly specify the costaccuracy trade-oﬀ. This can be naturally framed as
+a sequential decision-making problem. At each step,
+based on the instance’s current feature set, we decide
+whether to stop acquiring features and make a prediction; if not, which feature(s) to purchase next.
+A direct solution is to cast this as a Markov Decision
+Process. This allows us to search for an optimal purchasing policy under a reward function that combines
+cost and accuracy (Section 2). We propose to decompose inference into a sequence of simple classiﬁcation
+tasks and learn the classiﬁers using imitation learning
+methods (Section 3). A typical approach to imitation
+learning is to deﬁne an oracle that executes the optimal policy based on the reward function; using the
+oracle-generated examples as supervised data, one can
+learn a classiﬁer/regressor to mimic the oracle’s behavior. However, sometimes the optimal actions can
+be too good for the agent to imitate due to limitation
+of the learning policy space. In such cases, instead of
+labeling a state with the maximum-reward action, we
+label it with a possibly suboptimal action that has a
+fairly high reward and already scores fairly well under the current model (McAllester et al., 2010; Chiang
+et al., 2009) (Section 4). These labels may change
+during learning as we improve the model parameters.
+Intuitively, this allows the learner to move towards a
+better action without much eﬀort, and to gradually
+achieve the best action it can, instead of aiming at an
+impractical goal from the beginning.
+Our main contribution is developing a novel imitation
+learning framework for test-time dynamic feature selection. Our model does not have any constraint on
+the type of features or the pretrained model; and we
+allow users to explicitly specify the trade-oﬀ between
+accuracy and cost.
+
+Cost-sensitive Dynamic Feature Selection
+
+2. Dynamic Feature Selection as an
+MDP
+
+3. Imitation Learning for Dynamic
+Feature Selection
+
+In a typical supervised classiﬁcation setting, we have
+a training set {(x1 , y1 ) . . . (xn , yn )} and have access to
+all the feature values. We assume that we are provided with a classiﬁer that has been trained to work
+well on instances for which all features are known. We
+will refer to this pretrained classiﬁer as the data classiﬁer. We assume that there exists a (possibly empty)
+set of free features, whose values are known up front
+for each test instance, while other features have to be
+obtained at a cost. The precise deﬁnition of cost is
+problem-dependent, for instance the computation time
+or the expense of running an experiment. Our goal is
+to achieve high accuracy without spending too much
+on acquiring features.
+
+A typical approach to imitation learning is to predict
+the oracle’s action by solving a sequence of multiclass
+classiﬁcation problems. To apply supervised classiﬁcation methods, we deﬁne a forward-selection oracle
+that generates labels and a feature map that describes
+the state.
+
+We represent the dynamic feature selection process as
+a Markov Decision Process (MDP). We allow the agent
+to select more than one feature at a time. A selectable
+bundle of one or more features is called a factor ; such
+a bundle might be deﬁned by a feature template, for
+example, or by a procedure that acquires several features at once. The state includes the set of factors
+selected so far. Thus on any ﬁxed input we have an
+exponentially large state space of size 2D , where D is
+the number of available factors. The action space includes all factors that have not been selected yet, as
+well as a termination action (stop adding more features
+and make a prediction). An agent follows a memoryless policy π that determines which action to choose
+in state s, i.e. π(s) → a.
+In the MDP setting, achieving an accuracy-cost tradeoﬀ corresponds to ﬁnding the optimal policy under
+a reward function. The reward function should allow us to explicitly specify the trade-oﬀ. When considering a single instance, we use the margin given
+by the data classiﬁer to reﬂect accuracy. Let Y be
+the set of labels/classes. We denote score(s, y) the
+score of class y using features in state s. Given an
+instance (xi , yi ), we deﬁne the margin in state s as
+score(s, yi ) − maxy∈Y\{yi } score(s, y). At each time
+step t, we deﬁne the immediate reward r in state st
+after taking action at as
+r(st , at ) = margin(st , at ) − λ · cost(st , at )
+
+(1)
+
+Here margin(st , at ) and cost(st , at ) denote the margin and cost after adding the factor given by at respectively; λ is the trade-oﬀ parameter. When classifying using an incomplete feature set, we set values
+of non-selected features to be zero. Using a sparse
+feature vector also improves classiﬁcation eﬃciency at
+test time.
+
+3.1. Imitation Learning via Classiﬁcation
+In a typical imitation learning task, at training time
+we have an oracle to demonstrate optimal actions that
+maximize the reward. Then we collect a set of trajectories generated by the oracle. The agent attempts
+to imitate the oracle’s behavior without any notion of
+the reward function. Thus maximizing the expected
+reward is reduced to minimizing a surrogate loss with
+respect to the oracle’s policy .
+To mimic the oracle’s behavior, we train a multiclass
+classiﬁer to predict the oracle action. Let sπ denote
+states visited by π. We collect training examples
+{(φ(sπ∗ ), π ∗ (sπ∗ ))} by running the oracle, where φ is
+a feature map describing the state.
+We denote Π the policy space and (s, π) the surrogate
+loss (classiﬁcation loss) of π with respect to π ∗ . Using
+any standard supervised learning algorithm, we can
+learn a policy (action classiﬁer )
+π = arg min Esπ∗ [ (s, π)]
+ˆ
+
+(2)
+
+π∈Π
+
+Here (s, π) can be any loss function used by the chosen
+classiﬁer, for example, hinge loss in SVM. Let J(π) be
+the task loss (negative reward) that we actually want
+to minimize. Denote T the task horizon. We have the
+following guarantee:
+Theorem 1. (Ross & Bagnell, 2010) Let
+Esπ∗ [ (s, π)] = , then J(π) ≤ J(π ∗ ) + T 2 .
+This theorem shows that we can bound the task loss
+by how well the agent mimics the oracle.
+3.2. Oracle Actions
+Ideally, an oracle action should lead to a subset of
+features having the maximum reward. However, we
+have too large a state space to search for the optimal
+subset of features exhaustively. In addition, given a
+state, the oracle action may not be unique since the
+optimal subset of features does not have to be selected
+in a ﬁxed order.
+We address the problem by using a greedy forwardselection oracle. At time step t, the oracle iterates
+
+Cost-sensitive Dynamic Feature Selection
+
+through the action space At and calculates each action’s reward r(st , a) (a ∈ At ) in state st ; it then
+chooses the action that yields the maximum immediate reward. To identify the stop point, the oracle continues adding factors until all are selected.
+It then set the action in the maximum-reward state
+to be stop. Formally, let a∗ = arg maxa∈At r(st , a)
+t
+∗
+and rt = r(st , a∗ ). This gives us a trajectory τ =
+t
+∗
+∗
+s0 , a∗ , r0 , . . . , sT , a∗ , rT . Let rmax be the maximum
+0
+T
+reward in T step. We deﬁne the oracle’s policy as
+π ∗ (st ) =
+
+a∗
+t
+stop
+
+if r(st , a∗ ) < rmax
+t
+otherwise
+
+(3)
+
+In other words, the oracle stops in the maximumreward state. Adding factors after the stop action will
+decrease the reward.
+3.3. Policy Features
+We deﬁne φ(s) as concatenation of features in the current state and meta-features that provide information
+about previous classiﬁcation results and cost. More
+speciﬁcally, we have the following meta-features: conﬁdence score given by the data classiﬁer; change in conﬁdence score after adding the previous factor; boolean
+bit indicating whether the prediction changed after
+adding the previous factor; cost of the current feature
+set; change in cost after adding the previous factor;
+cost divided by conﬁdence score; current guess of the
+model. As φ(s) can contain ﬁrst-order history information along the trajectory, predicting each action in
+turn allows the learner to learn dependencies between
+actions implicitly.
+
+4. Iterative Policy Learning
+One drawback of the above approach is that it ignores
+diﬀerence between state distribution of the oracle and
+the agent. When it cannot mimic the oracle perfectly
+(i.e. classiﬁcation error occurs), the wrong action
+will change the following state distribution. Thus the
+learned policy is not able to handle situations where
+the agent follows a wrong path that is never chosen by
+the oracle. In fact in the worst case, performance can
+approach random guessing, even for arbitrarily small
+(K¨¨ri¨inen, 2006).
+aa a
+This problem can be alleviated by iteratively learning
+a policy trained under states visited by both the oracle
+and the agent. For example, during learning one can
+use a “mixture oracle” that at times takes an action
+given by the previous learned policy (Daum´ III et al.,
+e
+2009). Alternatively, at each iteration one can learn
+a policy from trajectories generated by all previous
+policies (Ross et al., 2011).
+
+4.1. Dataset Aggregation
+In its simplest form, the Dataset Aggregation (DAgger) algorithm (Ross et al., 2011) works as follows. In
+the ﬁrst iteration, we initialize π1 to π ∗ and collect
+training set D1 = {(φ(sπ∗ ), π ∗ (sπ∗ ))} from the oracle
+to learn a policy π2 . In the next iteration, we collect
+trajectories by executing π2 and label φ(sπ2 ) with the
+oracle action, i.e. D2 = {(φ(sπ2 ), π ∗ (sπ2 ))}; π3 is then
+learned on D1 D2 . We repeat this process for several iterations. At each iteration the policy is trained
+on datasets collected from all previous policies. Intuitively, this enables it to make up for past failures
+to mimic the oracle. Algorithm 1 shows the training
+process.
+Let Qπ (s, π) denote the t-step cost of executing π in
+t
+the initial state and then running π . We assume that
+if π picks a diﬀerent action from π ∗ , it results in at
+most loss u along the trajectory. Suppose (s, π) is
+a convex loss upper bounding the 0-1 loss, which is
+common for most classiﬁcation algorithms. We can
+generalize Theorem 1 to policy running under its own
+induced state distribution:
+Theorem 2. (Ross et al., 2011) Let Esπ [ (s, π)] =
+∗
+∗
+and Qπ −t+1 (s, π) − Qπ −t+1 (s, π ∗ ) ≤ u, then J(π) ≤
+T
+T
+J(π ∗ ) + uT .
+N
+
+1
+Let N = minπ∈Π N i=1 Esπi [ (s, π)] be the minimum loss we can achieve in the policy space Π. We denote the sequence of learned policies π1 , π2 , . . . , πN by
+π1:N . Ross et al. showed that for DAgger, there exists
+a policy π ∈ π1:N such that Esπ [ (s, π)] ≤ N +O(1/T ).
+More speciﬁcally, applying Theorem 2, in the inﬁnite
+sample case we have
+
+Theorem 3. (Ross et al., 2011) For DAgger, if
+∗
+∗
+˜
+Qπ −t+1 (s, π) − Qπ −t+1 (s, π ∗ ) ≤ u and N is O(uT ),
+T
+T
+there exists a policy π ∈ π1:N s.t. J(π) ≤ J(π ∗ ) +
+uT N + O(1).
+This theorem holds in the ﬁnite sample case as well.
+Readers are referred to (Ross et al., 2011) for detailed
+analysis.
+4.2. DAgger with Coaching
+In most cases, our oracle can achieve high accuracy
+with rather small cost. Considering a linear classiﬁer,
+as the oracle already knows the correct class label of an
+instance, it can simply choose, for example, a positive
+feature that has a positive weight to correctly classify
+a positive instance. In addition, in the start state even
+when φ(s0 ) are almost the same for all instances, the
+oracle may tend to choose factors that favor the instance’s class. Since the optimal policy space is far
+
+Cost-sensitive Dynamic Feature Selection
+
+Algorithm 1 DAgger for Feature Selection
+Input: {(x1 , y1 ), . . . , (xn , yn )}
+Initialize D ← ∅
+Initialize π1 ← π ∗
+for i = 1 to N do
+Di ← ∅
+for j = 1 to n do
+Remove factors from xj
+Sequentially add factors to xj until stop
+Di = Di {(φ(sjπi ), π ∗ (sjπi ))}
+end for
+D = D Di
+Train classiﬁer πi+1 on D
+end for
+Return best π evaluated on validation set
+
+age segmentation (7 classes). Our baselines are two
+static incremental feature selection methods. Both use
+a ﬁxed queue of features and add them one by one.
+The ﬁrst ranks features according to standard forward
+feature selection algorithm without any notion of the
+cost. The second uses a cost-sensitive ranking criteria:
+wf /cost, where wf is the weight of a factor f given
+by the data classiﬁer. The weight is deﬁned by the
+maximum absolute value of its features.
+5.1. Experiment Setting
+
+from the learning policy space and some environment
+information known by the oracle cannot be suﬃciently
+represented by the policy feature, the oracle’s behavior is too good to imitate for the learner. In the experiment, we observe a substantial gap between the
+oracle’s performance and the agent’s.
+We address this problem by deﬁning a coach π ∗ in
+˜
+place of the oracle. The coach demonstrates suboptimal actions that are not much worse than the oracle
+action but are easier to learn within the learner’s ability. Let scoreπ (a) be a measure of how likely π chooses
+action a, such as conﬁdence level given by the action
+classiﬁer. Similar to Chiang et al. (2009), we deﬁne
+a hope action that combines the task loss and score
+given by the current policy.
+a∗ = arg max η · scoreπi (a) + r(st , a)
+˜t
+
+(4)
+
+a∈At
+
+Our intuition is that when the learner has diﬃculty
+following the teacher, instead of being authoritative,
+the teacher should lower the goal properly. We use a∗
+˜t
+that the current policy prefers and has a relatively high
+reward, because a∗ may not be achievable within the
+t
+agent’s learning ability. The parameter η speciﬁes how
+permissive the coach is for allowing the agent to follow
+its will if this helps increase the reward. We gradually
+shrink η to let the coach approach the oracle. In this
+way we avoid the situation where an oracle action is
+far from what the model prefers that causes drastic
+change to the policy. It is hoped that gradually the
+learner can achieve the original goal in a more stable
+way.
+
+5. Experimental Results
+We perform experiments on three UCI datasets: radar
+signal (binary), digit recognition (10 classes) and im-
+
+For all datasets, the data classiﬁer are trained using
+MegaM (Daum´ III, 2004). However, since we assume
+e
+the provided classiﬁer is to be used at test time, using
+it at training time may cause diﬀerence in the distribution of training and test data for feature selection. For
+example, the conﬁdence level in φ(s) during training
+can be much higher that that during testing. Therefore, similar to cross validation, we split the training
+data into 10 folds. We collect trajectories on each fold
+using a data classiﬁer trained on the other 9 folds.
+This provides a better simulation of the environment
+at test time.
+For the digit dataset, we split the 16 × 16 image into
+non-overlapping 4 × 4 blocks and each factor contains
+the 16 pixel values in a block. For the other two
+datasets, each factor contains one feature.
+We choose 7 values (0, 0.1, 0.25, 0.5, 1, 1.5, 2) for the
+trade-oﬀ parameter λ. The base classiﬁer in is a linear
+SVM trained by Liblinear (Fan et al., 2008). We run
+for 15 iterations and use the best policy tested on a
+development set. For coaching, we set the initial η to
+be 0.5 and decrease it by e−t in each iteration.
+5.2. Result Analysis
+We ﬁrst compare the learning curve of DAgger and
+Coaching over 15 iterations on the digit dataset with
+λ = 0.5 in Figure 1(a). We can see that DAgger
+makes a big improvement in the second iteration, while
+Coaching takes smaller steps but achieves higher reward gradually. In addition, the reward of Coaching
+changes smoothly and grows stably, which means it
+avoids drastic change of the policy. Figure 1(b) to
+Figure 1(d) show the accuracy-cost curves. We can see
+that our methods achieve comparable or even higher
+classiﬁcation accuracy than using a complete set of
+features at a small cost. This can be explained by the
+dynamic selection scheme: for easy examples, we can
+make a decision with a small number of factors; only
+for hard examples do we need to acquire expensive
+factors. We also notice that there is a substantial gap
+between the learned policy’s performance and the ora-
+
+Cost-sensitive Dynamic Feature Selection
+
+reward
+
+accuracy
+
+0.55
+0.50
+0.45
+
+DAgger
+Coaching
+
+0.40
+0.26 0.28 0.30 0.32 0.34 0.36 0.38
+
+average cost per example
+
+1.00
+0.95
+0.90
+0.85
+0.80
+0.75
+0.70
+0.65
+0.60
+0.0
+
+(a) Reward of DAgger and Coaching
+
+0.6
+
+0.90
+
+0.8
+
+0.85
+
+0.7
+0.6
+0.5
+0.2
+
+0.4
+
+0.6
+
+|w|/cost
+Forward
+DAgger
+Coaching
+Oracle
+0.8
+1.0
+
+average cost per example
+
+(c) Digit dataset (16 factors).
+
+accuracy
+
+accuracy
+
+0.4
+
+average cost per example
+
+(b) Radar dataset (32 factors).
+
+0.9
+
+0.4
+0.0
+
+0.2
+
+|w|/cost
+Forward
+DAgger
+Coaching
+Oracle
+0.8
+1.0
+
+0.80
+0.75
+0.70
+0.65
+0.60
+0.0
+
+0.2
+
+0.4
+
+0.6
+
+|w|/cost
+Forward
+DAgger
+Coaching
+Oracle
+0.8
+1.0
+
+average cost per example
+
+(d) Segmentation dataset (19 factors).
+
+cle’s, however, in almost all settings Coaching achieves
+a higher reward.
+
+learners trained on each feature. This method is constrained to binary classiﬁcation though.
+
+6. Related Work
+
+7. Conclusion and Future Work
+
+The work that has a problem setting most similar to
+ours is a recent study on active classiﬁcation (Gao &
+Koller, 2010) in multiclass classiﬁcation tasks. Based
+on value of information, they deﬁned value of classiﬁer to learn a probabilistic model that sequentially
+chooses which classiﬁer to evaluate for each instance
+at test time. Our work is also related to budgeted
+learning. Kapoor & Greiner (2005) considered the
+problem of active model selection via standard reinforcement learning techniques. However, their results
+showed that it is inferior to simple and intuitive policies. Recently, Reyzin (2011) approached the problem
+by training an ensemble classiﬁer consisting of base
+
+We propose a dynamic feature selection algorithm that
+automatically trades oﬀ feature cost and accuracy. We
+formalize it as an imitation learning problem and propose a coaching scheme when the optimal action is
+too good to learn. Experimental results show that
+our method achieves high accuracy with signiﬁcant
+cost savings. One future direction is to explicitly include feature dependency and train the feature weights
+jointly with the selection policy. We are also interested
+in applying our method to structured prediction problems where policy features may require inference under
+selected features and cost may not be known until run
+time.
+
+Cost-sensitive Dynamic Feature Selection
+
+Acknowledgements
+We thank Jiarong Jiang, Adam Teichert and Tim
+Vieira for helpful discussions that improves this paper.
+
+References
+Chiang, David, Knight, Kevin, and Wang, Wei. 11,001
+new features for statistical machine translation. In
+NAACL-HLT, 2009.
+Daum´ III, Hal. Notes on cg and lm-bfgs optimization
+e
+of logistic regression. 2004. Software available at
+http://www.cs.utah.edu/~hal/megam/.
+Daum´ III, Hal, Langford, John, and Marcu, Daniel.
+e
+Search-based structured prediction. Machine Learning Journal (MLJ), 2009.
+Fan, Rong-En, Chang, Kai-Wei, Hsieh, Cho-Jui,
+Wang, Xiang-Rui, and Lin, Chih-Jen. LIBLINEAR:
+A library for large linear classiﬁcation. Journal of
+Machine Learning Research, 9:1871–1874, 2008.
+Gao, Tianshi and Koller, Daphne. Active classiﬁcation
+based on value of classiﬁer. In NIPS, 2010.
+K¨¨ri¨inen. Lower bounds for reductions. In Atomic
+aa a
+Learning Workshop, 2006.
+Kapoor, A. and Greiner, R. Reinforcement learning for
+active model selection. In Proceedings of the 1st international workshop on Utility-based data mining,
+pp. 17–23. ACM, 2005.
+McAllester, D., Hazan, T., and Keshet, J. Direct loss
+minimization for structured prediction. In NIPS,
+2010.
+Reyzin, Lev. Boosting on a budget: sampling for
+feature-eﬃcient prediction. In ICML, 2011.
+Ross, St´phane and Bagnell, J. Andrew. Eﬃcient ree
+ductions for imitation learning. In AISTATS, 2010.
+Ross, St´phane., Gordon, Geoﬀrey J., and Bagnell,
+e
+J. Andrew. A reduction of imitation learning and
+structured prediction to no-regret online learning.
+In AISTATS, 2011.
+
+

@@ -1,0 +1,925 @@
+Exponentiated Gradient Algorithms for
+Large-margin Structured Classiﬁcation
+Peter L. Bartlett
+U.C.Berkeley
+
+Michael Collins
+MIT CSAIL
+
+bartlett@stat.berkeley.edu
+
+mcollins@csail.mit.edu
+
+Ben Taskar
+Stanford University
+
+David McAllester
+TTI at Chicago
+
+btaskar@cs.stanford.edu
+
+mcallester@tti-c.org
+
+Abstract
+We consider the problem of structured classiﬁcation, where the task is
+to predict a label y from an input x, and y has meaningful internal structure. Our framework includes supervised training of Markov random
+ﬁelds and weighted context-free grammars as special cases. We describe
+an algorithm that solves the large-margin optimization problem deﬁned
+in [12], using an exponential-family (Gibbs distribution) representation
+of structured objects. The algorithm is efﬁcient—even in cases where the
+number of labels y is exponential in size—provided that certain expectations under Gibbs distributions can be calculated efﬁciently. The method
+for structured labels relies on a more general result, speciﬁcally the application of exponentiated gradient updates [7, 8] to quadratic programs.
+
+1
+
+Introduction
+
+Structured classiﬁcation is the problem of predicting y from x in the case where y has
+meaningful internal structure. For example x might be a word string and y a sequence of
+part of speech labels, or x might be a Markov random ﬁeld and y a labeling of x, or x
+might be a word string and y a parse of x. In these examples the number of possible labels
+y is exponential in the size of x. This paper presents a training algorithm for a general
+deﬁnition of structured classiﬁcation covering both Markov random ﬁelds and parsing.
+We restrict our attention to linear discriminative classiﬁcation. We assume that pairs x, y
+can be embedded in a linear feature space Φ(x, y), and that a predictive rule is determined
+by a direction (weight vector) w in that feature space. In linear discriminative prediction we
+select the y that has the greatest value for the inner product Φ(x, y), w . Linear discrimination has been widely studied in the binary and multiclass setting [6, 4]. However, the case
+of structured labels has only recently been considered [2, 12, 3, 13]. The structured-label
+case takes into account the internal structure of y in the assignment of feature vectors, the
+computation of loss, and the deﬁnition and use of margins.
+We focus on a formulation where each label y is represented as a set of “parts”, or equivalently, as a bit-vector. Moreover, we assume that the feature vector for y and the loss
+for y are both linear in the individual bits of y. This formulation has the advantage that it
+naturally covers both simple labeling problems, such as part-of-speech tagging, as well as
+more complex problems such as parsing.
+We consider the large-margin optimization problem deﬁned in [12] for selecting the classiﬁcation direction w given a training sample. The starting-point for these methods is a
+
+primal problem that has one constraint for each possible labeling y; or equivalently a dual
+problem where each y has an associated dual variable. We give a new training algorithm
+that relies on an exponential-family (Gibbs distribution) representation of structured objects. The algorithm is efﬁcient—even in cases where the number of labels y is exponential
+in size—provided that certain expectations under Gibbs distributions can be calculated efﬁciently. The computation of these expectations appears to be a natural computational
+problem for structured problems, and has speciﬁc polynomial-time dynamic programming
+algorithms for some important examples: for example, the clique-tree belief propagation
+algorithm can be used in Markov random ﬁelds, and the inside-outside algorithm can be
+used in the case of weighted context-free grammars.
+The optimization method for structured labels relies on a more general result, speciﬁcally
+the application of exponentiated gradient (EG) updates [7, 8] to quadratic programs (QPs).
+We describe a method for solving QPs based on EG updates, and give bounds on its rate of
+convergence. The algorithm uses multiplicative updates on dual parameters in the problem.
+In addition to their application to the structured-labels task, the EG updates lead to simple
+algorithms for optimizing “conventional” binary or multiclass SVM problems.
+Related work [2, 12, 3, 13] consider large-margin methods for Markov random ﬁelds and
+(weighted) context-free grammars. We consider the optimization problem deﬁned in [12].
+[12] use a row-generation approach based on Viterbi decoding combined with an SMO
+optimization method. [5] describe exponentiated gradient algorithms for SVMs, but for
+binary classiﬁcation in the “hard-margin” case, without slack variables. We show that the
+EG-QP algorithm converges signiﬁcantly faster than the rates shown in [5]. Multiplicative
+updates for SVMs are also described in [11], but unlike our method, the updates in [11] do
+not appear to factor in a way that allows algorithms for MRFs and WCFGs based on Gibbsdistribution representations. Our algorithms are related to those for conditional random
+ﬁelds (CRFs) [9]. CRFs deﬁne a linear model for structured problems, in a similar way
+to the models in our work, and also rely on the efﬁcient computation of marginals in the
+training phase. Finally, see [1] for a longer version of the current paper, which includes
+more complete derivations and proofs.
+
+2
+
+The General Setting
+
+We consider the problem of learning a function f : X → Y, where X is a set and Y is a
+countable set. We assume a loss function L : X × Y × Y → R+ . The function L(x, y, y )
+ˆ
+measures the loss when y is the true label for x, and y is a predicted label; typically, y is
+ˆ
+ˆ
+the label proposed by some function f (x). In general we will assume that L(x, y, y ) = 0
+ˆ
+for y = y . Given some distribution over examples (X, Y ) in X × Y, our aim is to ﬁnd a
+ˆ
+function with low expected loss, or risk, EL(X, Y, f (X)).
+We consider functions f which take a linear form. First, we assume a ﬁxed function G
+which maps an input x to a set of candidates G(x). For all x, we assume that G(x) ⊆ Y,
+and that G(x) is ﬁnite. A second component to the model is a feature-vector representation
+Φ : X × Y → Rd . Given a parameter vector w ∈ Rd , we consider functions of the form
+fw (x) = arg max Φ(x, y), w .
+y∈G(x)
+
+Given n independent training examples (xi , yi ) with the same distribution as (X, Y ), we
+will formalize a large-margin optimization problem that is a generalization of support vector methods for binary classiﬁers, and is essentially the same as the formulation in [12]. The
+optimal parameters are taken to minimize the following regularized empirical risk function:
+1
+2
+w +C
+max (L(xi , yi , y) − mi,y (w))
+y
+2
++
+i
+where mi,y (w) = w, φ(xi , yi ) − w, φ(xi , y) is the “margin” on (i, y) and (z)+ =
+max{z, 0}. This optimization can be expressed as the primal problem in Figure 1. Following [12], the dual of this problem is also shown in Figure 1. The dual is a quadratic
+
+Primal problem:
+2
+1
+minw,¯ 2 w + C
+
+Dual problem: maxα F (¯ ), where
+α
+¯
+F (¯ ) = C i,y αi,y Li,y −
+α
+
+i i
+
+1 2
+2C
+
+i,y
+j,z αi,y αj,z Φi,y , Φj,z
+Subject to the constraints:
+
+Subject to the constraints:
+∀i, ∀y ∈ G(xi ), w, Φi,y ≥ Li,y −
+∀i, i ≥ 0
+
+i
+
+αi,y = 1 ; ∀i, y, αi,y ≥ 0
+
+∀i,
+y
+
+∗
+Relationship between optimal values: w ∗ = C i,y αi,y Φi,y where w∗ is the
+∗
+arg min of the primal problem, and α is the arg max of the dual problem.
+¯
+
+Figure 1: The primal and dual problems. We use the deﬁnitions Li,y = L(xi , yi , y), and Φi,y =
+Φ(xi , yi ) − Φ(xi , y). We assume that for all i, Li,y = 0 for y = yi . The constant C dictates the
+relative penalty for values of the slack variables i which are greater than 0.
+
+program F (¯ ) in the dual variables αi,y for all i = 1 . . . n, y ∈ G(xi ). The dual variables
+α
+for each example are constrained to form a probability distribution over Y.
+2.1 Models for structured classiﬁcation
+The problems we are interested in concern structured labels, which have a natural decomposition into “parts”. Formally, we assume some countable set of parts, R. We also assume
+a function R which maps each object (x, y) ∈ X × Y to a ﬁnite subset of R. Thus R(x, y)
+is the set of parts belonging to a particular object. In addition we assume a feature-vector
+representation φ of parts: this is a function φ : X × R → Rd . The feature vector for an
+object (x, y) is then a sum of the feature vectors for its parts, and we also assume that the
+loss function L(x, y, y ) decomposes into a sum over parts:
+ˆ
+Φ(x, y) =
+φ(x, r)
+L(x, y, y ) =
+ˆ
+l(x, y, r)
+r∈R(x,y)
+
+r∈R(x,ˆ)
+y
+
+Here φ(x, r) is a “local” feature vector for part r paired with input x, and l(x, y, r) is
+a “local” loss for part r when proposed for the pair (x, y). For convenience we deﬁne
+indicator variables I(x, y, r) which are 1 if r ∈ R(x, y), 0 otherwise. We also deﬁne sets
+R(xi ) = ∪y∈G(xi ) R(xi , y) for all i = 1 . . . n.
+Example 1: Markov Random Fields (MRFs) In an MRF the space of labels G(x),
+and their underlying structure, can be represented by a graph. The graph G = (V, E) is
+a collection of vertices V = {v1 , v2 , . . . vl } and edges E. Each vertex vi ∈ V has a set
+of possible labels, Yi . The set G(x) is then deﬁned as Y1 × Y2 . . . × Yl . Each clique in
+the graph has a set of possible conﬁgurations: for example, if a particular clique contains
+vertices {v3 , v5 , v6 }, the set of possible conﬁgurations of this clique is Y3 × Y5 × Y6 . We
+deﬁne C to be the set of cliques in the graph, and for any c ∈ C we deﬁne Y(c) to be the set
+of possible conﬁgurations for that clique. We decompose each y ∈ G(x) into a set of parts,
+by deﬁning R(x, y) = {(c, a) ∈ R : c ∈ C, a ∈ Y(c), (c, a) is consistent with y}. The
+feature vector representation φ(x, c, a) for each part can essentially track any characteristics of the assignment a for clique c, together with any features of the input x. A number
+of choices for the loss function l(x, y, (c, a)) are possible. For example, consider the Hamming loss used in [12], deﬁned as L(x, y, y ) = i Iyi =ˆi . To achieve this, ﬁrst assign each
+ˆ
+y
+vertex vi to a single one of the cliques in which it appears. Second, deﬁne l(x, y, (c, a)) to
+be the number of labels in the assignment (c, a) which are both incorrect and correspond
+to vertices which have been assigned to the clique c (note that assigning each vertex to a
+single clique avoids “double counting” of label errors).
+Example 2: Weighted Context-Free Grammars (WCFGs). In this example x is an
+input string, and y is a “parse tree” for that string, i.e., a left-most derivation for x under
+some context-free grammar. The set G(x) is the set of all left-most derivations for x
+
+Inputs: A learning rate η.
+¯
+Data structures: A vector θ of variables, θi,r , ∀i, ∀r ∈ R(xi ).
+¯
+θi,r )/Zi where Zi is a normalization term.
+Deﬁnitions: αi,y (θ) = exp(
+r∈R(xi ,y)
+
+Algorithm:
+¯
+• Choose initial values θ1 for the θi,r variables (these values can be arbitrary).
+• For t = 1 . . . T + 1:
+¯
+– For i = 1 . . . n, r ∈ R(xi ), calculate µt = y αi,y (θt )I(xi , y, r).
+i,r
+– Set wt = C
+
+i,r∈R(xi ,yi )
+
+φi,r −
+
+i,r∈R(xi )
+
+µt φi,r
+i,r
+
+– For i = 1 . . . n, r ∈ R(xi ),
+t+1
+t
+calculate updates θi,r = θi,r + ηC (li,r + wt , φi,r )
+Output: Parameter values wT +1
+Figure 2: The EG algorithm for structured problems. We use φi,r = φ(xi , r) and li,r = l(xi , yi , r).
+under the grammar. For convenience, we restrict the grammar to be in Chomsky-normal
+form, where all rules in the grammar are of the form A → B C or A → a , where
+A, B, C are non-terminal symbols, and a is some terminal symbol. We take a part r to
+be a CF-rule-tuple A → B C, s, m, e . Under this representation A spans words s . . . e
+inclusive in x; B spans words s . . . m; and C spans words (m + 1) . . . e. The function
+R(x, y) maps a derivation y to the set of parts which it includes. In WCFGs φ(x, r) can
+be any function mapping a rule production and its position in the sentence x, to a feature
+vector. One example of a loss function would be to deﬁne l(x, y, r) to be 1 only if r’s
+non-terminal A is not seen spanning words s . . . e in the derivation y. This would lead
+to L(x, y, y ) tracking the number of “constituent errors” in y , where a constituent is a
+ˆ
+ˆ
+(non-terminal, start-point, end-point) tuple such as (A, s, e).
+
+3
+
+EG updates for structured objects
+
+We now consider an algorithm for computing α∗ = arg maxα∈∆ F (¯ ), where F (¯ ) is the
+¯
+α
+α
+¯
+dual form of the maximum margin problem, as in Figure 1. In particular, we are interested
+in the optimal values of the primal form parameters, which are related to α ∗ by w∗ =
+¯
+∗
+C i,y αi,y Φi,y . A key problem is that in many of our examples, the number of dual
+variables αi,y precludes dealing with these variables directly. For example, in the MRF
+case or the WCFG cases, the set G(x) is exponential in size, and the number of dual
+variables αi,y is therefore also exponential.
+We describe an algorithm that is efﬁcient for certain examples of structured objects such
+as MRFs or WCFGs. Instead of representing the αi,y variables explicitly, we will instead
+¯
+manipulate a vector θ of variables θi,r for i = 1 . . . n, r ∈ R(xi ). Thus we have one of
+these “mini-dual” variables for each part seen in the training data. Each of the variables
+θi,r can take any value in the reals. We now deﬁne the dual variables αi,y as a function of
+¯
+the vector θ, which takes the form of a Gibbs distribution:
+exp( r∈R(xi ,y) θi,r )
+¯
+αi,y (θ) =
+.
+y exp(
+r∈R(xi ,y ) θi,r )
+Figure 2 shows an algorithm for maximizing F (¯ ). The algorithm deﬁnes a sequence of
+α
+¯ ¯
+values θ1 , θ2 , . . .. In the next section we prove that the sequence F (¯ (θ1 )), F (¯ (θ2 )), . . .
+α ¯
+α ¯
+converges to maxα F (¯ ). The algorithm can be implemented efﬁciently, independently
+α
+of the dimensionality of α, provided that there is an efﬁcient algorithm for computing
+¯
+¯
+¯
+marginal terms µi,r = i,y αi,y (θ)I(xi , y, r) for all i = 1 . . . n, r ∈ R(xi ), and all θ. A
+¯ i,y = C
+key property is that the primal parameters w = C i,y αi,y (θ)Φ
+i Φ(xi , yi ) −
+
+C
+
+i,y
+
+¯
+αi,y (θ)Φ(xi , y) can be expressed in terms of the marginal terms, because:
+¯
+αi,y (θ)Φ(xi , y) =
+i,y
+
+¯
+αi,y (θ)
+i,y
+
+φ(xi , r) =
+
+µi,r φ(xi , r)
+i,r∈R(xi )
+
+r∈R(xi ,y)
+
+and hence w = C i Φ(xi , yi ) − C i,r∈R(xi ) µi,r φ(xi , r). The µi,r values can be calculated for MRFs and WCFGs in many cases, using standard algorithms. For example, in
+the WCFG case, the inside-outside algorithm can be used, provided that each part r is a
+context-free rule production, as described in Example 2 above. In the MRF case, the µ i,r
+values can be calculated efﬁciently if the tree-width of the underlying graph is small.
+¯
+Note that the main storage requirements of the algorithm in Figure 2 concern the vector θ.
+This is a vector which has as many components as there are parts in the training set. In
+practice, the number of parts in the training data can become extremely large. Fortunately,
+an alternative, “primal form” algorithm is possible. Rather than explicitly storing the θ i,r
+variables, we can store a vector zt of the same dimensionality as wt . The θi,r values can
+be computed from zt . More explicitly, the main body of the algorithm in Figure 2 can be
+replaced with the following:
+• Set z1 to some initial value. For t = 1 . . . T + 1:
+– Set wt = 0
+t
+– For i = 1 . . . n: Compute µt for r ∈ R(xi ), using θi,r = ηC((t − 1)li,r + zt , φi,r );
+i,r
+– Set zt+1
+
+Set wt = wt + C
+= zt + w t
+
+r∈R(xi ,yi )
+
+φi,r −
+
+r∈R(xi )
+
+µt φi,r
+i,r
+
+1
+It can be veriﬁed that if ∀i, r, θi,r = ηC φi,r , z1 , then this alternative algorithm deﬁnes
+t
+the same sequence of (implicit) θi,r values, and (explicit) wt values, as the original algorithm. In the next section we show that the original algorithm converges for any choice of
+1
+¯
+initial values θ1 , so this restriction on θi,r should not be signiﬁcant.
+
+4
+
+Exponentiated gradient (EG) updates for quadratic programs
+
+We now prove convergence properties of the algorithm in Figure 2. We show that it is
+an instantiation of a general algorithm for optimizing quadratic programs (QPs), which
+relies on Exponentiated Gradient (EG) updates [7, 8]. In the general problem we assume a
+positive semi-deﬁnite matrix A ∈ Rm×m , and a vector b ∈ Rm , specifying a loss function
+¯
+¯
+Q(¯ ) = b α + 2 α A¯ . Here α is an m-dimensional vector of reals. We assume that α is
+α
+¯ 1¯ α
+formed by the concatenation of n vectors αi ∈ Rmi for i = 1 . . . n, where i mi = m.
+¯
+We assume that each αi lies in a simplex of dimension mi , so that the feasible set is
+¯
+m
+i
+
+∆ = {¯ : α ∈ Rm ; for i = 1 . . . n,
+α ¯
+
+αi,j = 1; for all i, j, αi,j ≥ 0}.
+
+(1)
+
+j=1
+
+Our aim is to ﬁnd arg minα∈∆ Q(¯ ). Figure 3 gives an algorithm—the “EG-QP”
+α
+¯
+algorithm—for ﬁnding the minimum. In the next section we give a proof of its convergence properties.
+The EG-QP algorithm can be used to ﬁnd the minimum of −F (¯ ), and hence the maximum
+α
+of the dual objective F (¯ ). We justify the algorithm in Figure 2 by showing that it is
+α
+equivalent to minimization of −F (¯ ) using the EG-QP algorithm. We give the following
+α
+theorem:
+1
+Theorem 1 Deﬁne F (¯ ) = C i,y αi,y Li,y − 2 C 2 i,y j,z αi,y αj,z Φi,y , Φj,z ,
+α
+and assume as in section 2 that Li,y =
+r∈R(xi ,y) l(xi , y, r) and Φ(xi , y) =
+¯1 ) . . . α(θT +1 ) deﬁned by the algorithm
+¯
+¯ ¯
+r∈R(xi ,y) φ(xi , r). Consider the sequence α(θ
+in Figure 2, and the sequence α1 . . . αT +1 deﬁned by the EG-QP algorithm when applied
+¯
+¯
+to Q(¯ ) = −F (¯ ). Then under the assumption that α(θ1 ) = α1 , it follows that α(θt ) = αt
+α
+α
+¯ ¯
+¯
+¯ ¯
+¯
+for t = 1 . . . (T + 1).
+
+Inputs: A positive semi-deﬁnite matrix A, and a vector b, specifying a loss function
+Q(¯ ) = b · α + 2 α A¯ . Each vector α is in ∆, where ∆ is deﬁned in Eq. 1.
+α
+¯ 1¯ α
+¯
+Algorithm:
+• Initialize α1 to a point in the interior of ∆. Choose a learning rate η > 0.
+¯
+• For t = 1 . . . T
+– Calculate st = Q(¯ t ) = b + A¯ t .
+¯
+α
+α
+t+1
+t
+t
+– Calculate αt+1 as: ∀i, j, αi,j = αi,j exp{−ηst }/ k αi,k exp{−ηst }
+¯
+i,j
+i,k
+Output: Return αT +1 .
+¯
+Figure 3: The EG-QP algorithm for quadratic programs.
+2
+1
+Proof. We can write F (α) = C i,y αi,y Li,y − 2 C 2
+¯
+i,y αi,y Φ(xi , y) . It
+i Φ(xi , yi ) −
+t
+α
+¯
+follows that ∂F (i,y ) = CLi,y + C Φ(xi , y), wt = C r∈R(xi ,y) li,r + φi,r , wt where as
+∂α
+t
+before wt = C( i Φ(xi , yi ) − i,y αi,y Φ(xi , y)). The rest of the proof proceeds by induction; due to space constraints we give a sketch of the proof here. The idea is to show that
+α(θt+1 ) = αt+1 under the inductive hypothesis that α(θt ) = αt . This follows immediately
+¯ ¯
+¯
+¯ ¯
+¯
+from the deﬁnitions of the mappings α(θt ) → α(θt+1 ) and αt → αt+1 in the two algo¯ ¯
+¯ ¯
+¯
+¯
+∂F (αt )
+¯
+t
+rithms, together with the identities si,y = − ∂αi,y = −C r∈R(xi ,y) (li,r + φi,r , wt )
+
+t+1
+t
+and θi,r − θi,r = ηC (li,r + φi,r , wt ).
+
+4.1
+
+Convergence of the exponentiated gradient QP algorithm
+
+The following theorem shows how the optimization algorithm converges to an optimal solution. The theorem compares the value of the objective function for the algorithm’s vector
+αt to the value for a comparison vector u ∈ ∆. (For example, consider u as the solution
+¯
+of the QP.) The convergence result is in terms of several properties of the algorithm and
+the comparison vector u. The distance between u and α1 is measured using the Kullback¯
+Liebler (KL) divergence. Recall that the KL-divergence between two probability vectors
+i
+¯
+u, v is deﬁned as D(¯, v ) = i ui log ui . For sequences of probability vectors, u ∈ ∆
+¯ ¯
+u ¯
+v
+with u = (¯1 , . . . , un ) and ui = (ui,1 , . . . , ui,mi ), we can deﬁne a divergence as the sum
+¯
+u
+¯
+¯
+n
+¯ u ¯
+of KL-divergences: for u, v ∈ ∆, D(¯, v ) = i=1 D(¯i , vi ). Two other key parameters
+¯ ¯
+u ¯
+are λ, the largest eigenvalue of the positive semideﬁnite symmetric matrix A, and
+α
+α
+B = max max ( Q(¯ ))i − min ( Q(¯ ))i ≤ 2 n max |Aij | + max |bi | .
+α∈∆
+¯
+
+i
+
+i
+
+ij
+
+i
+
+Theorem 2 For all u ∈ ∆,
+¯
+1
+T
+
+T
+
+Q(¯ t ) ≤ Q(¯) +
+α
+u
+t=1
+
+¯ u ¯
+eηB − 1 − ηB
+Q(¯ 1 ) − Q(¯ T +1 )
+α
+α
+D(¯, α1 )
++ 2 2
+.
+ηB )
+ηT
+η B (1 − η(B + λ)e
+T
+
+Choosing η = 0.4/(B + λ) ensures that
+Q αT +1 ≤
+¯
+
+1
+T
+
+T
+
+Q(¯ t ) ≤ Q(¯) + 2.5(B + λ)
+α
+u
+t=1
+
+¯ u ¯
+D(¯, α1 )
+Q(¯ 1 ) − Q(¯ T +1 )
+α
+α
++ 1.5
+.
+T
+T
+
+The ﬁrst lemma we require is due to Kivinen and Warmuth [8].
+¯ u ¯
+¯ u ¯
+¯ α ¯
+ηQ(¯ t ) − ηQ(¯) ≤ D(¯, αt ) − D(¯, αt+1 ) + D(¯ t , αt+1 )
+α
+u
+
+Lemma 1 For any u ∈ ∆,
+¯
+
+We focus on the third term. Deﬁne (i) Q(¯ ) as the segment of the gradient vector corα
+responding to the component αi of α, and deﬁne the random variable Xi,t , satisfying
+¯
+¯
+Pr Xi,t = −
+
+α
+(i) Q(¯
+
+t
+
+)
+
+j
+
+= αi,j .
+
+n
+
+¯ α ¯
+Lemma 2 D(¯ t , αt+1 ) =
+
+log E e
+
+η(Xi,t −EXi,t )
+
+≤
+
+i=1
+n
+
+¯ α ¯
+Proof. D(¯ t , αt+1 ) =
+
+t
+αij log
+i=1
+
+j
+
+eηB − 1 − ηB
+B2
+
+n
+
+var(Xi,t ).
+i=1
+
+t
+αij
+t+1
+αij
+
+n
+t
+αij
+
+=
+i=1
+
+t
+αik exp(−η
+
+log
+
+j
+
+i,k )
+
++η
+
+i,j
+
+k
+
+n
+t
+αik exp −η
+
+log
+
+=
+i=1
+n
+
++ η αi ·
+¯t
+
+i
+
+k
+
+log E e
+
+=
+
+i,k
+
+η(Xi,t −EXi,t )
+
+i=1
+
+eηB − 1 − ηB
+≤
+B2
+
+n
+
+var(Xi,t ).
+i=1
+
+This last inequality is at the heart of the proof of Bernstein’s inequality; e.g., see [10].
+The second part of the proof of the theorem involves bounding this variance in terms of
+the loss. The following lemma relies on the fact that this variance is, to ﬁrst order, the
+decrease in the quadratic loss, and that the second order term in the Taylor series expansion
+of the loss is small compared to the variance, provided the steps are not too large. The
+lemma and its proof require several deﬁnitions. For any d, let σ : Rd → (0, 1)d be the
+d
+¯
+¯
+softmax function, σ(θ)i = exp(θi )/ j=1 exp(θj ), for θ ∈ Rd . We shall work in the
+¯t be the exponential parameters at step t, so that the
+exponential parameter space: let θ
+¯
+¯
+¯t
+updates are θt+1 = θt − η Q(¯ t ), and the QP variables satisfy αi = σ(θi ). Deﬁne the
+α
+¯t
+t
+¯
+random variables X ¯, satisfying Pr X ¯ = − (i) Q(¯ )
+α
+= σ(θi ) . This takes
+i,t,θ
+
+i,t,θ
+
+j
+
+j
+
+the same values as Xi,t , but its distribution is given by a different exponential parameter
+¯
+¯t
+¯ ¯
+¯
+¯
+(θi instead of θi ). Deﬁne θt , θt+1 = aθt + (1 − a)θt+1 : a ∈ [0, 1] .
+¯ ¯ ¯
+Lemma 3 For some θ ∈ [θt , θt+1 ],
+n
+
+n
+
+var(Xi,t ) − η 2 (B + λ)
+
+η
+i=1
+
+var(Xi,t,θ ) ≤ Q(¯ t ) − Q(¯ t+1 ),
+α
+α
+¯
+i=1
+
+¯ ¯ ¯
+but for all θ ∈ [θt , θt+1 ], var(Xi,t,θ ) ≤ eηB var(Xi,t ). Hence,
+¯
+n
+
+var(Xi,t ) ≤
+i=1
+
+1
+Q(¯ t ) − Q(¯ t+1 ) .
+α
+α
+η (1 − η(B + λ)eηB )
+
+Thus, for η < 0.567/(B + λ), Q(¯ t ) is non-increasing in t.
+α
+The proof is in [1]. Theorem 2 follows from an easy calculation.
+
+5
+
+Experiments
+
+We compared an online1 version of the Exponentiated Gradient algorithm with the factored
+Sequential Minimal Optimization (SMO) algorithm in [12] on a sequence segmentation
+task. We selected the ﬁrst 1000 sentences (12K words) from the CoNLL-2003 named
+entity recognition challenge data set for our experiment. The goal is to extract (multiword) entity names of people, organizations, locations and miscellaneous entities. Each
+word is labelled by 9 possible tags (beginning of one of the four entity types, continuation
+of one of the types, or not-an-entity). We trained a ﬁrst-order Markov chain over the tags,
+In the online algorithm we calculate marginal terms, and updates to the w t parameters, one
+training example at a time. As yet we do not have convergence bounds for this method, but we have
+found that it works well in practice.
+1
+
+14
+
+14
+
+12
+
+12
+
+10
+
+10
+
+8
+
+8
+
+6
+
+SMO
+
+6
+
+SMO
+
+EG (th -2.7)
+
+EG (eta .5)
+
+4
+
+EG (th -3)
+
+4
+
+EG (eta 1)
+
+EG (th -4.5)
+
+(a)
+
+99
+
+92
+
+85
+
+78
+
+71
+
+64
+
+57
+
+50
+
+43
+
+36
+
+29
+
+22
+
+8
+
+15
+
+1
+
+99
+
+92
+
+85
+
+78
+
+71
+
+64
+
+57
+
+50
+
+43
+
+36
+
+29
+
+22
+
+0
+
+8
+
+0
+15
+
+2
+
+1
+
+2
+
+(b)
+
+Figure 4: Number of iterations over training set vs. dual objective for the SMO and EG algorithms.
+(a) Comparison with different η values; (b) Comparison with η = 1 and different initial θ values.
+
+where our cliques are just the nodes for the tag of each word and edges between tags of
+consecutive words. The feature vector for each node assignment consists of the word itself,
+its capitalization and morphological features, etc., as well as the previous and consecutive
+words and their features. Likewise, the feature vector for each edge assignment consists of
+the two words and their features as well as surrounding words.
+Figure 4 shows the growth of the dual objective function after each pass through the data
+for SMO and EG, for several settings of the learning rate η and the initial setting of the θ
+parameters. Note that SMO starts up very quickly but slows down in a suboptimal region,
+while EG lags at the start, but overtakes SMO and achieves a larger than 10% increase in
+the value of the objective. These preliminary results suggest that a hybrid algorithm could
+get the beneﬁts of both, by starting out with several SMO updates and then switching to EG.
+The key issue is to switch from the marginal µ representation SMO maintains to the Gibbs θ
+representation that EG uses. We can ﬁnd θ that produces µ by ﬁrst computing conditional
+“probabilities” that correspond to our marginals (e.g. dividing edge marginals by node
+marginals in this case) and then letting θ’s be the logs of the conditional probabilities.
+
+References
+[1] Long version of this paper. Available at http://www.ai.mit.edu/people/mcollins.
+[2] Y. Altun, I. Tsochantaridis, and T. Hofmann. Hidden markov support vector machines. In
+ICML, 2003.
+[3] Michael Collins. Parameter estimation for statistical parsing models: Theory and practice of
+distribution-free methods. In Harry Bunt, John Carroll, and Giorgio Satta, editors, New Developments in Parsing Technology. Kluwer, 2004.
+[4] K. Crammer and Y. Singer. On the algorithmic implementation of multiclass kernel-based
+vector machines. Journal of Machine Learning Research, 2(5):265–292, 2001.
+[5] N. Cristianini, C. Campbell, and J. Shawe-Taylor. Multiplicative updatings for support-vector
+learning. Technical report, NeuroCOLT2, 1998.
+[6] N. Cristianini and J. Shawe-Taylor. An Introduction to Support Vector Machines and Other
+Kernel-Based Learning Methods. Cambridge University Press, 2000.
+[7] J. Kivinen and M. Warmuth. Exponentiated gradient versus gradient descent for linear predictors. Information and Computation, 132(1):1–63, 1997.
+[8] J. Kivinen and M. Warmuth. Relative loss bounds for multidimensional regression problems.
+Journal of Machine Learning Research, 45(3):301–329, 2001.
+[9] John Lafferty, Andrew McCallum, and Fernando Pereira. Conditional random ﬁelds: Probabilistic models for segmenting and labeling sequence data. In Proceedings of ICML-01, 2001.
+[10] D. Pollard. Convergence of Stochastic Processes. Springer-Verlag, 1984.
+[11] F. Sha, L. Saul, and D. Lee. Multiplicative updates for large margin classiﬁers. In COLT, 2003.
+[12] B. Taskar, C. Guestrin, and D. Koller. Max margin Markov networks. In NIPS, 2003.
+[13] I. Tsochantaridis, T. Hofmann, T. Joachims, and Y. Altun. Support vector machine learning for
+interdependent and structured output spaces. ICML, 2004 (To appear).
+
+

@@ -1,0 +1,801 @@
+Log-Linear Models for Label Ranking
+
+Ofer Dekel
+Computer Science & Eng.
+Hebrew University
+
+Christopher D. Manning
+Computer Science Dept.
+Stanford University
+
+Yoram Singer
+Computer Science & Eng.
+Hebrew University
+
+oferd@cs.huji.ac.il manning@cs.stanford.edu singer@cs.huji.ac.il
+
+Abstract
+Label ranking is the task of inferring a total order over a predeﬁned set of
+labels for each given instance. We present a general framework for batch
+learning of label ranking functions from supervised data. We assume that
+each instance in the training data is associated with a list of preferences
+over the label-set, however we do not assume that this list is either complete or consistent. This enables us to accommodate a variety of ranking
+problems. In contrast to the general form of the supervision, our goal is
+to learn a ranking function that induces a total order over the entire set
+of labels. Special cases of our setting are multilabel categorization and
+hierarchical classiﬁcation. We present a general boosting-based learning
+algorithm for the label ranking problem and prove a lower bound on the
+progress of each boosting iteration. The applicability of our approach is
+demonstrated with a set of experiments on a large-scale text corpus.
+
+1 Introduction
+This paper discusses supervised learning of label rankings – the task of associating instances with a total order over a predeﬁned set of labels. The ordering should be performed
+in accordance with some notion of relevance of the labels. That is, a label deemed relevant
+to an instance should be ranked higher than a label which is considered less relevant. With
+each training instance we receive supervision given as a set of preferences over the labels.
+Concretely, the supervision we receive with each instance is given in the form of a preference graph: a simple directed graph for which the labels are the graph vertices. A directed
+edge from a label y to another label y denotes that according to the supervision, y is more
+relevant to the instance than y . We do not impose any further constraints on the structure
+of the preference graph.
+The approach we employ distills and generalizes several learning settings. The simplest
+setting is multiclass categorization in which each instance is associated with a single label
+out of k possible labels. Such a setting was discussed for instance in [10] where a boosting algorithm called AdaBoost.MR (MR stands for Multiclass Ranking) for solving this
+problem was described and analyzed. Using the graph representation for multiclass problems, the preference graph induced by the supervision has k vertices and k − 1 edges. A
+directed edge points from the (single) relevant label to each of the k − 1 irrelevant labels
+(Fig. 1a). An interesting and practical generalization of multiclass problems is multilabel
+problems [10, 6, 4], in which a set of relevant labels (rather than a single label) is associated with each instance. In this case the supervision is represented by a directed bipartite
+
+1
+3
+
+1
+
+1
+
+2
+
+2
+
+3
+
+4
+
+5
+
+2
+1
+
+5
+4
+
+2
+
+3
+
+4
+
+(a)
+
+5
+
+3
+
+4
+
+(b)
+
+5
+
+(c)
+
+(d)
+
+Figure 1: The supervision provided to the algorithm associates every training instance with
+a preference graph. Different graph topologies deﬁne different learning problems. Examples that ﬁt naturally in our generalized setting: (a) multiclass single-label categorization
+where 1 is the correct label. (b) multiclass multilabel categorization where {1, 2} is the set
+of correct labels. (c) A multi-layer graph that encodes three levels of label “goodness”, useful for instance in hierarchical multiclass settings. (d) a general (possibly cyclic) preference
+graph with no predeﬁned structure.
+graph where the relevant labels constitute one side of the graph and the irrelevant labels
+the other side and there is a directed edge from each relevant label to each irrelevant label. (Fig. 1b). Similar settings are also encountered in information retrieval and language
+processing tasks. In these settings the set of labels contains linguistic structures such as
+tags and parses [1, 12] and the goal is to produce a total order over, for instance, candidate
+parses. The supervision might consist of information that distinguishes three goodness levels (Fig. 1c); for instance, the Penn Treebank [13] has notations to mark not only the most
+likely correct parse implicitly opposed to incorrect parses, but also to mark other possibly
+correct parses involving different phrasal attachments (additional information that almost
+all previous work in parsing has ignored). Additionally, one can more fully rank the quality
+of the many candidate parses generated for a sentence based on how many constituents
+or dependencies each shares with the correct parse – much more directly and effectively
+approaching the metrics on which parser quality is usually assessed. For concreteness, we
+use the term label ranking for all of these problems.
+Our learning framework decomposes each preference graph into subgraphs, where the
+graph decomposition procedure may take a general form and can change as a function
+of the instances. Ranking algorithms, especially in multilabel categorization problems, often reduce the ranking task into multiple binary decision problems by enumerating over all
+pairs of labels [7, 6, 4]. Such a reduction can easily be accommodated within our framework by decomposing the preference graph into elementary subgraphs, each consisting of a
+single edge. Another approach is to compare a highly preferred label (such as the correct or
+best parse of a sentence) with less preferred labels. Such approaches can be analyzed within
+our framework by deﬁning a graph decomposition procedure that generates a subgraph for
+each relevant label and the neighboring labels that it is preferred over. Returning to multilabel settings, this decomposition amounts to a loss that counts the number of relevant
+labels which are wrongly ranked below irrelevant ones.
+The algorithmic core of this paper is based on boosting-style algorithms for exponential
+models [2, 8]. Speciﬁcally, the boosting-style updates we employ build upon the construction used in [2] for solving multiclass problems. Our framework employing graph decomposition can also be used in other settings such as element ranking via projections [3, 11].
+Furthermore, settings in which a semi-metric is deﬁned over the label-set can also be reduced to the problem of label ranking, such as the parse ordering case mentioned above or
+when the labels are arranged in a hierarchical structure. We employ such a reduction in the
+category ranking experiments described in Sec. 4.
+The paper is organized as follows: a formal description of our setting is given in Sec. 2. In
+Sec. 3 we present an algorithm for learning label ranking functions. We demonstrate the
+merits of our approach on the task of category-ranking in Sec. 4 and conclude in Sec. 5.
+
+2 Problem Setting
+Let X be an instance domain and let Y be a set of labels, possibly of inﬁnite cardinality. A
+label ranking for an instance x ∈ X is a total order over Y, where y
+y implies that y
+is preferred over y as a label for x. A label ranking function f : X × Y → induces a
+label ranking for x ∈ X by y y ⇐⇒ f (x, y) > f (x, y ). Overloading our notation,
+we denote the label ranking induced by f for x by f (x).
+ 
+
+We assume that we are provided with a set of base label-ranking functions, h 1 , . . . , hn ,
+n
+and aim to learn a linear combination of the form f (x, y) =
+j=1 λj hj (x, y). We are
+m
+also provided with a training set S = {(xi , Gi )}i=1 where every example is comprised
+of an instance xi ∈ X and a preference graph Gi . As deﬁned in the previous section,
+a preference graph is a directed graph G = (V, E), for which the set of vertices V is
+deﬁned to be the set of labels Y and E is some ﬁnite set of directed edges. Every edge
+in a directed graph e ∈ E is associated with an initial vertex, init(e) ∈ V , and a terminal
+vertex, term(e) ∈ V . The existence of a directed edge between two labels in a preference
+graph indicates that init(e) is preferred over term(e) and should be ranked higher. We
+require preference graphs to be simple, namely to have no more than a single edge between
+any pair of vertices and to not contain any self-loops. However, we impose no additional
+constraints on the supervision, namely, the set of edges in a preference graph may be sparse
+and may even include cycles. This form of supervision was chosen for its generality and
+ﬂexibility. If Y is very large (possibly inﬁnite), it would be unreasonable to require that the
+training data contain a complete total order over Y for every instance.
+Informally, our goal is for the label ranking induced by f to be as consistent as possible with
+all of the preference graphs given in S. We say that f (xi ) disagrees with a preference graph
+Gi = (Vi , Ei ) if there exists an edge e ∈ Ei for which f xi , init(e) ≤ f xi , term(e) .
+Formally, we deﬁne a function δ that indicates when such a disagreement occurs
+1
+0
+
+δ(f (x), G) =
+
+if ∃e ∈ E s.t. f x, init(e) ≤ f x, term(e)
+otherwise .
+
+A simple measure of empirical ranking accuracy immediately follows from the deﬁnition
+of δ: We deﬁne the 0 − 1 error attained by a ranking function f on a training set S to be
+the number of training examples for which f (xi ) disagrees with Gi , namely,
+m
+
+ε0−1 (f, S) =
+
+δ(f (xi ), Gi ) .
+i=1
+
+The 0 − 1 error may be natural for certain ranking problems, however in general it is a
+rather crude measure of ranking inaccuracy, as it is invariant to the exact number of edges
+in Gi with which f (xi ) disagrees. Many ranking problems require a more reﬁned notion of
+ranking accuracy. Thus, we deﬁne the disagreement error attained by f (x i ) with respect
+to Gi to be the fraction of edges in Ei with which f (xi ) disagrees. The disagreement
+error attained on the entire training set is the sum of disagreement errors over all training
+examples. Formally, we deﬁne the disagreement error attained on S as
+m
+
+εdis (f, S) =
+i=1
+
+e ∈ Ei s.t. f x, init(e) ≤ f x, term(e)
+Ei
+
+.
+
+Both the 0 − 1 error and the disagreement error are reasonable measures of ranking inaccuracy. It turns out that both are instances of a more general notion of ranking error of which
+additional meaningful instances exist. The deﬁnition of this generalized error is slightly
+more involved but enables us to present a uniﬁed account of different measures of error.
+The missing ingredient needed to deﬁne the generalized error is a graph decomposition
+procedure A that we assume is given together with the training data. A takes as its input
+
+3
+
+A1
+−→
+
+2
+1
+
+5
+4
+
+3
+
+A2
+−→
+
+5
+4
+
+3
+1
+
+A3
+−→
+
+5
+4
+
+1
+
+4
+
+5
+
+1
+
+2
+
+3
+
+3
+
+5
+
+5
+
+3
+
+1
+
+2
+
+5
+
+2
+
+3
+
+3
+8
+
+4
+
+5
+
+εDom =
+
+3
+1
+
+4
+
+5
+
+1
+
+5
+2
+
+3
+
+2
+3
+
+1
+
+5
+
+4
+
+1
+
+3
+5
+
+4
+
+5
+
+1
+
+2
+
+2
+4
+
+εdom =
+
+2
+
+2
+
+1
+
+εdis =
+2
+
+2
+1
+
+1
+
+3
+5
+
+Figure 2: Applying different graph decomposition procedures induces different error functions: A1 induces εdis , A2 induces εDom and A3 induces εdom . The errors above are with
+respect to the order 1 2 3 4 5. Dashed edges without arrowheads disagree with
+this total order, and the errors are the fraction of subgraphs that contain disagreeing edges.
+a preference graph Gi and returns a set of si subgraphs of Gi , denoted {Gi,1 , . . . , Gi,si },
+where Gi,k = (Vi , Ei,k ). Each subgraph Gi,k is itself a preference graph and therefore
+δ(f (xi ), Gi,k ) is well deﬁned. We now deﬁne the generalized error attained by f (x i ) with
+respect to Gi as the fraction of subgraphs in A(Gi ) with which f (xi ) disagrees. The
+generalized error attained on S is the sum of generalized errors over all training instances.
+Formally, the generalized ranking error is deﬁned as
+m
+
+εgen (f, S, A) =
+i=1
+
+1
+si
+
+si
+
+δ(f (xi ), Gi,k ) where {Gi,1 , . . . , Gi,si } = A(Gi ) .
+
+(1)
+
+k=1
+
+Previously used losses for label ranking are special cases of the generalized error and are
+derived by choosing an appropriate decomposition procedure A. For instance, when A is
+deﬁned to be the identity transformation on graphs (A(G) = {G}), then the generalized
+ranking error is reduced to the 0 − 1 error. Alternatively, for a graph G with s edges, we
+can deﬁne A to return s different subgraphs of G, each consisting of a single edge from G
+(Fig. 2 top) and the generalized ranking error reduces to the disagreement error.
+An additional meaningful measure of error is the domination error. A vertex is said to
+dominate the set of neighboring vertices that are connected to its outgoing edges. We
+would like every vertex in the preference graph to be ranked above all of its dominated
+neighbors. The domination error attained by f (xi ) with respect to Gi is the fraction of
+vertices with outgoing edges which are not ranked above all of their dominated neighbors.
+Formally, let A be the procedure that takes a preference graph G = (V, E) and returns a
+subgraph for each vertex with outgoing edges, each such subgraph consisting of a dominating vertex, its dominated neighbors and edges between them (Fig. 2 middle). Now deﬁne
+εDom (f, S) = εgen (f, S, A) . Minimizing the domination error is useful for solving multilabel classiﬁcation problems. In these problems Y is of ﬁnite cardinality and every instance
+xi is associated with a set of correct labels Yi ⊆ Y. In order to reduce this problem to a
+ranking problem, we construct preference graphs Gi = (Y, Ei ), where Ei contains edges
+from every vertex in Yi to every vertex in Y \ Yi . In this case, the domination loss simply
+counts the number of labels in Yi that are not ranked above all of the labels in Y \ Yi .
+A ﬁnal interesting measure of error is the dominated error, denoted ε dom . The dominated
+error is proportional to the number of labels with incoming edges that are not ranked below
+all of the labels that dominate them. Its graph decomposition procedure is depicted at the
+bottom of Fig. 2. Additional instances of the generalized ranking error exist, and can be
+tailored to ﬁt most ranking problems. In the next section we set aside the speciﬁcs of the
+decomposition procedure and derive a minimization procedure for the generalized error.
+
+I NPUT: training data S = {(xi , Gi )}m s.t. xi ∈ X and Gi is a preference graph,
+i=1
+a decomposition procedure A and a set of base ranking functions {h 1 , . . . , hn }.
+I NITIALIZE : λ1 = (0, 0, . . . , 0)
+πi,e,j = hj xi , term(e) − hj xi , init(e)
+[1 ≤ i ≤ m, e ∈ Ei , 1 ≤ j ≤ n]
+ρ = maxi,e j |πi,e,j |
+I TERATE : For t = 1, 2, . . .
+qt,i,e =
+k:e∈Ei,k
++
+Wt,j =
+i,e:πi,e,j
+
+Λt,j =
+
+1+
+
+exp (λt · πi,e )
+e ∈Ei,k exp (λt · π i,e )
+
+qt,i,e πi,e,j
+si
+>0
+
+−
+Wt,j =
+i,e:πi,e,j
+
+[1 ≤ i ≤ m, e ∈ Ei ]
+−qt,i,e πi,e,j
+si
+<0
+
+[1 ≤ j ≤ n]
+
++
+Wt,j
+−
+Wt,j
+
+1
+ln
+2
+
+λt+1 = λt −
+
+[1 ≤ j ≤ n]
+
+Λt
+ρ
+
+Figure 3: A boosting based algorithm for generalized label ranking.
+
+3 Minimizing the Generalized Ranking Error
+Our goal is to minimize the generalized error for a given training set S and graph decomposition procedure A. This task generalizes standard classiﬁcation problems which are known
+to be NP-complete. Hence we do not attempt to minimize the error directly but rather minimize a smooth, strictly convex, upper bound on εgen . The disagreement of f (xi ) and a
+preference graph Gi,k = (Vi,k , Ei,k ) can be upper bounded by
+
+
+δ(f, xi , Gi,k ) ≤ log2 1 +
+
+exp f xi , term(e) − f xi , init(e)
+
+e∈Ei,k
+
+
+
+Denoting the right hand side of the above as L(f (xi ), Gi,k ), we deﬁne the loss attained by
+f on the entire training set S to be
+m
+
+L(f, S, A) =
+i=1
+
+1
+si
+
+si
+
+L(f (xi ), Gi,k ) where Gi,1 , . . . , Gi,si = A(Gi ) .
+k=1
+
+From the deﬁnition of the generalized error in Eq. (1), we conclude the upper bound
+εgen (f, S, A) ≤ L(f, S, A) . A boosting-based algorithm that globally minimizes the
+loss is given in Fig. 3. On every iteration, a weight qt,i,e is calculated for every edge in
+the training data, and the algorithm focuses on satisfying each edge with proportion to its
+weight. This set of weights plays the role of the distribution vector common in boosting
+algorithms for classiﬁcation. The following theorem bounds the decrease in loss on every
+iteration of the algorithm by a non-negative auxiliary function.
+Theorem 1 Let S = {(xi , Gi )}m be a training set such that every xi ∈ X and every
+i=1
+Gi is a preference graph. Let A be a graph decomposition procedure that deﬁnes for each
+preference graph Gi a set of subgraphs {Gi,1 , . . . , Gi,si } = A(Gi ). Denote by ft the
+ranking function obtained at iteration t of the algorithm given in Fig. 3 (f t = j λt,j hj ).
+Using the notation deﬁned in Fig. 3, the decrease in loss on iteration t is bounded by
+L(ft , S, A) − L(ft+1 , S, A) ≥
+
+1
+ρ
+
+n
+
+2
++
+Wt,j −
+
+j=1
+
+−
+Wt,j
+
+.
+
+Proof Deﬁne ∆t,i,k to be the difference between the loss attained by ft and the loss attained
+by ft+1 on (xi , Gi,k ), that is ∆t,i,k = L(ft (xi ), Gi,k ) − L(ft+1 (xi ), Gi,k ), and deﬁne
+φt,i,k = e∈Ei,k exp(λt · π i,e ). We can now rewrite L(ft (xi ), Gi,k ) as log 1 + φt,i,k .
+Using the inequality − log(1 − a) ≥ a (which holds when log(1 − a) is deﬁned), we get
+φt,i,k − φt+1,i,k
+∆t,i,k = log 1 + φt,i,k − log 1 + φt+1,i,k = − log 1 −
+1 + φt,i,k
+exp(λt · π i,e ) − exp(λt+1 · π i,e )
+φt,i,k − φt+1,i,k
+.
+(3)
+=
+≥
+1 + φt,i,k
+1 +
+e ∈Ei,k exp(λt · π i,e )
+e∈Ei,k
+
+The algorithm sets λt+1 = λt − (1/ρ)Λt and therefore exp(λt+1 · π i,e ) in Eq. (3) can be
+replaced by exp(λt · πi,e ) exp(−(1/ρ)Λt · πi,e ), yielding:
+∆t,i,k ≥
+e∈Ei,k
+
+1
+1 − exp − Λt · π i,e
+ρ
+
+exp(λt · πi,e )
+e ∈Ei,k exp(λt · π i,e )
+
+1 +
+
+Summing both sides of the above over the subgraphs in A(Gi ), and plugging in qt,i,e ,
+
+
+si
+exp(λt · π i,e )
+ 1 − exp − 1 Λt · π i,e
+
+∆t,i,k ≥
+1 +
+ρ
+exp(λt · π i,e )
+e ∈Ei,k
+e∈Ei
+
+k=1
+
+=
+
+e∈Ei
+
+.
+
+k:e∈Ei,k
+
+1
+qt,i,e 1 − exp − Λt · π i,e
+ρ
+
+.
+
+(4)
+
+We now rewrite (1/ρ)Λt · π i,e in more convenient form
+n
+
+n
+
+1
+1
+− Λt · π i,e = −
+Λt,j πi,e,j =
+ρ
+ρ
+j=1
+
+(|πi,e,j |/ρ) (−sign(πi,e,j )Λt,j ) .
+
+(5)
+
+j=1
+
+The rationale behind this rewriting is that we now think of (|πi,e,1 |/ρ) , . . . , (|πi,e,n |/ρ) as
+coefﬁcients in a subconvex combination of (−sign(πi,e,1 )Λt,1 ) , . . . , (−sign(πi,e,n )Λt,n ),
+since ∀j (|πi,e,j |/ρ) ≥ 0 and from the deﬁnition of ρ, j (|πi,e,1 |/ρ) ≤ 1. Plugging
+Eq. (5) into Eq. (4) and using the concavity of the function 1 − exp(·) in Eq. (4), we obtain
+
+
+
+si
+
+n
+
+∆t,i,k
+
+≥
+
+e∈Ei
+
+k=1
+
+qt,i,e 1 − exp 
+
+j=1
+
+n
+
+≥
+
+(|πi,e,j |/ρ) (−sign(πi,e,j )Λt,j )
+
+qt,i,e (|πi,e,j |/ρ) 1 − exp (−sign(πi,e,j )Λt,j ) .
+e∈Ei,k j=1
+
+Finally, we sum both sides of the above over all of S and plug in W + , W − and Λ to get
+n
+
+si
+
+L(ft , S, A) − L(ft+1 , S, A) =
+
+∆t,i,k
+i=1 k=1
+
+≥
+
+=
+
+=
+
+1
+ρ
+
+n
+
+1
+ρ
+
+m
+
+n
+
+qt,i,e |πi,e,j |
+1 − exp (−sign(πi,e,j )Λt,j )
+si
+j=1 i=1 e∈Ei
+
+
+
+
+
+−
++
+n
+Wt,j
+Wt,j
+1
++
+−
+Wt,j 1 −
+ + Wt,j 1 −
+
++
+−
+ρ j=1
+Wt,j
+Wt,j
+2
+
++
+Wt,j −
+j=1
+
+−
+Wt,j
+
+.
+
+Thm. 1 proves that the losses attained on each iteration form a monotonically nonincreasing sequence of positive numbers, that must therefore converge. However, we are
+interested in proving a stronger claim, namely that the vector sequence (λ t )∞ converges
+t=1
+to a globally optimal weight-vector λ . Since the loss is a convex function, it sufﬁces to
+show that the vector sequence converges to a stationary point of the loss. It is easily veriﬁed
+that the non-negative auxiliary function which bounds the decrease in loss equals zero only
+at stationary points of the loss. This fact implies that (λt )∞ indeed converges to λ if
+t=1
+the set of all feasible values for λ is compact and the loss has a unique global minimum.
+Compactness of the feasible set and uniqueness of the optimum can be explicitly enforced
+by adding a form of natural regularization to the boosting algorithm. The speciﬁcs of this
+technique exceed the scope of this paper and are discussed in [5]. In all, the boosting
+algorithm of Fig. 3 converges to the globally optimal weight-vector λ .
+
+4 Experiments
+To demonstrate our framework, we chose to
+learn a category ranking problem on a subset of the Reuters Corpus, Vol. 1 [14]. The
+full Reuters corpus is comprised of approximately 800, 000 textual news articles, collected over a period of 12 months in 1996–
+1997. Most of the articles are labeled by
+one or more categories. For the purpose of
+these experiments, we limited ourselves to
+the subset of articles collected during January 1997: approximately 66, 000 articles
+labeled by 103 different categories.
+
+0−1
+dis
+Dom
+dom
+
+ε0−1
+0.63
+0.73
+0.59
+0.59
+
+εdis
+0.068
+0.063
+0.049
+0.067
+
+εDom
+0.42
+0.51
+0.35
+0.41
+
+εdom
+0.12
+0.14
+0.10
+0.10
+
+Figure 4: The test error averaged over 5fold cross validation. The rows correspond
+to different optimization problems: minimizing ε0−1 , εdis , εDom and εdom . Errors
+are measured using all 4 error measures.
+
+An interesting aspect of the Reuters corpus is that the categories are arranged in a hierarchy. The set of possible labels contains both general categories and more speciﬁc ones,
+where the speciﬁc categories reﬁne the general categories. This concept is best explained
+with an example: three of the categories in the corpus are Economics, Government Finance and Government Borrowing. It would certainly be correct to categorize an article on
+government borrowing as either government ﬁnance or economics, however these general
+categories are less speciﬁc and do not describe the article as well. Furthermore, misclassifying such an article as government revenue is by far better than misclassifying it as sports.
+In summary, the category hierarchy induces a preference over the set of labels. We exploit
+this property to generate supervision for the label ranking problem at hand.
+Formally, we view every category as a vertex in a rooted tree, where the tree root corresponds to a general abstract category that is relevant to all of the articles in the corpus and
+every category is a speciﬁc instance of its parent in the tree. The labels associated with an
+article constitute a set of paths from the tree root to a set of leaves. The original corpus is
+somewhat inconsistent in that not all paths end in a leaf, but rather end in some inner vertex.
+To ﬁx this inconsistency, we added a dummy child vertex to every inner vertex and diverted
+all paths that originally end in this inner vertex to its new child. Our learning problem then
+becomes the problem of ranking leaves. The severity of wrongly categorizing an article
+by a leaf is proportional to the graph distance between this leaf and the closest correct leaf
+given in the corpus. The preference graph that encodes this preference is a multi-layer
+graph where the top layer contains all of the correct labels, the second layer contains all of
+their sibling vertices in the tree and so on. Every vertex in the multi-layer preference graph
+has outgoing edges to all vertices in lower layers, but there are no edges between vertices
+in the same layer. For practical purposes, we conducted experiments using only 3-layer
+preference graphs generated by collapsing all of the layers below 3 to a single layer.
+
+All of the experiments were carried out using 5-fold cross validation. The word counts
+for each article were used to construct base ranking functions in the following way: for
+every word w and every category y, let w(xi ) denote the number of appearances of w in
+the article xi . Then, deﬁne
+log(w(xi )) + 1 if w(xi ) > 0 and yi = y
+hw,y (xi , yi ) =
+(6)
+0
+otherwise .
+For each training set, we ﬁrst applied a heuristic feature selection method common in boosting applications [10] to select some 3200 informative words. These words then deﬁne
+103 · 3200 base ranking functions as shown in Eq. (6). Next, we ran our learning algorithm
+using each of the 4 graph decomposition procedures discussed above: zero-one, disagreement, domination and dominated. After learning each problem, we calculated all four error
+measures on the test data. The results are presented in Fig. 4. Two points are worth noting.
+First, these results are not comparable with previous results for multilabel problems using
+this corpus, since label ranking is a more difﬁcult task. For instance, an average preference
+graph in the test data has 820 edges, and the error for such a graph equals zero only if every
+single edge agrees with the ranking function. Second, the experiments clearly indicate that
+the results obtained by minimizing the domination loss are better than the other ranking
+losses, no matter what error is used for evaluation. In particular, employing the domination
+loss yields signiﬁcantly better results than using the disagreement loss which has been the
+commonly used decomposition method in categorization problems [7, 10, 6, 4].
+
+5 Summary
+We presented a general framework for label ranking problems by means of preference
+graphs and the graph decomposition procedure. This framework was shown to generalize
+other decision problems, most notably multilabel categorization. We then described and
+analyzed a boosting algorithm that works with any choice of graph decomposition. We
+are currently exporting the approach to learning in inner product spaces, where different
+graph decomposition procedures result in different bindings of slack variables. Another
+interesting question is whether the graph decomposition approach can be combined with
+probabilistic models for orderings [9] to achieve algorithmic efﬁciency.
+
+References
+[1] M. Collins and N. Duffy. New ranking algorithms for parsing and tagging: Kernels over discrete
+structures, and the voted perceptron. In 30th Annual Meeting of the ACL, 2002.
+[2] M. Collins, R.E. Schapire, and Y. Singer. Logistic regression, AdaBoost and Bregman distances. Machine Learning, 47(2/3):253–285, 2002.
+[3] K. Crammer and Y. Singer. Pranking with ranking. NIPS 14, 2001.
+[4] K. Crammer and Y. Singer. A new family of online algorithms for category ranking. Jornal of
+Machine Learning Research, 3:1025–1058, 2003.
+[5] O. Dekel, S. Shalev-Shwartz, and Y. Singer. Smooth epsilon-insensitive regression by loss
+symmetrization. COLT 16, 2003.
+[6] A. Elisseeff and J. Weston. A kernel method for multi-labeled classiﬁcation. NIPS 14, 2001.
+[7] Y. Freund, R. Iyer, R. E.Schapire, and Y. Singer. An efﬁcient boosting algorithm for combining
+preferences. In Machine Learning: Proc. of the Fifteenth International Conference, 1998.
+[8] G. Lebanon and J. Lafferty. Boosting and ML for exponential models. NIPS 14, 2001.
+[9] G. Lebanon and J. Lafferty. Conditional models on the ranking poset. NIPS 15, 2002.
+[10] R. E. Schapire and Y. Singer. BoosTexter: A boosting-based system for text categorization.
+Machine Learning, 32(2/3), 2000.
+[11] A. Shashua and A. Levin. Ranking with large margin principle. NIPS 15, 2002.
+[12] K. Toutanova and C. D. Manning. Feature selection for a rich HPSG grammar using decision
+trees. In Proceedings of the Sixth Conference on Natural Language Learning (CoNLL), 2002.
+[13] The Penn Treebank Project. http://www.cis.upenn.edu/∼treebank/.
+[14] Reuters Corpus Vol. 1. http://about.reuters.com/researchandstandards/corpus/.
+
+

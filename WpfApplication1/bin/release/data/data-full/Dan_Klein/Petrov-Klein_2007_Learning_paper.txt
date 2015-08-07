@@ -1,0 +1,502 @@
+Learning and Inference for Hierarchically Split PCFGs
+Slav Petrov and Dan Klein
+{petrov,klein}@cs.berkeley.edu
+University of California, Berkeley,
+Berkeley, CA, 94720
+
+FRAG
+
+Abstract
+RB
+
+Treebank parsing can be seen as the search for an optimally
+reﬁned grammar consistent with a coarse training treebank.
+We describe a method in which a minimal grammar is hierarchically reﬁned using EM to give accurate, compact grammars. The resulting grammars are extremely compact compared to other high-performance parsers, yet the parser gives
+the best published accuracies on several languages, as well
+as the best generative parsing numbers in English. In addition, we give an associated coarse-to-ﬁne inference scheme
+which vastly improves inference time with no loss in test set
+accuracy.
+
+Introduction
+We present a general method for inducing structured models.
+Given labeled training data we extract a minimal model and
+show how to induce additional latent structure by iteratively
+reﬁning the model. We then present an efﬁcient inference
+procedure that takes advantage of the hierarchical structure
+of our model. While we illustrate our method on parsing natural language, the technique is applicable to other domains
+such as speech recognition and machine translation.
+Parsing is the task of uncovering the syntactic structure
+of language and is often viewed as an important prerequisite for building systems capable of understanding language (see Lease et al. (2006) for an overview of parsing and its applications). Parsers are typically trained on
+a collection of hand parsed sentences (treebank). Because
+the constituents of the treebank imply unrealistic contextfreedom assumptions, they are not well suited for modeling language. Therefore, a variety of techniques have been
+developed to both enrich and generalize the naive grammar by manually introducing annotations (Collins 1999;
+Klein & Manning 2003). In contrast, we induce latent structures without any additional human input, resulting in stateof-the art parsing performance on a variety of languages.
+In the following we will focus on two problems: learning,
+in which we must select a model given a treebank, and inference, in which we must select a parse for a sentence given
+the learned model.
+Copyright c 2007, Association for the Advancement of Artiﬁcial
+Intelligence (www.aaai.org). All rights reserved.
+
+ROOT
+
+ROOT
+
+NP
+
+FRAG
+
+FRAG-x
+
+.
+
+FRAG
+
+Not DT NN .
+this year
+
+(a)
+
+RB
+
+NP
+
+.
+.
+
+Not DT NN
+this year
+
+(b)
+
+FRAG-x
+RB-x
+
+NP-x
+
+.-x
+.
+
+Not DT-x NN-x
+this year
+
+(c)
+
+Figure 1: (a) The original tree. (b) The (binarized) X-bar tree.
+(c) The annotated tree.
+
+Learning
+To obtain a grammar from the training trees, we learn a
+set of rule probabilities on latent annotations that maximizes the likelihood of the training trees. The ExpectationMaximization (EM) algorithm allows us to do that, despite
+the fact that the original trees lack the latent annotations.
+
+Initialization
+We consider PCFG grammars which are derived from a raw
+treebank according to the method of Petrov et al. (2006), as
+follows: A simple X-bar grammar is created by binarizing
+the treebank trees; for each local tree rooted at an evaluation
+nonterminal X, we introduce a cascade of new nodes labeled
+X so that each has two children (Figure 1). Since we will
+evaluate our grammar on its ability to recover the Penn Treebank nonterminals, we must include them in our grammar.
+Therefore, this initialization is the absolute minimum starting grammar that includes the evaluation nonterminals (and
+maintains separate grammar symbols for each of them). It is
+a very compact grammar: 98 symbols,1 236 unary rules, and
+3840 binary rules. However, it also has a very low parsing
+performance: 63.4% F1 2 on the development set.
+
+EM-Algorithm
+Given a sentence w and its unannotated tree T , consider
+a nonterminal A spanning (r, t) and its children B and C
+spanning (r, s) and (s, t). Let Ax be a subsymbol of A,
+By of B, and Cz of C. Then the inside and outside probdef
+
+def
+
+abilities PIN (r, t, Ax ) = P (wr:t |Ax ) and POUT (r, t, Ax ) =
+
+1
+45 part of speech tags, 27 phrasal categories and the 26 intermediate symbols which were added during binarization
+2
+2P R
+The harmonic mean of precision P and recall R: P +R .
+
+P (w1:r Ax wt:n ) can be computed recursively using the set
+of rule probabilities β (Matsuzaki, Miyao, & Tsujii 2005):
+β(Ax → By Cz )
+PIN (r, t, Ax ) =
+×PIN (r, s, By )PIN (s, t, Cz )
+POUT (r, s, By ) =
+x,z
+
+POUT (s, t, Cz ) =
+x,y
+
+β(Ax → By Cz )
+×POUT (r, t, Ax )PIN (s, t, Cz )
+β(Ax → By Cz )
+×POUT (r, t, Ax )PIN (r, s, By )
+
+Although we show only the binary component here, of
+course there are both binary and unary productions that are
+included. In the Expectation step, one computes the posterior probability of each annotated rule and position in each
+training set tree T :
+P ((r, s, t, Ax → By Cz )|w, T ) ∝ POUT (r, t, Ax )
+×β(Ax → By Cz )PIN (r, s, By )PIN (s, t, Cz )
+(1)
+In the Maximization step, one uses the above probabilities
+as weighted observations to update the rule probabilities:
+#{Ax → By Cz }
+β(Ax → By Cz ) :=
+y ′ ,z ′ #{Ax → By ′ Cz ′ }
+Note that, because there is no uncertainty about the location
+of the brackets, this formulation of the inside-outside algorithm is linear in the length of the sentence rather than cubic
+(Pereira & Schabes 1992).
+
+Splitting
+EM is only guaranteed to ﬁnd a local maximum of the likelihood, and, indeed, in practice it often gets stuck in a suboptimal conﬁguration. If the search space is very large, even
+restarting may not be sufﬁcient to alleviate this problem.
+We therefore repeatedly split and re-train the grammar. In
+each iteration we initialize EM with the results of the smaller
+grammar, splitting every previous annotation symbol in two
+and adding a small amount of randomness (1%) to break the
+symmetry. Hierarchical splitting leads to better parameter
+estimates over directly estimating a grammar with 2k subsymbols per symbol. It is interesting to note that the induced
+splits are linguistically interpretable. As an example some
+of the learnt categories for the determiner part of speech are
+shown in Figure 2.
+
+Merging
+Creating more latent annotations results in a tighter ﬁt to
+the training data but at the same time can lead to overﬁtting.
+Therefore, it would be to our advantage to split the latent annotations only where needed, rather than splitting them all.
+In addition, if all symbols are split equally often, one quickly
+(4 split cycles) reaches the limits of what is computationally
+feasible in terms of training time and memory usage. To prevent oversplitting, we could measure the utility of splitting
+each latent annotation individually and then split the best
+ones ﬁrst. However, not only is this impractical, requiring
+an entire training phase for each new split, but it assumes
+the contributions of multiple splits are independent. In fact,
+extra subsymbols may need to be added to several nonterminals before they can cooperate to pass information along the
+
+the
+
+G1
+
+that
+
+G2
+πi
+
+y,z
+
+X-bar = G0
+
+G3
+
+some
+
+this
+this
+
+the
+
+That
+
+some
+
+the
+
+these
+
+the
+
+a
+
+The a
+
+G4
+G5
+G = G6 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17
+
+Figure 2: Hierarchical reﬁnement proceeds top-down while projection recovers coarser grammars. The top word for the ﬁrst reﬁnements of the determiner tag is shown on the right.
+
+parse tree. Therefore, we go in the opposite direction; that
+is, we split every symbol in two, train, and then measure for
+each annotation the loss in likelihood incurred when removing it. If this loss is small, the new annotation does not carry
+enough useful information and can be removed. What is
+more, contrary to the gain in likelihood for splitting, the loss
+in likelihood for merging can be efﬁciently approximated.
+Let T be a training tree generating a sentence w. Consider
+a node n of T spanning (r, t) with the label A; that is, the
+subtree rooted at n generates wr:t and has the label A. In the
+latent model, its label A is split up into several latent labels,
+Ax . The likelihood of the data can be recovered from the
+inside and outside probabilities at n:
+P(w, T ) =
+
+PIN (r, t, Ax )POUT (r, t, Ax )
+
+(2)
+
+x
+
+Consider merging, at n only, two annotations A1 and A2 .
+Since A now combines the statistics of A1 and A2 , its production probabilities are the sum of those of A1 and A2 ,
+weighted by their relative frequency p1 and p2 in the training data. Therefore the inside score of A is:
+PIN (r, t, A) = p1 PIN (r, t, A1 ) + p2 PIN (r, t, A2 )
+Since A can be produced as A1 or A2 by its parents, its
+outside score is:
+POUT (r, t, A) = POUT (r, t, A1 ) + POUT (r, t, A2 )
+Replacing these quantities in (2) gives us the likelihood
+Pn (w, T ) where these two annotations and their corresponding rules have been merged, around only node n.
+We approximate the overall loss in data likelihood due to
+merging A1 and A2 everywhere in all sentences wi by the
+product of this loss for each local change:
+Pn (wi , Ti )
+∆ANNOTATION (A1 , A2 ) =
+P(wi , Ti )
+i
+n∈Ti
+
+This expression is an approximation because it neglects interactions between instances of a symbol at multiple places
+in the same tree. These instances, however, are often far
+apart and are likely to interact only weakly, and this simpliﬁcation avoids the prohibitive cost of running an inference
+algorithm for each tree and annotation. We refer to the operation of splitting annotations and re-merging some of them
+based on likelihood loss as a split-merge (SM) cycle. SM
+cycles allow us to progressively increase the complexity of
+our model, giving priority to the most useful extensions.
+
+automatically tune the pruning thresholds on held-out data.
+90
+88
+
+Projection
+
+F1
+
+86
+84
+82
+80
+78
+76
+74
+
+50% Merging and Smoothing
+50% Merging
+Splitting but no Merging
+Flat Training
+200
+400
+600
+800
+1000
+Total number of grammar symbols
+
+Figure 3: Hierarchical training leads to better parameter estimates.
+Merging reduces the grammar size signiﬁcantly, while preserving
+the accuracy and enabling us to do more SM cycles. Parameter
+smoothing leads to even better accuracy.
+
+Smoothing
+Splitting nonterminals leads to a better ﬁt to the data by allowing each annotation to specialize in representing only a
+fraction of the data. The smaller this fraction, the higher the
+risk of overﬁtting. Merging, by allowing only the most beneﬁcial annotations, helps mitigate this risk, but it is not the
+only way. We can further minimize overﬁtting by forcing the
+production probabilities from annotations of the same nonterminal to be similar. For example, a noun phrase in subject
+position certainly has a distinct distribution, but may beneﬁt
+from being smoothed with counts from other noun phrases.
+Smoothing the productions of each subsymbol by shrinking
+them towards their common base symbol gives a more reliable estimate, allowing them to share statistical strength.
+We perform smoothing in a linear way. The estimated
+probability of a production px = P(Ax → By Cz ) is interpolated with the average over all subsymbols of A.
+1
+px
+p′ = (1 − α)px + α¯ where p =
+p
+¯
+x
+n x
+Here, α is a small constant: we found 0.01 to be a good
+value, but the actual quantity was surprisingly unimportant.
+
+Inference
+Once we have learned a reﬁned PCFG we can use it to do inference to predict the syntactic structure of a given sentence.
+
+Coarse-to-Fine Approaches
+When working with large grammars, it is standard to prune
+the search space in some way. A commonly adopted strategy is to use a pre-parse phase in which a sentence is rapidly
+parsed with a very coarse, treebank grammar. Any item
+X:[i, j] with sufﬁciently low posterior probability in the preparse triggers the pruning of its reﬁned variants in a subsequent full parse. In Petrov & Klein (2007), we proposed
+a novel multi-stage coarse-to-ﬁne method which is particularly natural for our hierarchically split grammar, but which
+is, in principle, applicable to any grammar. We construct a
+sequence of increasingly reﬁned grammars, reparsing with
+each reﬁnement. The contributions of our method are that
+we derive sequences of reﬁnements in a new way, we consider reﬁnements which are themselves complex, and, because our full grammar is not impossible to parse with, we
+
+In our method, which we call hierarchical coarseto-ﬁne parsing, we consider a sequence of PCFGs
+G0 , G1 , . . . Gn = G, where each Gi is a reﬁnement of the
+preceding grammar Gi−1 and G is the full grammar of interest. Each grammar Gi is related to G = Gn by a projection
+πn→i or πi for brevity. A projection is a map from the nonterminal (including pre-terminal) symbols of G onto a reduced domain. A projection of grammar symbols induces a
+projection of rules and therefore entire non-weighted grammars (see Figure 2).
+In our case, we also require the projections to be sequentially compatible, so that πi→j = πk→j ◦ πi→k . That is, each
+projection is itself a coarsening of the previous projections.
+In particular, the projection πi→j is the map that collapses
+split symbols in round i to their earlier identities in round j.
+It is straightforward to take a projection π and map a
+CFG G to its induced projection π(G). What is less obvious is how the probabilities associated with the rules of
+G should be mapped. In the case where π(G) is coarser
+than the treebank originally used to train G, and when that
+treebank is available, it is easy to project the treebank and directly estimate, say, the maximum-likelihood parameters for
+π(G).However, treebank estimation has several limitations.
+First, the treebank used to train G may not be available. Second, if the grammar G is heavily smoothed or otherwise regularized, its own distribution over trees may be far from that
+of the treebank. Third, and most importantly, we may wish
+to project grammars for which treebank estimation is problematic, for example, grammars which are more reﬁned than
+the observed treebank grammars.
+
+Estimating Projected Grammars
+There is a well worked-out notion of estimating a grammar from an inﬁnite distribution over trees (Corazza & Satta
+2006). In particular, we can estimate parameters for a projected grammar π(G) from the tree distribution induced by
+G (which can itself be estimated in any manner).
+The generalization of maximum likelihood estimation is
+to ﬁnd the estimates for π(G) with minimum KL divergence
+from the tree distribution induced by G. Since π(G) is a
+grammar over coarser symbols, we ﬁt π(G) to the distribution G induces over π-projected trees: P (π(T )|G). The
+proofs of the general case are given in Corazza & Satta
+(2006), but the resulting procedure is quite intuitive. Given
+a (fully observed) treebank, the maximum-likelihood estimate for the probability of a rule X → Y Z would simply be
+the ratio of the count of X to the count of the conﬁguration
+X → Y Z. If we wish to ﬁnd the estimate which has minimum divergence to an inﬁnite distribution P (T ), we use the
+same formula, but the counts become expected counts:
+EP (T ) [X → Y Z]
+P (X → Y Z) =
+EP (T ) [X]
+with unaries estimated similarly. In our speciﬁc case, X, Y,
+and Z are symbols in π(G), and the expectations are taken
+over G’s distribution of π-projected trees, P (π(T )|G).
+
+G0
+G2
+G4
+G6
+Nonterminals
+98
+217
+485
+1090
+Rules
+3,700 19,600 126,100 531,200
+No Pruning
+52 min 99 min 288 min 1612 min
+X-Bar Pruning 8 min 14 min 30 min 111 min
+Coarse to Fine 6 min 10 min 12 min
+15 min
+F1 for above
+64.8
+85.2
+89.7
+91.2
+Table 1: Grammar sizes, parsing times and accuracies for hierarchically split PCFGs with and without hierarchical coarse-to-ﬁne
+parsing on our development set.
+
+Calculating Projected Expectations
+Concretely, we can estimate the minimum divergence parameters of π(G) for any projection π and PCFG G if we
+can calculate the expectations of the projected symbols and
+rules according to P (π(T )|G).We can exploit the structure
+of our projections to obtain the desired expectations in a simple and efﬁcient way.
+First, consider the problem of calculating the expected
+counts of a symbol X in a tree distribution given by a grammar G, ignoring the issue of projection. These expected
+counts obey the following one-step equations (assuming a
+unique root symbol):
+c(root) = 1
+c(X) =
+
+P (αXβ|Y )c(Y )
+Y →αXβ
+
+Here, α, β, or both can be empty, and a rule X → γ appears
+in the sum once for each X it contains.
+In principle, this linear system can be solved in any way.3
+In our experiments, we solve this system iteratively, with the
+following recurrences:
+1 if X = root
+c0 (X) ←
+0 otherwise
+ci+1 (X) ←
+
+P (αXβ|Y )ci (Y )
+
+G−1 . At each stage, chart items with low posterior probability are removed from the chart, and we proceed to compute inside/outside scores with the next, more reﬁned grammar, using the projections πi→i−1 to map between symbols
+in Gi and Gi−1 . In each pass, we skip chart items whose
+projection into the previous stage had a probability below a
+stage-speciﬁc threshold, until we reach G = Gn (after seven
+passes in our case). For G, we do not prune but instead return the minimum risk tree.
+The pruning thresholds were empirically determined on
+a held out set. We found our projected grammar estimates
+to be signiﬁcantly better suited for pruning than the original
+grammars, which were learned during training.
+
+Experimental Results
+Table 1 shows the tremendous reduction in parsing time (all
+times are cumulative) and gives an overview over grammar
+sizes and parsing accuracies. In particular, in our Java implementation on a 3GHz processor, it is possible to parse
+1600 sentences in less than 900 sec. with an F1 of 91.2%.
+This compares favorably to the previously best generative
+lexicalized parser for English (Charniak & Johnson (2005):
+90.7% in 1300 sec.). For German and Chinese our learnt
+grammars outperform the previously best parsers by an even
+larger margin (see Petrov & Klein (2007) for details).
+
+Conclusions
+The approach we have presented gives an extremely accurate
+and compact grammar, learned in a fully automated fashion.
+In addition, the split structure admits an extremely efﬁcient
+coarse-to-ﬁne inference scheme. This approach is applicable more broadly, to other problems where we have observed
+training structure which is coarser than the true underlying
+process in a similar way. The ﬁnal parser along with grammars for a variety of languages is available for download at
+http://nlp.cs.bekerley.edu.
+
+Y →αXβ
+
+Note that, as in many other iterative ﬁxpoint methods, such
+as policy evaluation for Markov decision processes, the
+quantities ck (X) have a useful interpretation as the expected
+counts ignoring nodes deeper than depth k (i.e. the roots are
+all the root symbol, so c0 (root) = 1). This iteration may of
+course diverge if G is improper, but, in our experiments, it
+converged within around 25 iterations; this is unsurprising,
+since the treebank contains few nodes deeper than 25 and
+our base grammar G seems to have captured this property.
+
+Hierarchical Coarse-to-Fine Parsing
+For a ﬁnal grammar G = Gn , we compute estimates for the
+n projections Gn−1 , . . . , G0 =X-Bar, where Gi = πi (G) as
+described in the previous section. Additionally we project
+to a grammar G−1 in which all nonterminals, except for the
+preterminals, have been collapsed. During parsing, we start
+of by exhaustively computing the inside/outside scores with
+3
+Whether or not the system has solutions depends on the parameters of the grammar. In particular, G may be improper, though
+the results of Chi (1999) imply that G will be proper if it is the
+maximum-likelihood estimate of a ﬁnite treebank.
+
+References
+Charniak, E., and Johnson, M. 2005. Coarse-to-Fine N-Best Parsing and MaxEnt Discriminative Reranking. In ACL’05.
+Chi, Z. 1999. Statistical properties of probabilistic context-free
+grammars. In Computational Linguistics.
+Collins, M. 1999. Head-Driven Statistical Models for Natural
+Language Parsing. Ph.D. Dissertation, U. of Penn.
+Corazza, A., and Satta, G. 2006. Cross-entropy and estimation of
+probabilistic context-free grammars. In HLT-NAACL ’06.
+Klein, D., and Manning, C. 2003. Accurate unlexicalized parsing.
+In ACL ’03, 423–430.
+Lease, M.; Charniak, E.; Johnson, M.; and McClosky, D. 2006.
+A look at parsing and its applications. In AAAI ’06.
+Matsuzaki, T.; Miyao, Y.; and Tsujii, J. 2005. Probabilistic CFG
+with latent annotations. In ACL ’05, 75–82.
+Pereira, F., and Schabes, Y. 1992. Inside-outside reestimation
+from partially bracketed corpora. In ACL ’92.
+Petrov, S., and Klein, D. 2007. Improved inference for unlexicalized parsing. In HLT-NAACL ’07.
+Petrov, S.; Barrett, L.; Thibaux, R.; and Klein, D. 2006. Learning
+accurate, compact, and interpretable tree annotation. In ACL ’06.
+
+

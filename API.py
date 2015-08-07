@@ -184,4 +184,4 @@ if len(sys.argv) != 0:
     if sys.argv[1] == "delete_classifier":
         delete_classifier(int(sys.argv[2]))
     if sys.argv[1] == "build_histogram":
-        build_histogram(sys.argv[2])
+        build_histogram(sys.argv[2], sys.argv[3])

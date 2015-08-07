@@ -1,0 +1,1292 @@
+A Data Structure for Maintaining Acyclicity in Hypergraphs
+Percy Liang
+MIT CSAIL
+Cambridge, MA, USA
+pliang@mit.edu
+
+Nathan Srebro
+Univ. of Toronto Dept. of CS
+Toronto, ON, Canada
+nati@cs.toronto.edu
+
+Abstract
+Acyclicity is an important property of hypergraphs which has applications in many areas such
+as graphical models and relational databases. Our contributions in this paper are two-fold: First, we
+present two new characterizations of a hyperforest (equivalently, acyclic hypergraph or triangulated
+graph) through a hierarchical decomposition of the hyperforest and through the lack of hypercycles,
+a concept deﬁned in this paper. Second, we present the ﬁrst efﬁcient dynamic data structure for
+maintaining acyclicity in a hypergraph. The data structure uses as a building block Tarjan’s UnionFind data structure (which can be used to maintain acyclicity in graphs) to achieve an amortized
+expected query time that has an inverse Ackermann dependence on the number of vertices. To
+demonstrate the practicality of this data structure, we conduct experiments using our data structure
+to construct high-weight hyperforests.
+
+1 Introduction
+Acyclic hypergraphs, or hyperforests (Figure 1 shows several examples), are a natural generalization
+of forests. They have been independently and equivalently deﬁned in many different domains and are
+also studied as triangulated graphs (hyperforests are hypergraphs formed by the cliques of triangulated
+graphs). Hyperforests are useful in many domains where higher-order relations are to be captured but
+certain tree-like “acyclic” properties are also desired.
+
+(a) a 1-hyperforest
+
+(b) a 2-hyperforest
+
+(c) a 3-hyperforest
+
+(d) a 9-hyperforest
+
+Figure 1: Examples of hyperforests of various tree-widths.
+The acyclicity provided by hyperforests allows many calculations to be carried out efﬁciently using
+dynamic programming. Such calculations include a broad class of combinatorial problems [Cou90] as
+well as inference in graphical models [Bes74]. In these applications, while the computation is often
+exponential in the tree-width of the hyperforest (which corresponds to the maximum size of the hyperedges, or cliques in a triangulated graph), it is polynomial (often only linear) in the number of vertices
+the hyperforest. The class of K-hyperforests (having tree-width at most K) is then of particular interest.
+When choosing to use K-hyperforests for the above reasons, it is often desirable to ﬁnd the best
+K-hyperforest, where the quality of a hyperforest is equal to the sum of precomputed weights on its hyperedges. This criterion leads to the problem of ﬁnding a maximum-weight K-hyperforest [KS01]. The
+special case where K = 1 is equivalent to the problem of ﬁnding a minimum spanning tree (MST). This
+problem appears as constructing maximum likelihood Markov trees (Chow-Liu trees) [CL68], HunterWorsley trees for Bonferroni inequalities [Wor82], and trees used to ensure efﬁcient combinatorial op1
+
+timization (e.g. [Mat99]). Generalizations to higher tree-width hyperforests are possible, desirable, and
+have recently been investigated [Mal91, Sre01, BP01, Tom86].
+Unfortunately, when K > 1, ﬁnding the maximum weight K-hyperforest is NP-complete and ﬁnding good approximation algorithms remains an open problem [Sre00]. A common heuristic is a Primlike greedy approach, in which hyperedges containing a single new vertex are incrementally added to
+a fully-connected hypertree [Mal91, BP01, BJ02]. Alternatively, one might consider a more ﬂexible
+and possibly more powerful Kruskal-like greedy approach, in which hyperedges are added to a possibly unconnected K-hyperforest. In order to do so, it is necessary to ensure that a candidate hyperedge
+would not break the acyclicity of the existing hyperforest. A particular situation where the Kruskal-like
+approach is necessary is when we would like to greedily augment an initial, possibly unconnected, hyperforest which is required or strongly desired in our ﬁnal hyperforest. For example, we may want to
+augment a high-weight substructure found by global search techniques (it is possible to efﬁciently ﬁnd
+hyperforests containing at least a constant fraction of the optimal weight [KS01]).
+Also in other situations, one might wish to add hyperedges to a hyperforest, ensuring that acyclicity is
+maintained. For example, acyclicity is important in precluding possible conﬂicts in relational databases
+[BFMY83] and one might want to ensure that adding new relations to an existing database scheme
+maintains acyclicity.
+When augmenting forests, Tarjan’s Union-Find dynamic data structure can be used to efﬁciently
+check if a candidate edge would break the acyclicity by keeping track of the connected components in
+the graph. The main result in this paper is a dynamic data structure for hyperforests that serves a purpose
+analogous to Tarjan’s Union-Find structure for forests: for any candidate hyperedge, the data structure
+can verify that adding the hyperedge will not break the acyclicity of the hyperforest.
+Another product of this paper is the study acyclicity in hypergraphs. We show that in hypergraphs, it
+is no longer enough to consider incidence or reachability between two hyperedges as binary properties as
+it is in graphs. Instead, we present a novel hierarchical view of hyperforests, where each level captures a
+different extent of reachability. Although acyclic hypergraphs have been studied for three decades using
+many equivalent characterizations, we are not aware of any deﬁnitions of a hypercycle, a certiﬁcate that
+a hypergraph is not acyclic; this paper provides such a concept. These two characterizations provide
+deeper insight into the nature of acyclicity and help us in constructing and proving correctness of the
+data structure we present.
+The rest of this paper is organized as follows: in Section 2 we deﬁne hyperforests and specify the
+desired data structure. In Section 3 we provide two new characterizations of acyclicity based on a hierarchical decomposition of a hyperforest and on the absence of hypercycles. After laying the foundations of
+acyclicity, we present the data structure in Section 4. Finally, in Section 5 we give experimental results
+on using the data structure in a Kruskal-like approach to ﬁnd high-weight hypertrees, evaluating both
+the efﬁciency of the algorithm and quality of its solutions.
+
+2 Hypergraphs and acyclicity
+Preliminaries A hypergraph H over a set of vertices V is a collection of hyperedges, where each
+hyperedge is a subset of V . In particular, a k-hyperedge is a set of k+1 vertices, and a k-hypergraph is
+one in which each of its hyperedges contains at most k+1 vertices. We call k the order of the hypergraph.
+Note that standard (undirected) graphs are 1-hypergraphs, where each edge is a 1-hyperedge containing
+2 vertices.
+A hyperedge h1 can be a superset of another hyperedge h 2 ; in this case, we say that h1 covers h2 .
+A maximal hyperedge in a hypergraph is one that is only covered by itself. In this paper, we consider
+two hypergraphs to be equivalent if they have the same set of maximal hyperedges (or equivalently,
+same set of covered hyperedges). One can think of the hypergraph implicitly containing all its covered
+hyperedges. However, in this paper, when we refer to the hyperedges of a hypergraph, we are talking
+2
+
+about only the maximal hyperedges. Covering also applies to entire hypergraphs: a hypergraph H 1
+covers a hypergraph H2 if each hyperedge in H2 is covered by some hyperedge in H1 .
+We now deﬁne the property of a hypergraph that is central to this paper: (hyper)acyclicity. There are
+several equivalent deﬁnitions of hypergraph acyclicity in common use (see [Sre00] for a review). Here,
+we deﬁne it using the classic notion of a tree structure (essentially the same as tree decomposition,
+junction tree, join tree, etc.). In Section 3, we introduce two new deﬁnitions of acyclicity which will
+lead up to the analysis of our data structure.
+Deﬁnition 1 (Tree structure of a hyperforest). A hypergraph H has a tree structure T (H) if and only
+if T is a tree whose vertices are the hyperedges in H, and the following running intersection property
+holds: if h1 , h2 , . . . , hm is a path of hyperedges in T , then h1 ∩ hm is covered by every hyperedge hi on
+the path. A hypergraph with a tree structure is said to be acyclic and is referred to as a hyperforest.
+For example, the tree structure of a standard tree T (k = 1) is a tree whose nodes are the edges of T
+and edges are nodes of T with degree at least 2.
+Deﬁnition 2 (Tree-width). The tree-width of a hyperforest H is the order of H (the size of the largest
+hyperedge in H minus 1). The tree-width of a general hypergraph H is the minimum tree-width of a
+hyperforest that covers H.
+As mentioned in the introduction, tree-width and (hyper)acyclicity can be equivalently studied by
+considering cliques in standard graphs. For any graph, consider its clique-hypergraph: a hypergraph
+whose hyperedges are the cliques of the original graph. A hypergraph is acyclic if and only if it is
+a clique-hypergraph of a triangulated graph. The tree-width of a hypergraph is the same as the treewidth of the corresponding graph, which is one less than the the maximum clique size of an optimal
+triangulation of the graph.
+Data structure speciﬁcations This paper presents the ﬁrst dynamic data structure that allows one to
+augment an existing hyperforest by adding hyperedges to it, while checking that it remains acyclic.
+Speciﬁcally, the data structure should keep track of the “current” hyperforest H and support the following two operations:
+Q UERY (hnew ): returns T RUE iff H ∪ {hnew } is acyclic.
+I NSERT (hnew ): augments H ← H ∪ {hnew }, assuming that the resulting H is acyclic.
+A technical detail is that the data structure should allow for adding hyperedges that cover previously
+added hyperedges. Any covered hyperedges should simply be subsumed by the new hyperedge.
+Alternative goal: low tree-width Unlike forests, hyperforests do not form a monotone family of
+hypergraphs: removing hyperedges from an acyclic hypergraph might make it cyclic, and conversely,
+adding hyperedges to a cyclic hypergraph might make it acyclic (see Figure 2).
+A
+
+A
+D
+
+B
+
+C
+
+B
+
+(a)
+
+C
+(b)
+
+Figure 2: An example illustrating the non-monotonicity of acyclicity in hypergraphs. (a) is not acyclic,
+but adding the 2-hyperedge D to (a) results in (b), which is acyclic.
+If we would like to do efﬁcient computations on a cyclic hypergraph, it is often admissible to add
+extra hyperedges to a hypergraph to obtain a covering hyperforest (equivalent to triangulating the corresponding graph). We can then perform dynamic programming over the tree structure of that hyperforest.
+3
+
+In such a situation, we might want data structure that checks whether adding a hyperedge maintains
+a hypergraph of tree-width at most k rather than our data structure, which strictly maintains acyclicity.
+Our data structure imposes stronger constraints: if all hyperedges added to our data structure are of order
+at most k, then the tree-width of the resulting hyperforest will be at most k. However, the converse is
+not true: our data structure might reject a hyperedge h new even though adding it maintains tree-width k.
+For example, in Figure 2, if our current hyperforest was {A, B}, our data structure would reject C, even
+though the tree-width of {A, B, C} is 2. We would have to add D ﬁrst before adding C.
+Before considering dynamic data structures for maintaining low tree-width, it is important to remember that even computing the tree-width of a graph statically, or equivalently ﬁnding a narrow triangulation, is by itself a very difﬁcult task. Although linear time algorithms for constant tree-width have been
+proposed [Bod96], the dependence on the tree-width is extremely prohibitive and these algorithms are
+not usable in practice. Instead, various heuristics, approximation algorithms, and super-polynomial-time
+algorithms are used [SG97].
+
+3 A new look at hyperforests
+Thus far, we have deﬁned acyclicity in terms of the existence of a tree structure over the hyperedges.
+There are two missing aspects of this deﬁnition that we will remedy in this section. First, a given
+hyperforest may have many different tree structures, which makes talking about a concrete structure
+difﬁcult. Section 3.1 addresses this issue by deﬁning a single hierarchical structure for any hyperforest.
+Second, cyclicity is currently deﬁned through the absence of a tree structure. Section 3.2 deﬁnes the
+new concept of a hypercycle, which generalizes cycles in graphs and provides a certiﬁcate of cyclicity
+in hypergraph. These two equivalent deﬁnitions of acyclicity provide additional insight into the precise
+nature of hyperforests. In Section 4, these concepts will be instrumental in the analysis of our data
+structure.
+
+3.1 Hierachical structure of a hyperforests
+The interaction between two hyperedges in a hypergraph is substantially more complex than the interaction between two edges in a standard graph. This complication is what makes hyperacyclicity a more
+elusive concept to analyze. In a graph, two edges are either incident or disjoint. In a k-hypergraph, there
+are k +1 extents to which two hyperedges can overlap, corresponding to overlap sizes ranging from 0
+to k. In this section, a hierarchical decomposition of a hypergraph into superedges will allows us to
+concentrate on one extent of overlap at a time. We begin with the basic deﬁnition of a superedge, which
+attempts to clump together hyperedges:
+Deﬁnition 3 (Superedge). Two hyperedges h 1 and hm are k-reachable if there exists a sequence of
+hyperedges h1 , h2 , . . . , hm for which each overlap hi ∩ hi+1 is at least size k. A k −1-superedge q of
+a hyperforest H is a maximal k-reachable subset of H (every pair of hyperedges in q are k-reachable
+from each other, but no other hyperedges are k-reachable).
+For convenience, denote the set of vertices in the union of the hyperedges in a superedge q as q = ∪q.
+˜
+The superedges specify a hierarchical partitioning of the hyperedges of a hypergraph: a k-superedge
+consists of a set of k + 1-superedges. The root of the hierarchy is the single −1-superedge, which
+contains all the hyperedges. The next level in the hierarchy are the the 0-superedges, which correspond
+to the connected components. At the bottom of the hierarchy, each K-superedge contains exactly one
+hyperedge, where K is the maximimum order of a hyperedge. It is important to note that any hypergraph,
+not only hyperforests, can be decomposed into a hierarchy of superedges.
+With this hierarchical partitioning of the hyperedges, we can now look at a K-hypergraph one level
+at a time (Figure 3 shows an example 3-hyperforest). At level k, we focus on a single k −1-superedge
+4
+
+p and the k-superedges inside p. Within p, < k-reachability does not exist because all hyperedges
+are k-reachable (at least), and > k-reachability has been abstracted into the individual k-superedges,
+so we mainly concern ourselves with k-reachability. We can think of the k-superedges as fancier khyperedges. In a way, a k-superedge q “functions” as a k-hyperedge because all overlaps between q and
+other k-superedges have size at most k. Even though we have tried to focus on only k-reachability, the
+overlap between two superedges can still be complicated and requires some attention:
+Deﬁnition 4 (Simple overlap of superedges). The overlap between two superedges q 1 and q2 of H is
+s = q1 ∩ q2 . q1 and q2 are said to overlap simply if s is the intersection of some h 1 ∈ q1 and h2 ∈ q2 .
+˜ ˜
+Acyclicity and incidence graph structures We now have the necessary tools to properly deﬁne the
+unique structure corresponding to a hypergraph that we will analyze to determine acyclicity:
+Deﬁnition 5 (Incidence graph structure). The incidence graph structure of a k −1-superedge containing a set of k-superedges is a bipartite graph whose left vertex set consists of the k-superedges and
+the right vertex set consists of all maximal overlaps between any two superedges. An edge connects a
+k-superedge q with an overlap s if s ⊂ q .
+˜
+A hypergraph has an incidence graph structure for each superedge of the hypergraph. Figure 3 shows
+the incidence graph structures for an example hypergraph.
+0−superedge
+
+2−hyperedge
+
+3−hyperedge
+
+¡¡
+¡¡
+¡¡
+¡¡
+¡¡
+¡¡
+¡¡
+¡¡¡
+£ £ ¡¡¡
+££¡£¡£¡ ¡
+¡¤¡¤¡ ¡¡¡  
+
+¤¤¡¤¡¤¡ ¡¡¡¡ ¡¡
+£¡£¡£¡¤£ ¡¡ ¡¡
+¤¡¤¡¤¡ ¡¡ ¡¡
+£¡£¡¡ ¡¡ ¡¡
+¡£¡£¤¡£¤£ ¡¡ ¡¡
+¤¡¤¡¡ ¡¡  
+¤£¡¡£¡¤ ¡ ¡¡ ¡¡
+  ©¡¡
+¡ ¡ ¡¡  
+£¡£¡¡ ¡ ©¡¡ ¡¡
+¡¤¡£¤¡£¤££¤  ¡ ¡©¡ ¡¡
+¡¡ ¡ ¡ ¡¡
+¡¡ ¡ ¡ ¡¡
+¡¡ ¡ ©¡© ¡¡
+¡ ¡ ©¡  
+ ©
+¡¡ ¡ ¡
+¡¡ ¡ ©¡©
+¡ ¡
+¡ ©¡
+¡¡ ¡ ©¡
+¡¡ ¡ ¡©
+¡¡ ¡ ¡
+¡¡ 
+¡ ¡
+¡¡ §¡ ©¡ ¥¡
+¡¡ ¡§ ¡©©© ¡¥
+¡ ©¡
+¡¡
+§¡ ©¡ ¥¡
+¨¡ ¡ ¦
+§¡¨ ¡ ¥¡¦
+¨¡¨§¡ ¦¡¦¥¡
+§¡§¡ ¥¡¥¡
+¨¡¨¡¨ ¦¡¦¡¦
+§¡§¡§ ¥¡¥¡¥
+¨¡¨¡¨ ¦¡¦¡¦
+§¡§¡¨§ ¥¡¥¡¦¥
+¨¡¨¡ ¦¡¦¡
+§¡§¡ ¥¡¥¡
+¡¡§§¨¨§ ¡¡¥¥¦¦¥
+
+1−hyperedge
+
+H
+
+B
+
+G
+
+C
+
+E
+
+F
+
+D
+
+ ¡¢¡
+ 
+¢¡¢¡
+ ¢¡¢¡ 
+¡ ¡
+¡ ¡¢
+  ¢¡ ¡ 
+¢¡¢¡¢
+ ¡ ¡ 
+¢¡¢¡¢
+ ¡ ¡
+¡¡ ¢ ¢ 
+
+A
+
+1−superedge
+
+I
+
+J
+
+G
+
+Overlap sizes
+0
+
+K
+
+P
+
+H
+
+2−superedge
+
+N
+
+1
+
+L
+
+C
+A
+
+D
+
+3
+P
+
+(a)
+
+F
+
+I
+
+J
+
+B
+
+2
+
+M
+
+E
+
+N
+
+K
+
+L
+M
+
+(b)
+
+Figure 3: An example of how the 3-hypergraph in (a) (which happens to be acyclic) can be viewed in
+terms of its superedges and incidence graph structure (b).
+We next show what acyclicity means in terms of these structures. But ﬁrst, a lemma will reveal the
+relation between a tree structure of a hyperforest and the superedges of the hyperforest.
+Lemma 6 (Superedges and tree structures). The hyperedges in any superedge of a hyperforest H
+correspond to a contiguous subtree of nodes in any tree structure of H.
+Proof. Let T be any tree structure of a hyperforest H, and q be any k−1-superedge for any k. Consider
+the path in T between any two hyperedges h 1 , h2 ∈ q. The overlap s between any two successive
+hyperedges on this path separates h 1 and h2 , and since any two hyperedges in q are k-reachable, s must
+have size at least k. Therefore, the path must contain only hyperedges from q. Put it another way, each
+superedge occupies a contiguous portion of the nodes in T .
+Deﬁnition 7 (Simply acyclic incidence graph structures). The incidence graph structure of a k −1superedge p is said to be simply acyclic if (1) each pair of k-superedges in p overlap simply, (2) the
+incidence graph is acylic, and (3) the running intersection property holds, i.e. the overlap between the
+ﬁrst and last k-superedges of any path of k-superedges through the incidence graph is contained in every
+k-superedge on the path.
+5
+
+This deﬁnition is similar to that of tree structures, but has the important distinction of being a property of the unique incidence graph structure, which always exists. Contrast this with tree structures,
+where for a given hypergraph, there could be 0, 1, or many.
+Theorem 8. A hypergraph is acyclic if and only if the incidence graph structure of every superedge is
+simply acylic.
+Proof.
+=⇒: We will show that if a hypergraph H is acyclic, and thus has a tree structure T , then the
+incidence graph structure of each of its superedges is simply acyclic. Let p be a k−1-superedge.
+1. By Lemma 6, for any pair of k-superedges q 1 , q2 in p, there exists a unique pair of hyperedges
+h1 ∈ q1 and h2 ∈ q2 which are closest to each other in T . Furthermore, every path between a
+hyperedge in q1 and a hyperedge in q2 must go through both h1 and h2 . By the running intersection
+property of Deﬁnition 1, it follows that h1 ∩ h2 = q1 ∩ q2 . Thus, all overlaps between two k˜
+˜
+superedges are simple.
+2. We now show that the incidence graph structure is acyclic. Since superedges occupy contiguous
+portions of T , clumping together hyperedges belonging to the same superedge results in a tree
+structure Tp over k-superedges (T is a minor of the graph T p ). Note that the edges of Tp correspond to the overlaps (which we have shown to be simple) between k-superedges. The running
+intersection property guarantees that all maximal overlaps between superedges are represented by
+one of these edges, and that edges corresponding to the same overlap will exist in a contiguous
+subtree of Tp . Thus, we can convert Tp into the unique incidence graph structure of p as follows
+(Figure 4(b) to (c)): For each maximal overlap s, let Q s be the set of k-superedge nodes that
+contain s. The set Qs contains exactly the k-superedge nodes incident on some edge corresponding to s. Connect each k-superedge node in Q s to a new overlap node corresponding to s, and
+disconnect the k-superedge nodes from each other. By construction, this graph is acyclic.
+3. The running intersection property holds due to the same property holding in T .
+a
+
+b
+
+A
+
+A
+B
+c
+
+C
+
+A
+
+a,d
+
+C
+d
+
+D
+
+d
+
+B
+
+e
+
+E
+g
+
+f
+
+(a) hyperforest
+
+B
+
+h
+
+D
+
+1-superedge
+d
+
+hyperedge (2-superedges)
+
+c,d
+
+c,d
+
+F
+
+C
+
+a,d
+
+d
+
+E
+
+g
+
+F
+
+D
+
+(b) tree structure
+
+overlap
+E
+
+g
+
+F
+
+(c) graph incidence structure
+
+Figure 4: An example of the tree structure (b) and graph incidence structure (c) of a hyperforest (a).
+⇐=: We will inductively construct a tree structure T from a simply acylic incidence graph structure.
+Having constructed a tree structure for each k-superedge, let us now construct a tree structure for the k−1superedges, essentially reversing the process from the ﬁrst half of the proof. Let p be a k−1-superedge.
+For each overlap s in the incidence graph structure, let q 1 , . . . , qm be the superedges adjacent to s. Since
+all overlaps are simple, we can ﬁnd hyperedges h1 , . . . , hm from the corresponding superedges that
+each contain s. Arbitrarily join these hyperedges with any spanning tree. If this process is done for each
+overlap s, the resulting structure will indeed by acyclic. The running intersection property follows from
+the same property holding for the incidence graph structure on p.
+
+3.2 Hypercycles
+While a tree structure is a certiﬁcate that proves the acyclicity of a hypergraph, we know of no previous
+work describing a certiﬁcate for cyclicity. In this section, we introduce such a certiﬁcate, a hypercycle,
+which generalizes naturally from a cycle of a graph.
+6
+
+7
+Proof. First, note that if a k-hypercycle exists, then one must exist in a k−1-superedge. Hyperdoublets
+correspond to non-simply overlapping superedges. The overlaps in a regular hypercycle are of size k
+and hence are maximal, so a regular hypercycle corresponds to a cycle in the incidence graph structure
+of the k−1-superedge. An irregular hypercycle either corresponds to a cycle if the overlap s m between
+the ﬁrst and last superedges is maximal. If sm is not maximal, the running intersection property is
+Theorem 10. A hypergraph H is acyclic if and only if H contains no hypercycles.
+Figure 5: Examples of hypercycles.
+
+¡¡¡¡¡¡¡
+¡ ¡
+¡  ¡   ¡  
+ 
+¡¡¡¡¡¡¡
+¡ ¡
+¡¡¡¡¡¡¡
+¡ ¡
+¡¡¡¡¡¡
+¡¡¡¡¡¡¡
+¡¡¡¡¡¡¡
+¡ ¡
+¡ ¡
+¡¡¡¡¡¡¡
+¡ ¡
+¡¡¡¡¡¡¡
+¡ ¡
+¡¡¡¡¡¡¡
+¡ ¡
+¡¡¡¡¡¡¡
+¡¡¡¡¡¡¡
+¡ ¡
+¡ ¡
+
+¡ ¡ ¡ ¡
+
+
+¡¡ ¡ ¡¡ ¡
+¡ ¡
+¡  ¡
+¡¡ ¡ ¡¡ ¡
+¡ ¡ ¡
+¡¡ ¡ ¡¡ ¡
+¡¡ ¡ ¡¡ ¡
+¡¡ ¡ ¡¡ ¡
+¡  ¡
+¡¡ ¡ ¡¡ ¡
+¡¡ ¡ ¡¡ ¡
+¡  ¡
+¡ ¡
+¡¡ ¡ ¡¡ ¡
+¡ ¡
+¡¡ ¡ d¡¡ ¡
+¡¡ ¡ ¡¡ ¡
+¡  ¡
+¡¡ ¡  ¡¡ ¡
+¡  ¡
+¡ ¡
+¡¡ ¡ ¡ ¡ ¡
+¡¡ ¡ ¡ d¡ ¡
+¡ ¡ ¡
+¡ ¡ d¡ ¡
+¡¡ ¡ ¡ ¡ ¡
+¡ ¡ ¡ ¡ ¡
+¡ ¡  ¡
+¡ ¡ ¡ ¡
+¡¡ ¡ ¡ ¡ ¡
+¡¡ ¡ ¡ ¡d ¡
+¡ ¡ d¡ ¡
+¡ ¡ ¡ ¡
+¡¡ ¡ ¡ ¡d ¡
+¡¡ ¡ ¡ d¡ ¡
+¡ ¡ d¡d ¡
+¡ ¡ ¡ ¡
+¡¡ ¡ ¡ ¡ ¡
+¡¡ ¡ ¡ ¡ddd ¡
+¡¡ ¡ ¡ d¡ ¡
+¡ ¡ d¡d ¡
+¡ ¡ ¡ ¡
+¡ ¡ ¡ ¡
+
+(c) an irregular hypercycle
+
+(d) not a hypercycle
+
+k=1
+
+9¡ A¡ 8 F¡
+E¡
+@ A¡ E¡
+B
+F
+9¡ ¡ 7¡ D E¡
+@¡9¡ A¡ 7¡ C¡ E
+B¡ 7¡ C¡ F¡
+¡ 8¡ C¡ F¡
+9¡¡9 ¡A ¡7 ¡C ¡E
+A@¡ 7¡ D¡ E¡
+¡ ¡ C¡ ¡
+@¡¡@ A¡B 7¡8 C¡D E¡F
+B9¡ ¡ ¡ ¡ F
+8B¡ 8¡ D¡
+D ¡ ¡
+9¡9¡@9 ¡BA ¡87 ¡DC ¡FE
+A¡ ¡ ¡ ¡ ¡
+@¡@¡ B¡ 8¡ D¡ F
+B ¡ 8¡ D¡ ¡
+¡ 7¡ C¡ ¡
+9¡¡@9 ¡BA ¡87 ¡DC ¡FE
+A¡ A¡ 7¡ C¡ E
+¡¡ ¡ ¡ ¡
+@¡@¡ B¡ 8¡ D¡ F
+B¡ 8¡ D¡ G¡
+¡ 7¡ C¡ ¡
+F
+9¡¡9 ¡A ¡7 ¡C ¡E
+A9¡ A¡ 7¡ C¡ E
+'¡ )¡@¡ B¡ 8¡ D¡ F
+GE¡
+¡¡@ ¡B ¡8 ¡D ¡F
+¡ ¡¡9 ¡A ¡7 ¡C ¡E
+0¡9¡ A¡ 7¡ C¡ E
+¡ ¡ ¡ ¡ ¡
+E¡
+'(¡'¡ ¡@ ¡B ¡8 ¡D ¡F
+)¡@¡ B¡ 8¡ D¡ F
+0¡ 9¡ 7 C C}¡
+¡ ¡ A¡ 7¡ ¡ E¡
+(¡ ¡9 ¡A ¡7 ~¡C ¡E
+¡¡  ¡ ¡¡
+HH¡
+'¡'¡(' ¡0) ¡ ¡ ~¡6~5} ¡HG
+)¡ 5 5¡
+¡ ¡ ¡ ¡ 6¡ ¡
+¡) 6¡¡ G
+((¡(¡ 0¡   6¡5¡ H¡
+0(¡
+¡ ¡ 5¡}¡
+¡
+H¡
+'¡¡ ) 6¡6¡ G
+¡'¡' 0¡) 5¡¡5} H¡G
+)'¡
+GG¡
+(¡¡( )0¡0 6¡56¡6~ G¡H
+0¡
+H¡
+'¡(¡' ¡) 6¡¡5} ¡G
+¡ 5¡~ H¡
+'¡ # 5¡}¡
+)¡
+G¡
+¡(¡( )¡0 "¡ {¡}¡6~ G¡H
+¡ ¡ 5¡}¡ H
+0¡
+'(1¡'¡' 0¡) ¡ ¡~5¡5} ¡G
+¡ ) $¡ %¡5¡
+)¡
+¡1¡ #¡ ! &¡ ¡
+s¡ #¡ |¡ G¡
+3¡
+¡r¡( 0¡0 w ¡y ¡~¡6~ ¡H
+¡ u¡ !¡ %¡6¡ H
+2r¡2¡ )¡ #¡ !¡ 6}¡ G
+t¡ 3¡ "!¡ &%¡¡
+4¡
+¡q¡' u¡) w¡ y¡ ~¡5} ¡G
+¡ v¡ x¡ z¡ ¡ ¡
+12q¡1¡'( 3¡)0 #¡ !¡ &¡56}~ ¡GH
+s¡ v¡ x¡ z¡ %¡ H
+3¡
+¡2¡ 4¡ $¡ "¡ |¡ G
+t¡ 4¡ $¡ "¡ 5¡
+4¡
+s¡ u¡ w¡ y¡ }¡
+1¡r1s 3¡3u #¡#w !¡!y {¡|~%
+3¡ $¡
+t¡ v¡ x¡ z¡ %¡
+2¡q2t 4¡4v $¡$x "¡"z ¡{}&
+4¡ $¡ ¡ ¡
+11¡t¡ v¡ x¡ z¡ %¡
+¡2¡1s 4¡3u $¡#w "¡!y &¡%
+s¡ u¡ w¡ y¡
+1¡ 3¡ #¡ !¡
+3¡ #¡ !" %&
+22¡t¡2t v¡4v x¡$x z¡"z &¡&
+t¡ v¡ x¡ z¡ &
+2¡ 4¡ $¡ "¡ ¡
+4¡ $¡ "¡ &¡
+1¡s¡1s u¡3u w¡#w y¡!y %¡%
+s¡ u¡ w¡ y¡
+1¡ 3¡ #¡ !¡ %
+3¡ #¡ !¡ %¡
+2¡1¡2t 3¡4v #¡$x !¡"z &¡&
+4¡ $¡ "¡ &¡
+1¡s¡ u¡ w¡ y¡ %¡
+¡¡s1st2t12st1s ¡u3uv4v34uv3u ¡w#wx$x#$wx#w ¡y!yz"z!"yz!y ¡%&%&%
+3¡ #¡ !¡ %¡
+¡¡¡¡
+
+s¡ ¡ ¡¡
+r
+
+q¡ ¡
+¡ q¡ y¡x¡
+st¡ qr¡ y¡v¡
+r¡ w¡
+q¡r  x¡
+¡s ¡qr ¡x¡yw
+r¡ y¡
+q¡ y¡
+tst¡t q¡ y¡w¡x
+p¡ w¡
+s¡ts i¡qr u¡x¡xyw
+i¡r  w¡
+t¡ p¡ v¡u¡
+p¡ x¡
+s¡s i¡qr u¡w¡yw
+i¡¡ ¡y¡
+t¡t p¡p v¡v¡vx
+p¡p v w¡
+s¡ i¡ u¡u¡
+¡stsst ¡ipiip ¡¡uvwxuwuvwx
+i¡ v¡
+¡ u¡
+k=1
+
+c¡
+d
+c¡ ¡
+d¡c a a ¡
+c¡¡c ¡¡a
+ d¡c¡ a¡a¡
+¡ c¡d¡cd b¡b¡ab
+d¡d b b ¡
+¡¡ c¡ a¡a¡ 
+
+¡¡ ¡cd ¡¡ab ¡
+c ¡ ¡
+¡ ¡
+¡¡ d b b ¡¡
+¡¡ ¡d ¡¡b ¡
+d¡ ¡
+c¡ cd ab ab ¡¡
+¡¡c ¡¡a ¡
+¡¡ cd¡ ab¡ab¡ ¡
+¡¡ c¡cd a¡a¡ab ¡
+¡¡ ¡ ¡¡ ¡
+¡¡ ¡cd ¡¡ab ¡
+¡¡ ¡¡
+¡
+¡
+¡¡ ¡¡
+¡
+¡¡ ¡¡
+¡¡ ¡¡
+¡¡ ¡¡
+¡¡ ¡¡
+¡¡ f¡ `¡`¡ ¡
+¡¡ e Y Y ¡¡
+e
+f¡
+¡¡ f¡ `¡`¡ ¡
+¡¡ ¡ ¡¡ ¡
+¡¡ ee¡ YY¡YY¡ ¡
+e¡ ¡
+f¡
+¡¡ ¡ ¡¡ ¡
+¡¡ ¡feeffe ¡¡`YY``Y ¡
+e¡ ¡
+f¡¡ ¡¡
+e¡ef Y` Y` ¡
+f¡¡ ¡¡
+e¡ ¡
+f¡fef¡ `Y`¡`Y`¡
+e¡e¡ Y¡Y¡
+¡¡efefe ¡¡Y`Y`Y
+
+©¡g ¡ ¡
+§ 
+¡¡ ¡
+h¡ k ¡
+¨¡ ¡
+g¡ §¡
+§¡ ¡
+¨©¡ ¡
+©©¡©¡ ¨k¡ 
+¡g¡©g ¡§k ¡
+§¡ ¡
+¡¡h ¨¡¨l ¡
+h¡ l¡ 
+¨¡ ¡
+¡l ¡
+©¡¡ l¡ ¡
+¡©¡h©g k¡¨l§k ¡
+§¡ §¡
+¡k¡
+¡g¡ ¨¡
+¨h©¡ ¡
+h¡ l¡
+¡ ¡
+©¡©¡©g ¡§k ¡
+§¡ §¡
+g¡ §¨¡ 
+¡¡h k¡¨l ¡
+h¡ §¡ 
+¨¡ ¥¡
+¡©¡©g e¡§k ¡
+g¡ l¡
+§¡ n¡
+£©¡£¡ ¨¡
+i¡ k¡
+ ¡ m¡
+¡h¡ k¡ 
+¡g¡h f¡¨l ¡
+p¡ §¡
+o¡  ¡
+¤op¡¤¡©g ¢¡§k ¡
+j¡ l¡
+¢¡ ¦¡
+£¤¡£¡©gh  ¡§¨kl n¡
+i¡ e¡ ¡
+ ¡ ¥¡
+¡¤¡ ¢¡ ¥¡
+j¡ f¡
+¢¡ ¦¡
+i¡hop£i e¡l e m¡n¥
+ ¡ ¥¡
+¡£¡¤gj  ¡¢fk ¡¦m
+j¡ f¡
+¤¡ ¢¡ ¦¡
+¢¡ ¦¡
+££¤¡¤¡£i ¢¡ e ¥¡¥
+i¡ e¡ ¥
+£¡  ¡ ¡
+ ¡ ¥¡
+¤¡j¡¤j f¡¢f ¦¡¦
+j¡ f¡ ¦
+¤¡ ¢¡ ¡
+¢¡ ¦¡
+£¡i¡£i e¡ e ¥¡¥
+i¡ e¡
+£¡  ¡ ¥¦
+ ¡ ¥¡
+¤¡£¡¤j  ¡¢f ¦¡¦
+j¡ f¡ ¡
+¢¡ ¦¡
+£¡i¡ e¡ ¥¡
+¡¡i£ij¤j£¤ij£i ¡e ef¢f ¢ef e ¡¥¦¥¦¥
+ ¡ ¥¡
+¡¡
+
+k=1
+
+k=2
+
+S¡ V¡
+U¡
+¡ S¡ U¡
+T U¡
+V
+QQR¡ S¡ ¡
+R¡QR S¡ST ¡UV
+T¡ VV¡
+Q¡¡Q ¡S ¡U
+R¡Q¡ S¡ U¡
+¡R¡R ¡T V¡V
+T¡ VU¡
+QR¡¡RQ ¡TS V¡VU
+¡Q¡ T W¡U¡
+T¡ U¡
+QR¡R¡RQ S¡TS U¡VU
+SR¡ S ¡V¡
+¡T¡ U¡
+¡Q¡ T¡ W¡
+TR ¡ WX¡V¡
+¡ ¡U¡
+Q¡¡QQRQR ¡SSTST ¡XUWUVUV
+SQ¡ T¡ X¡
+Q¡ S¡ X¡
+¡S¡ W¡
+XU¡
+W¡W¡
+X¡X
+W¡W¡WXW
+I¡P¡W¡W¡WX
+I X¡X¡
+IP¡P¡W¡W¡XWX
+II
+¡I¡X¡X¡
+¡I¡¡g ¡W
+PIP¡P¡
+¡I¡P gh
+I¡I¡IP gh
+PI¡P¡
+I¡I¡
+¡¡IPIPIP ghghgh
+P¡P¡
+
+(b) hyperdoublets
+k=1
+
+(a) regular hypercycles
+
+k=1
+
+k=2
+
+k=1
+
+Hypercycles as we have deﬁned them only correspond to the analogue of simple cycles: there are no
+overlap repetitions allowed. A regular 1-hypercycle is exactly a simple cycle: overlaps between edges
+of the cycle are the distinct vertices along it, while the overlap s m is the vertex between the ﬁrst and last
+edges (ﬁrst example in Figure 5a). Regular hypercycles are straightforward generalizations of cycles.
+But two other types of k-hypercycles manifest themselves with larger k due to the complex interaction
+of hyperedges, even when we have tried to partition hyperedges nicely into superedges. A hyperdoublet
+is analogous to two nodes connected by two distinct edges in a multigraph. An irregular hypercycle can
+be thought of as a self-loop.
+1. k-hyperdoublet: Two k-superedges that overlap non-simply.
+2. Regular k-hypercycle: A sequence of at least 3 distinct k-superedges q 1 , q2 , . . . , qm with distinct
+overlaps s1 , . . . , sm of size exactly k, where si = qi ∩ qi+1 for 1 ≤ i < m and sm = q1 ∩ qm .
+˜ ˜
+˜
+˜
+3. Irregular k-hypercycle: A sequence of k-superedges as deﬁned above, except that |s m | < k but
+sm is not a subset of any of the other overlaps.
+Deﬁnition 9 (Hypercycle). A k-hypercycle is one of the following:
+To appreciate the intricacies involved of such a deﬁnition, here is a reasonable but failed attempt
+to deﬁne a hypercycle in terms of hyperedges: a hypercycle is a sequence of maximal hyperedges
+h1 , . . . , hm with distinct overlaps between successive hyperedges (including h 1 ∩ hm ). Maximality is
+required to exclude hypercycles which are covered by some other hyperedge (thus eliminating cyclicity).
+Distinctness is required to exclude classifying the edges in a star graph as a hypercycle. But still, A-BC in Figure 2(b) would be classiﬁed as a hypercycle under this deﬁnition, but clearly, that hypergraph
+is acyclic. The problem lies in the fact that larger overlaps sometimes invalidate a view consisting of
+smaller overlaps which may suggest cyclicity. The solution we propose is based on superedges rather
+than hyperedges.
+
+violated since sm is not contained in all superedges on the path q 1 , s1 , . . . , sm−1 , qm in the incidence
+graph structure.
+
+4 The data structure
+Having established a powerful characterization of acyclicity in hypergraphs, we now present the main
+result of this paper, the dynamic data structure that checks acyclicity.
+
+4.1 Union-Find applied to cycle detection
+Tarjan’s Union-Find data structure is used to keep track of membership in disjoint sets. It supports two
+operations: querying the set of a member and uniting two sets. The amortized run-time for m operations
+in O(α(m, n)) where α(·) is the sub-logarithmic inverse Ackermann function and n the number of
+elements.
+The data structure can be used to keep track of connected components: querying two vertices can
+establish if they are in the same connected component or not, and adding an edge between connected
+components unites them. These operations can be used to maintain acyclicity in standard graphs by
+ensuring that the endpoints of a candidate edge are in different connected components, satisfying the
+speciﬁcations in Section 2.
+The Union-Find data structure maintains the simple notion reachability between nodes via edges.
+But for K-hypergraphs, this is not enough; recall from Section 3.1 that there are K extents of overlap
+between hyperedges, resulting in K extents of reachability. Superedges allow us to focus on one level
+at a time. Putting these ideas together, we take the following approach: use the classic Union-Find
+structure as a building block at each of the K levels. The Union-Find structure at level k shall keep track
+of k-reachability information between k-overlaps via k-superedges.
+
+4.2 Overview of operations and state
+Notation We continue using the term k-hyperedge to mean a maximal hyperedge of size k +1and koverlap to mean the intersection of two (maximal) hyperedges, which has size k. Each overlap can also
+be thought of as a covered non-maximal hyperedge that is associated with the two hyperedges whose
+intersection is the overlap. In addition, we will now use the term k-supervertex to denote a covered
+hyperedge containing k vertices. The intention is to draw an analogy between superedges connecting
+supervertices and edges connecting vertices. Hyperedges, overlaps, and supervertices are all sets of
+vertices—they differ only in their role in our proofs.
+Data structure state We now explain how our data structure meets the speciﬁcations of Section 2. The
+state representing the current K-hyperforest H consists of two parts: hash tables S 1 , . . . , SK mapping
+supervertices to identiﬁers and K Union-Find structures U1 , . . . , UK . Each Uk stores disjoint sets of
+k-supervertex identiﬁers, where two k-supervertices belong to the same set if they are k-reachable.
+Operations (See Figure 6 for pseudocode) Recall that Q UERY (h new ) should return T RUE if and only
+if H ∪ {hnew } is acyclic . This is done by returning FALSE when there exists some k-supervertices s and
+t which are connected “outside” of h new , so that adding hnew would close a hypercycle. The “outside”
+criteria is important, since if s and t are only k-reachable “inside” h new , hnew would coincide with the
+corresponding path between s and t and fail to form a hypercycle.
+To be able to test k-reachability inside h new , upon each invocation of Q UERY , we build K additional Union-Find structures Z1 , . . . , ZK , local to the Q UERY operation (they are created when performing the operation and deleted when the operation is completed). The Union-Find structure Z k
+8
+
+I NSERT (hnew ):
+
+Q UERY (hnew ):
+
+1 assert Q UERY (hnew )
+Z1 , . . . , ZK ← ∅, . . . , ∅
+2 for k ← 1 to K do
+2 for k ← 1 to K do
+3
+s ← an arbitrary k-supervertex of hnew
+3
+for s : k-supervertices of hnew do
+4
+for t : k-supervertex of hnew do
+4
+if s ∈ Sk then
+5
+union (s, t) in Uk
+5
+I NSERT (s) using {Zk } instead of {Uk }
+6
+Sk [t] ← |Sk |
+6
+for k ← 1 to K do
+7
+for s, t : k-supervertices of hnew do
+Time: O(2K (K + α(m, n)))
+8
+if Uk (s, t) and not Zk (s, t) then
+Data structure state:
+9
+return FALSE
+Union-Find structures U1 , . . . , UK
+10
+return T RUE
+Hash tables S1 , . . . , SK
+Time: O(4K (K + α(m, n)))
+Space: O(2K n)
+1
+
+Figure 6: Pseudocode for Q UERY and I NSERT . The runtimes are for m operations on a K-hyperforest
+with n vertices. Q UERY : ﬁrst compute {Zk }, which store reachability information for H(h new ), the
+projection of H onto hnew ; for each pair of k-supervertices in h new , test whether they are k-reachable
+“outside” hnew . I NSERT : unite all k-supervertices of h new (for each k) and add them to the hash tables.
+stores k-reachability information of k-supervertices in the projection H(h new ) of H onto hnew (those
+k-supervertices of H which are covered by h new ). It is analogous to Uk , which stores k-reachability
+information of k-supervertices in the entire hypergraph H.
+If Q UERY (hnew ) returns T RUE , we may call I NSERT (hnew ) to update the data structure state to
+reﬂect H ∪ {hnew }. For each k, we update Uk by uniting all k-supervertices of h new and add all ksupervertices to the hash table Sk .
+Complexity Both Union-Find structures and hash sets require space linear in the number of elements
+in them. For a K-hyperforest with n vertices, these elements are the O(2 K n) supervertices.
+The running time of m calls to I NSERT is dominated by one Union operation for each of the O(2 K )
+supervertices of hnew . Since operations on Sk require O(k) expected time and m operations on a
+Union-Find structure require O(α(m, n)) amortized time, the total running time of m I NSERT calls
+is O(2K (K + α(m, n))) (expected amortized).
+For Q UERY , computing {Zk } requires one I NSERT call for each of the O(2 K ) k-supervertices of
+hnew , yielding a total time of O(4K (K + α(m2K , K))) time. Then, for each k and each pair of ksupervertices (O(4K ) pairs in total), we must perform two hash table lookups and two Find operations.
+Thus, the total running time of m Q UERY calls is O(4 K (K + α(m, n))) (expected amortized).
+
+4.3 Correctness
+Theorem 11. Q UERY (hnew ) returns T RUE if and only if H ∪ {hnew } is acyclic, where H is the current
+hyperforest represented by {Uk }.
+Proof. We will show that Q UERY (hnew ) returns FALSE iff H ∪ {hnew } contains a hypercycle, the certiﬁcate of cyclicity that we developed in Section 3.2.
+To do this, we consider the hierarchical incidence graph structure of H, which is the nested set of
+incidence graphs where each superedge node contains the incidence graph of that superedge, and the
+outermost incidence graph is the singleton node, the −1-superedge H; Figure 4(c) shows an example.
+All of the nested incidence graph structures are simply acyclic. For the purposes of the proof, we will
+9
+
+supervertex (shaded means contained in new hyperedge)
+hyperedge (dotted means the new hyperedge)
+
+(a)
+
+superedge
+s
+
+s’
+
+t’
+
+t
+
+k1 = k2 = k3 : regular k2 -hypercycle
+
+k1 = k2 < k3 : (regular) k2 -hyperdoublet
+
+k1 < k2 = k3 : irregular k2 -hypercycle
+
+k1 < k2 < k3 : (irregular) k2 -hyperdoublet
+
+(b)
+
+Figure 7: Illustration of the proof. (a) shows an example of a path through the current hyperforest H
+from supervertices s to t in relation to h new , and one possibility for s , t . (b) details the four different
+cases, where k1 , k2 , k3 are the sizes of the smallest three overlaps on the path between supervertices s
+and t . For each case, two examples are shown. Note that all overlaps on the same level have the same
+size, while the overlaps one level deeper are one size larger.
+modify these incidence graphs slightly: for each k-superedge, we add all k-supervertices to the incidence
+graph as overlap nodes. The resulting graph is still simply acyclic since only leaves have been added to
+the incidence graph.
+A hierarchical path through this hierarchical incidence graph structure is a sequence of superedges
+and supervertices (Figure 7(a)). Compared with a standard path, a hierarchical path expands each ksuperedge into a nested hierarchical path between two k +1-supervertices; note that supervertices may
+be adjacent in a hierarchical path. We construct such a path as follows: Consider any two distinct ksupervertices s and t connected to the same k-superedge p. Let us focus on T p , the incidence graph
+structure of p, whose nodes are k+1-superedges and k+1-overlaps. Since T p is simply acyclic, we can
+pick any closest pair of k+1-overlaps s and t that contain s and t respectively (s might be the same as
+t if it contains both s and t). After ﬁnding a path from s ⊃ s to t ⊃ t through Tp , we can recursively
+ﬁnd paths through each of the k +1-superedges on this path, and concatenate all the pieces to form the
+ﬁnal hierarchical path (Figure 7(a)).
+=⇒: Assume Q UERY (hnew ) return false, and let s, t be the two k-supervertices that caused the test
+on line 8 to fail. Consider a hierarchical path P from s to t as described above. All overlaps along this
+path are of size at least k since s and t are k-reachable in H (U k (s, t) holds). Consider a minimal length
+sub-path P = s , . . . , t such that s and t are contained in hnew , and no overlap in P is contained in
+hnew . Since s and t are not k-reachable in H(h new ) (Zk (s, t) holds), such a sub-path must exist.
+Consider the sizes k1 ≤ k2 ≤ k3 of the smallest three overlaps on the hierarchical path P . We
+will now show that there is a k2 -hypercycle composed of hnew and the path from s to t . Intuitively,
+these three overlaps determine the partitioning into k 2 -superedges and hence the type of hypercycle.
+Superedges spanning larger overlaps will be clumped into the same k 2 -superedge. Figure 7(b) shows
+the various cases.
+Let us construct a mixed sequence hnew , s , q1 , s1 , . . . , qm , t , hnew of supervertices, superedges,
+and the hyperedge hnew by traversing P path from s to t as follows: start from s ; at an overlap u,
+if |u| + 1 ≤ k2 , step into the superedge after u, arriving in a strict superset of u; but if |u| = k 2 , step
+over the entire superedge, arriving at another supervertex of the same size as u; repeat until we reach t .
+Replace two adjacent overlaps with the smaller one.
+We will now show that the superedges q 1 , . . . , qm , and perhaps also hnew , form a k2 -hypercycle.
+If |s | = |t | = k2 , then the k2 -hypercycle includes hnew as a seperate k2 -superedge between qm and
+q1 . Otherwise, hnew is merged with some qi . We show two properties: First, the overlaps in this mixed
+
+10
+
+sequence are representative of the “maximum interaction” between either h new and a k2 -superedge qi or
+between two k2 -superedges qi , qj , because only the overlaps s and t (and not other overlaps in P ) are
+contained in hnew , and the overlaps were representative before adding h new . In other words, we know
+that two k-superedges would end up in the same k-superedge in the new hyperforest H ∪ {h new } iff
+there is a path through > k-overlaps along the (circular) sequence. Second, because we have constructed
+the hierarchical path through a k-superedge by taking the closest pair of k+1-supervertices, no overlap
+in our mixed sequence is a strict subset of another overlap. From these two properties, representative
+interactions and distinct overlaps, it follows that q 1 , . . . , qm , h form a hypercycle (see Figure 7(b) for
+examples of the various types of hypercycles).
+⇐=: To show the inverse, assume that Q UERY (h new ) returns true, which means every hierarchical
+path between any two k-supervertices s, t is entirely contained in h new . We will now show the incidence
+graph structures of H ∪ {hnew } are simply acyclic. Consider all k-superedges that overlap at least kwith
+hnew . Let T be the forest corresponding to the incidence graph structures over the k−1-superedges that
+contain this set of k-superedges. These k-superedges in T will belong with h new in the same k − 1superedge p in the new incidence graph structure T of p. The k-superedges in T that have > k-overlap
+with hnew will merge into the same k-superedge as h new , and in T , there will be an edge between a
+k-superedge and the k-superedge of h new if the two exactly k-overlap.
+We now show that this T is simply acylic. To see that there are no cycles, notice that for any path of
+k-superedges q1 , . . . , qm in T with q1 , qm k-overlapping with hnew , every k-superedge qi for 1 < i < m
+is contained entirely in hnew and thus merges with hnew . The end result is that hnew will merge with
+a set of connected components in T (possibly none). Thus, no cycles are created. Since all the new
+incidence graph structures are simply acyclic, H ∪ {h new } is acyclic.
+
+5 Experiments
+We consider an application of our data structure: constructing a high-weight K-hyperforest given a
+weighted hypergraph. This problem is NP-hard for K > 1 [Sre00]. A common greedy heuristic for
+constructing a high-weight K-hyperforest is Prim-like [Mal91]: start with the highest-weight hyperedge,
+and iteratively add hyperedges, but at each iteration considering only candidate hyperedges that contain
+exactly Kvertices already in the current hyperforest and one new vertex. The maximum weight such
+hyperedge is added to the hyperforest. We suggest an alternative Kruskal-like greedy procedure, where
+at each iteration all hyperedges preserving acyclicity are considered. This might enable us to make better
+(greedy) choices, allows us to end up with a non-maximal hyperforest if some weights are negative, and
+allows us to seed the greedy procedure from an arbitrary hyperforest.
+We conducted experiments to demonstrate the advantage of the less-limited greedy choices of the
+Kruskal-like procedure over the Prim-like procedure. We generated random weights on all candidate
+2-hyperedges in a hypergraph with 100 vertices in the following way: we ﬁrst constructed a random
+“planted” 2-hypertree by augmenting a hyperforest randomly. Hyperedges outside the planted hypertree were assigned a random weight uniformly distributed between 0 and 1. In one set of experiments,
+weights inside the hypertree were assigned random weights uniformly distributed between 0 and 10. In
+the second set, the weights were chosen uniformly between 0 and 1 with probability 1/2, and between
+0 and 20 with probability 1/2. We generated 10 random weight-sets of each type, and tried both greedy
+approaches on each graph. Table 1 summarizes the weights of the resulting hypertrees. Kruskal performed signiﬁcantly better on both sets of experiments, and especially when the weight was less evenly
+distributed in the “planted” hypertree.
+Next, we demonstrate that out proposed data structure is practical and provides a substantial speedup over existing methods based on Graham reductions to test for acyclicity. A Graham reduction is
+found by iteratively removing a leaf vertices (vertices that are incident to only one maximal hyperedge).
+For tree-widths 2 and 3, we construct a complete k-hypergraph with 25–100 vertices and uniformly
+11
+
+Planted
+Prim-like
+Kruskal-like
+
+U [0, 10]
+0.590 ± 0.0339
+0.506 ± 0.0816
+0.587 ± 0.0342
+
+1
+1
+2 U [0, 1] + 2 U [0, 20]
+
+0.609 ± 0.059
+0.323 ± 0.107
+0.619 ± 0.058
+
+Table 1: Averages and standard deviations of fraction of the weight captured by the hypertrees.
+Graham reduction
+Data structure
+Speedup factor
+
+K = 2, N = 25
+6.02s ±1.14
+2.04s ±0.33
+2.96 ± 0.36
+
+K = 2, N = 50
+3.61m ±0.42
+36.27s ±4.49
+5.98 ± 0.28
+
+K = 2, N = 100
+2.45h ±0.09
+11.52m ±0.58
+12.82 ± 1.17
+
+K = 3, N = 25
+34.90s ±2.86
+21.78s ±2.30
+1.61 ± 0.10
+
+K = 3, N = 50
+46.62m ±5.27
+12.51m ±1.58
+3.73 ± 0.08
+
+Table 2: Averages and standard deviations over ﬁve trials of the total execution times and speedup factor
+for a Kruskal-like hyperforest constructing algorithm using Graham reduction or our data structure to
+check acyclicity. N is the number of vertices, and K is the tree-width. The experiments were conducted
+on a 2.8 GHz P4.
+
+random weights on all maximal and non-maxial hyperedges. Table 2 compares the running time of a
+Kruskal-like procedure for computing the maximum hyperforest using both a Graham reduction and our
+proposed data structure to test for acyclicity.
+
+6 Discussion
+We have presented a dynamic data structure for keeping track of acyclicity in hypergraphs and demonstrated its utility in a possible application: a Kruskal-like greedy approach for ﬁnding maximum weight
+acyclic hypergraphs. We have also developed two new ways of looking at hyperforests, via a hierarchical
+decomposition into superedges and via the lack of hypercycles. Beyond their utility in our algorithms
+and proofs, these new characterizations may be useful in analyzing acyclicity in other contexts.
+We note that the data structure we present can easily be modiﬁed to allow hyperedge deletions
+by using a variant of the Union-Find data structure that supports deletions (e.g. [Tho99], replacing
+the inverse Ackerman dependence on n with a O(log n/ log log log n) dependence for queries and
+O(log n(log log n)3 ) for insertions and deletions).
+It may be possible to improve the O(4 K ) factor in the running time of the operations of our data
+structure, since there is redundant work in the current Q UERY and I NSERT operations (although we
+cannot hope to completely avoid the exponential in K). For instance, observe that if s and t are kreachable then any s ⊂ s and t ⊂ t are also reachable. Also, we might not need to check O(n 2 ) pairs
+from a set of n supervertices if all are reachable.
+Acknowledgments We are thankful to David Karger for guidance and suggestions about presentation,
+and to Erik Demaine for comments.
+
+References
+[Bes74]
+
+Julian Besag. Spatial interaction and the statistical analysis of lattice systems. Proceedings of the
+Royal Statistical Society, Series B, pages 192–236, 1974.
+
+[BFMY83] Catriel Beery, Ronald Fagin, David Maier, and Mihalis Yannakakis. On the desirability of acyclic
+database schemes. J of the ACM, 30(3):479–513, 1983.
+[BJ02]
+
+F. R. Bach and M. I. Jordan. Thin junction trees. In T. G. Dietterich, S. Becker, and Z. Ghahramani,
+editors, Advances in Neural Information Processing Systems 14, pages 569–576, Cambridge, MA,
+2002. MIT Press.
+
+12
+
+[Bod96]
+
+Hans L. Bodlaender. A linear time algorithm for ﬁnding tree-decompositions of small treewidth.
+SIAM Journal on Computing, 25:1305–1317, 1996.
+
+[BP01]
+
+Jozsef Bokszar and Andras Prekopa. Probability bounds with cherry trees. Mathematics of Operations
+Research, 26(1):174–192, 2001.
+
+[CL68]
+
+C. K. Chow and C. N. Liu. Approximating discrete probability distributions with dependence trees.
+IEEE Transactions on Information Theory, IT-14(3):462–467, 1968.
+
+[Cou90]
+
+B. Courcelle. The monadic second-order logic of graphs i: Recognizable sets of ﬁnite graphs. Information and Computation, 85:12–75, 1990.
+
+[KS01]
+
+David Karger and Nathan Srebro. Learning Markov networks: Maximum bounded tree-width graphs.
+In Proceedings of the 12th ACM-SIAM Symposium on Discrete Algorithms, 2001.
+
+[Mal91]
+
+Francesco M. Malvestuto. Approximating discrete probability distributions with decomposable models. IEEE Transactions on Systems, Man and Cybernetics, 21(5):1287–1294, 1991.
+
+[Mat99]
+
+Nicholas Matsakis. Recognition of handwritten mathematical expressions. Master’s thesis, Massachusetts Institute of Technology, 1999.
+
+[SG97]
+
+Kirill Shoikhet and Dan Geiger. A practical algorithm for ﬁnding optimal triangulations. In Proceedings of the Fourteenth National Conference on Artiﬁcial Intelligence, pages 185–190, 1997.
+
+[Sre00]
+
+Nathan Srebro. Maximum likelihood Markov networks: An algorithmic approach. Master’s thesis,
+Massachusetts Institute of Technology, 2000.
+
+[Sre01]
+
+Nathan Srebro. Maximum likelihood bounded tree-width markov networks. In The 17th Conference
+on Uncertainty in Artiﬁcial Intelligence, 2001.
+
+[Tho99]
+
+Mikkel Thorup. Near-optimal fully-dynamic graph connectivity. In Proceedings of the 32nd ACM
+Symposium on Theory of Computing, pages 343–350, 1999.
+
+[Tom86]
+
+Ioan Tomescu. Hypertrees and bonferroni inequalities. J. Combin. Theory Ser. B, 41:209–217, 1986.
+
+[Wor82]
+
+K J Worsley. An improved Bonferroni inequality and applications. Biometrika, 69:297–302, 1982.
+
+13
+
+

@@ -1,0 +1,465 @@
+Mention Detection: Heuristics for the OntoNotes annotations
+
+Jonathan K. Kummerfeld, Mohit Bansal, David Burkett and Dan Klein
+Computer Science Division
+University of California at Berkeley
+{jkk,mbansal,dburkett,klein}@cs.berkeley.edu
+
+Abstract
+Our submission was a reduced version of
+the system described in Haghighi and Klein
+(2010), with extensions to improve mention
+detection to suit the OntoNotes annotation
+scheme. Including exact matching mention
+detection in this shared task added a new and
+challenging dimension to the problem, particularly for our system, which previously used
+a very permissive detection method. We improved this aspect of the system by adding
+ﬁlters based on the annotation scheme for
+OntoNotes and analysis of system behavior on
+the development set. These changes led to improvements in coreference F-score of 10.06,
+5.71, 6.78, 6.63 and 3.09 on the MUC, B3 ,
+Ceaf-e, Ceaf-m and Blanc, metrics, respectively, and a ﬁnal task score of 47.10.
+
+1 Introduction
+Coreference resolution is concerned with identifying
+mentions of entities in text and determining which
+mentions are referring to the same entity. Previously
+the focus in the ﬁeld has been on the latter task.
+Typically, mentions were considered correct if their
+span was within the true span of a gold mention, and
+contained the head word. This task (Pradhan et al.,
+2011) has set a harder challenge by only considering
+exact matches to be correct.
+Our system uses an unsupervised approach based
+on a generative model. Unlike previous work, we
+did not use the Bllip or Wikipedia data described in
+Haghighi and Klein (2010). This was necessary for
+the system to be eligible for the closed task.
+
+The system detects mentions by ﬁnding the maximal projection of every noun and pronoun. For the
+OntoNotes corpus this approach posed several problems. First, the annotation scheme explicitly rejects
+noun phrases in certain constructions. And second,
+it includes coreference for events as well as things.
+In preliminary experiments on the development set,
+we found that spurious mentions were our primary
+source of error. Using an oracle to exclude all spurious mentions at evaluation time yielded improvements ranging from ﬁve to thirty percent across the
+various metrics used in this task. Thus, we decided
+to focus our efforts on methods for detecting and ﬁltering spurious mentions.
+To improve mention detection, we ﬁltered mentions both before and after coreference resolution.
+Filters prior to coreference resolution were constructed based on the annotation scheme and particular cases that should never be mentions (e.g. single
+word spans with the EX tag). Filters after coreference resolution were constructed based on analysis
+of common errors on the development set.
+These changes led to considerable improvement
+in mention detection precision. The heuristics used
+in post-resolution ﬁltering had a signiﬁcant negative
+impact on recall, but this cost was out-weighed by
+the improvements in precision. Overall, the use of
+these ﬁlters led to a signiﬁcant improvement in F1
+across all the coreference resolution evaluation metrics considered in the task.
+
+2 Core System
+We use a generative approach that is mainly unsupervised, as described in detail in Haghighi and
+
+Klein (2010), and brieﬂy below.
+2.1
+
+Model
+
+The system uses all three of the standard abstractions in coreference resolution; mentions, entities
+and types. A mention is a span in the text, the entity is the actual object or event the mention refers
+to, and each type is a group of entities. For example,
+”the Mountain View based search giant” is a mention that refers to the entity Google, which is of type
+organization.
+At each level we deﬁne a set of properties (e.g.
+proper-head). For mentions, these properties are
+linked directly to words from the span. For entities, each property corresponds to a list of words,
+instances of which are seen in speciﬁc mentions of
+that entity. At the type level, we assign a pair of
+multinomials to each property. The ﬁrst of these
+multinomials is a distribution over words, reﬂecting
+their occurrence for this property for entities of this
+type. The second is a distribution over non-negative
+integers, representing the length of word lists for this
+property in entities of this type.
+The only form of supervision used in the system
+is at the type level. The set of types is deﬁned and
+lists of prototype words for each property of each
+type are provided. We also include a small number
+of extra types with no prototype words, for entities
+that do not ﬁt well in any of the speciﬁed types.
+These abstractions are used to form a generative
+model with three components; a semantic module, a
+discourse module and a mention module. In addition to the properties and corresponding parameters
+described above, the model is speciﬁed by a multinomial prior over types (φ), log-linear parameters
+over discourse choices (π), and a small number of
+hyperparameters (λ).
+Entities are generated by the semantic module by
+drawing a type t according to φ, and then using that
+type’s multinomials to populate word lists for each
+property.
+The assignment of entities to mentions is handled
+by the discourse module. Afﬁnities between mentions are deﬁned by a log-linear model with parameters π for a range of standard features.
+Finally, the mention module generates the actual words in the span. Words are drawn for each
+property from the lists for the relevant entity, with
+
+a hyper-parameter for interpolation between a uniform distribution over the words for the entity and
+the underlying distribution for the type. This allows
+the model to capture the fact that some properties
+use words that are very speciﬁc to the entity (e.g.
+proper names) while others are not at all speciﬁc
+(e.g. pronouns).
+2.2
+
+Learning and Inference
+
+The learning procedure ﬁnds parameters that are
+likely under the model’s posterior distribution. This
+is achieved with a variational approximation that
+factors over the parameters of the model. Each set
+of parameters is optimized in turn, while the rest are
+held ﬁxed. The speciﬁc update methods vary for
+each set of parameters; for details see Section 4 of
+Haghighi and Klein (2010).
+
+3 Mention detection extensions
+The system described in Haghighi and Klein (2010)
+includes every NP span as a mention. When run on
+the OntoNotes data this leads to a large number of
+spurious mentions, even when ignoring singletons.
+One challenge when working with the OntoNotes
+data is that singleton mentions are not annotated.
+This makes it difﬁcult to untangle errors in coreference resolution and errors in mention detection. A
+mention produced by the system might not be in the
+gold set for one of two reasons; either because it is
+a spurious mention, or because it is not co-referent.
+Without manually annotating the singletons in the
+data, these two cases cannot be easily separated.
+3.1
+
+Baseline mention detection
+
+The standard approach used in the system to detect
+mentions is to consider each word and its maximal
+projection, accepting it only if the span is an NP or
+the word is a pronoun. This approach will introduce spurious mentions if the parser makes a mistake, or if the NP is not considered a mention in the
+OntoNotes corpus. In this work, we considered the
+provided parses and parses produced by the Berkeley parser (Petrov et al., 2006) trained on the provided training data. We added a set of ﬁlters based
+on the annotation scheme described by Pradhan et al.
+(2007). Some ﬁlters are applied before coreference
+resolution and others afterward, as described below.
+
+Data Set
+Dev
+Test
+
+Filters
+None
+Pre
+Post
+All
+All
+
+P
+37.59
+39.49
+59.05
+58.69
+56.97
+
+R
+76.93
+76.83
+68.08
+67.98
+69.77
+
+F
+50.50
+52.17
+63.24
+63.00
+62.72
+
+Table 1: Mention detection performance with various
+subsets of the ﬁlters.
+
+3.2
+
+Before Coreference Resolution
+
+The pre-resolution ﬁlters were based on three reliable features of spurious mentions:
+• Appositive constructions
+
+Filters
+None
+Pre
+Post
+All
+
+MUC
+25.24
+27.06
+42.08
+42.03
+
+B3
+45.89
+47.71
+62.53
+62.42
+
+Ceaf-e
+50.32
+50.15
+43.88
+43.56
+
+Blanc
+59.12
+60.17
+66.54
+66.60
+
+Table 2: Precision for coreference resolution on the dev
+set.
+
+Filters
+None
+Pre
+Post
+All
+
+MUC
+50.54
+51.20
+45.93
+46.21
+
+B3
+78.54
+77.73
+64.72
+64.96
+
+Ceaf-e
+26.17
+27.23
+39.84
+39.24
+
+Blanc
+62.77
+62.97
+61.20
+61.28
+
+Table 3: Recall for coreference resolution on the dev set.
+
+• Attributes signaled by copular verbs
+• Single word mentions with a POS tag in the set:
+EX, IN, WRB, WP
+
+based on MUC and B3 performance. The ﬁnal set
+of ﬁlters used were:
+
+To detect appositive constructions we searched
+for the following pattern:
+
+• Filter if the head word is in a gazetteer, which
+we constructed based on behavior on the development set (head words found using the Collins
+(1999) rules)
+• Filter if the POS tag is one of WDT, NNS, RB,
+JJ, ADJP
+• Filter if the mention is a speciﬁc case of you
+or it that is more often generic (you know,
+you can, it is)
+• Filter if the mention is any cardinal other than
+a year
+
+NP
+NP
+
+,
+
+NP
+
+...
+
+And to detect attributes signaled by copular structures we searched for this pattern:
+VP
+cop verb
+
+NP
+
+where we used the fairly conservative set of copular verbs: {is, are, was, ’m}. In both
+cases, any mention whose maximal NP projection
+appeared as the bold node in a subtree matching the
+pattern was excluded.
+In all three cases, errors from the parser (or POS
+tagger) may lead to the deletion of valid mentions.
+However, we found the impact of this was small and
+was outweighed by the number of spurious mentions
+removed.
+3.3
+
+After Coreference Resolution
+
+To construct the post-coreference ﬁlters we analyzed
+system output on the development set, and tuned
+
+A few other more speciﬁc ﬁlters were also included (e.g. ’s when tagged as PRP) and one type
+of exception (if all words are capitalized, the mention is kept).
+
+4 Other modiﬁcations
+The parses in the OntoNotes data include the addition of structure within noun phrases. Our system
+was not designed to handle the NML tag, so we
+removed such nodes, reverting to the standard ﬂattened NP structures found in the Penn Treebank.
+We also trained the Berkeley parser on the provided training data, and used it to label the development and test sets.1 We found that performance was
+1
+In a small number of cases, the Berkeley parser failed, and
+we used the provided parse tree instead.
+
+Filters
+None
+Pre
+Post
+All
+
+MUC
+33.67
+35.40
+43.92
+44.02
+
+B3
+57.93
+59.13
+63.61
+63.66
+
+Ceaf-e
+34.43
+35.29
+41.76
+41.29
+
+Ceaf-m
+42.72
+43.72
+49.74
+49.46
+
+Blanc
+60.60
+61.38
+63.26
+63.34
+
+Table 4: F1 scores for coreference resolution on the dev
+set.
+
+slightly improved by the use of these parses instead
+of the provided parses.
+
+5 Results
+Since our focus when extending our system for this
+task was on mention detection, we present results
+with variations in the sets of mention ﬁlters used. In
+particular, we have included results for our baseline
+system (None), when only the ﬁlters before coreference resolution are used (Pre), when only the ﬁlters after coreference resolution are used (Post), and
+when all ﬁlters are used (All).
+The main approach behind the pre-coreference ﬁlters was to consider the parse to catch cases that are
+almost never mentions. In particular, these ﬁlters
+target cases that are explicitly excluded by the annotation scheme. As Table 1 shows, this led to a
+1.90% increase in mention detection precision and
+0.13% decrease in recall, which is probably a result
+of parse errors.
+For the post-coreference ﬁlters, the approach was
+quite different. Each ﬁlter was introduced based on
+analysis of the errors in the mention sets produced
+by our system on the development set. Most of the
+ﬁlters constructed in this way catch some true mentions as well as spurious mentions, leading to significant improvements in precision at the cost of recall.
+Speciﬁcally an increase of 21.46% in precision and
+decrease of 8.85% in recall, but an overall increase
+of 12.74% in F1 -score.
+As Tables 2 and 3 show, these changes in mention
+detection performance generally lead to improvements in precision at the expense of recall, with the
+exception of Ceaf-e where the trends are reversed.
+However, as shown in Table 4, there is an overall
+improvement in F1 in all cases.
+In general the change from only post-coreference
+ﬁlters to all ﬁlters is slightly negative. The ﬁnal sys-
+
+Metric
+MUC
+B3
+Ceaf-m
+Ceaf-e
+Blanc
+
+R
+46.39
+63.60
+45.35
+35.05
+58.74
+
+P
+39.56
+57.30
+45.35
+42.26
+61.58
+
+F1
+42.70
+60.29
+45.35
+38.32
+59.91
+
+Table 5: Complete results on the test set
+
+tem used all of the ﬁlters because the process used to
+create the post-coreference ﬁlters was more susceptible to over-ﬁtting, and the pre-coreference ﬁlters
+provided such an unambiguously positive contribution to mention detection.
+
+6 Conclusion
+We modiﬁed the coreference system of Haghighi
+and Klein (2010) to improve mention detection performance. We focused on tuning using the MUC and
+B3 metrics, but found considerable improvements
+across all metrics.
+One important difference between the system described here and previous work was the data available. Unlike Haghighi and Klein (2010), no extra
+data from Wikipedia or Bllip was used, a restriction
+that was necessary to be eligible for the closed part
+of the task.
+By implementing heuristics based on the annotation scheme for the OntoNotes data set and our own
+analysis of system behavior on the development set
+we were able to achieve the results shown in Table 5,
+giving a ﬁnal task score of 47.10.
+
+7 Acknowledgments
+We would like to thank the anonymous reviewers
+for their helpful suggestions. This research is supported by the Ofﬁce of Naval Research under MURI
+Grant No. N000140911081, and a General Sir John
+Monash Fellowship.
+
+References
+Michael John Collins. 1999. Head-driven statistical
+models for natural language parsing. Ph.D. thesis,
+Philadelphia, PA, USA. AAI9926110.
+Aria Haghighi and Dan Klein. 2010. Coreference resolution in a modular, entity-centered model. In Proceed-
+
+ings of NAACL, pages 385–393, Los Angeles, California, June. Association for Computational Linguistics.
+Slav Petrov, Leon Barrett, Romain Thibaux, and Dan
+Klein. 2006. Learning accurate, compact, and interpretable tree annotation. In Proceedings of COLINGACL, pages 433–440, Sydney, Australia, July. Association for Computational Linguistics.
+Sameer S. Pradhan, Lance Ramshaw, Ralph Weischedel,
+Jessica MacBride, and Linnea Micciulla. 2007. Unrestricted coreference: Identifying entities and events in
+ontonotes. In Proceedings of the International Conference on Semantic Computing, pages 446–453, Washington, DC, USA. IEEE Computer Society.
+Sameer Pradhan, Lance Ramshaw, Mitchell Marcus,
+Martha Palmer, Ralph Weischedel, and Nianwen Xue.
+2011. Conll-2011 shared task: Modeling unrestricted
+coreference in ontonotes. In Proceedings of the Fifteenth Conference on Computational Natural Language Learning (CoNLL 2011), Portland, Oregon,
+June.
+
+

@@ -1,0 +1,622 @@
+An NLP Curator (or: How I Learned to Stop Worrying and Love NLP
+Pipelines)
+James Clarke, Vivek Srikumar, Mark Sammons, Dan Roth
+Department of Computer Science,
+University of Illinois, Urbana-Champaign.
+james@jamesclarke.net, {vsrikum2,mssammon,danr}@illinois.edu
+Abstract
+Natural Language Processing continues to grow in popularity in a range of research and commercial applications, yet managing the
+wide array of potential NLP components remains a difﬁcult problem. This paper describes C URATOR, a NLP management framework
+designed to address some common problems and inefﬁciencies associated with building NLP process pipelines; and E DISON, an NLP
+data structure library in Java that provides streamlined interactions with C URATOR and offers a range of useful supporting functionality.
+Keywords: Unstructured Information, NLP, Architecture
+
+1.
+
+Motivation
+
+Natural Language Processing technologies are widely
+used within the research community, and increasingly
+being adopted by commercial and governmental organizations as well. Tools that provide analysis of
+text, marking up syntactic and semantic elements (e.g.
+named entity recognizers, syntactic parsers, semantic
+role labelers) are widely used – typically many such
+components in combination – as inputs to a more specialized (and complex) application. However, support
+for integrating these tools, and managing their outputs,
+is still patchy: there are a number of frameworks available that provide services related to managing and integrating NLP components, but they come with significant limitations. These limitations may be even more
+problematic in a research and development environment, where rapid prototyping is critical.
+As an example, consider the task of writing a Semantic Role Labeler that requires as its inputs not only
+the raw text but also its part-of-speech, named entity,
+and syntactic parse annotation. Multiple NLP components exist for each of these tasks, and it is usually
+unclear which version of each will work best for a
+given end task. The SRL designers may want to experiment with different input components – for example, to try different syntactic parsers. But a syntactic
+parser may itself have input requirements. Worse still,
+different parsers may be written in different programming languages. Each component may have its own
+data structures and interface, and so the research team
+must spend time writing interface code to handle the
+different components; tools written in different programming languages are run independently and their
+results written to ﬁle to be read by downstream components. And if another team from the same organization wishes to use the outputs of these components,
+they must deal with the ﬁle format of the generated text
+ﬁles – assuming the ﬁrst team was thoughtful enough
+to store them somewhere.
+
+A number of researchers and developers have tried to
+address the integration problem (see section 4.), but
+these approaches require users to commit to a single NLP preprocessing framework (which generally
+limits them to tools from a single source) and/or a
+single programming language, or end up being an
+all-encompassing system with a steep learning curve.
+Members of our research group, which actively prototypes many experimental NLP components, wanted a
+light-weight approach with minimal overhead. Specifically, they were all interested in a programmatic interface that offered access to the NLP components’ outputs. Beyond that – for example, regarding learning
+frameworks – their needs differed: some wished to use
+an existing Machine Learning framework, while others
+wanted to implement their own. They also wanted access to sophisticated components with taxing memory
+requirements.
+We identiﬁed a set of desiderata for users designing
+NLP processing pipelines in term of capabilities. Our
+users wished to:
+1. Incorporate 3rd party NLP components written
+in a wide range of programming languages with
+only modest effort, rather than restricting the user
+to a single programming language or even a single
+source of components.
+2. Distribute NLP components across multiple host
+machines, but have a single point of access that
+can be shared by multiple users.
+3. Minimize the time required to learn a management framework/build and conﬁgure an NLP
+pipeline.
+4. Interact with NLP components via a programmatic interface, using appropriate (intuitive) data
+structures.
+5. Handle errors gracefully.
+6. Cache the output of NLP components, avoid-
+
+ing redundant processing of input text within and
+across research teams, and allowing clients of the
+NLP components beneﬁt from that cache without
+having to directly use it.
+While there are numerous NLP toolkits and frameworks already available, we found none that satisﬁed
+all these requirements. We have therefore developed
+C URATOR, a light-weight NLP component manager;
+and E DISON, a Java library that simpliﬁes interaction
+with C URATOR and provides useful additional functionality. The remaining sections of this paper describe
+these tools, and describe some key differences with
+other toolkits and frameworks.
+
+2.
+
+Curator
+
+C URATOR1 comprises a central server and a suite
+of annotators (such as named entity taggers, parsers,
+etc.), each of which conforms to one of a set of speciﬁed annotator interfaces. These annotators are registered with C URATOR via its conﬁguration ﬁle, which
+speciﬁes a host, port, and dependency list for each annotator. The workﬂow of a call by a client to the curator for an annotation type is illustrated in Figure 1.
+The user sends text to the C URATOR to be annotated
+with semantic roles (arrow 1). C URATOR checks to
+see if the requested annotation is in the cache (2) and
+if so, returns it (7). If not, it will ﬁrst check that all the
+dependencies for annotating text with semantic roles
+are satisﬁed. Since the semantic role labeler depends
+on the parser and the part-of-speech tagger, the C U RATOR again checks the cache, and if the text has
+not been annotated with these resources, requests them
+from the client components and caches them (3, 4, and
+6). With all dependencies satisﬁed, C URATOR now
+calls the semantic role labeler for its annotation (5).
+This new annotation is stored in the cache (6) and the
+requested annotation is returned to the user (7).
+The user stands to gain a lot from this arrangement:
+1. C URATOR comes with a straightforward interface in
+several programming languages based on fundamental
+NLP data structures – trees, lists of spans, etc. 2. There
+is a single point of contact: the user does not directly
+interact with the annotation services, and so doesn’t
+have to parse specialized formats or directly deal with
+multiple different data structures. 3. If someone else
+has already processed the same text with the required
+annotation resource, the user gets the cached version
+with an associated speedup. This also applies if the
+user, over the course of a project, needs to run a new
+version of her system over the same corpus. 4. It is
+straightforward to write a wrapper for most NLP components to make them C URATOR annotation components. 5. The user with access to several machines with
+modest memory resources rather than a single machine
+
+<a n n o t a t o r>
+<t y p e> l a b e l e r</ t y p e>
+< f i e l d>n e r</ f i e l d>
+<h o s t>myhost . a t . my . p l a c e : 8 8 2 3</ h o s t>
+<r e q u i r e m e n t>s e n t e n c e s</ r e q u i r e m e n t>
+<r e q u i r e m e n t>t o k e n s</ r e q u i r e m e n t>
+<r e q u i r e m e n t>p o s</ r e q u i r e m e n t>
+</ a n n o t a t o r>
+Figure 2: A sample entry from a C URATOR annotator conﬁguration ﬁle. The host name and port number desired are
+both given in the ‘host’ element.
+
+with large memory can distribute the load of the different annotation components across them. 6. C URA TOR supports multiple simultaneous requests, so multiple clients can call the same C URATOR instance.
+2.1. Server/Client Infrastructure
+C URATOR is built on Thrift2 , a library developed to facilitate uniform serialization and efﬁcient client-server
+communications across a wide variety of programming
+languages. The desired data structures and server interfaces are speciﬁed in a Thrift deﬁnition ﬁle. Thrift
+can then be used to automatically generate C URA TOR client libraries for these data structures and interfaces in the desired language; these libraries can be
+used by the developer to write their application3 .
+C URATOR’s registration method – via conﬁguration
+ﬁle – makes it easy to add new services that use libraries generated from C URATOR’s Thrift deﬁnition.
+Furthermore, C URATOR supports multiple instances
+of individual annotation services, and will distribute
+incoming requests to a second instance if the ﬁrst is
+busy with a previous request. Figure 2 shows an excerpt from a C URATOR annotator conﬁguration ﬁle
+specifying dependencies.
+C URATOR is distributed with a suite of NLP tools
+that the Cognitive Computation Group has found
+useful (Illinois POS, Chunker, Basic and Extended
+NER (Ratinov and Roth, 2009), Coreference (Bengtson and Roth, 2008), and SRL (Punyakanok et al.,
+2008); a version of the Charniak parser (Charniak
+and Johnson, 2005); a version of the Stanford constituency and dependency parsers (); and the Illinois
+Wikiﬁer (Ratinov et al., 2011)). Within the group’s
+own C URATOR instance, we have added the easy-ﬁrst
+dependency parser (Goldberg and Elhadad, 2010).
+2.2.
+
+Representation of Text and Component
+Annotations
+C URATOR’s data structures encode annotations (e.g.
+Named Entity tags) in terms of pairs of character off2
+
+http://thrift.apache.org
+Thrift, and hence C URATOR, currently support C++,
+Java, Python, PHP, Ruby, Erlang, Perl, Haskell, C#, Cocoa,
+JavaScript, Node.js, Smalltalk, and OCaml.
+3
+
+1
+
+C URATOR documentation and code can be found at
+http://cogcomp.cs.illinois.edu/trac/wiki/Curator
+
+Semantic
+Role Labeler
+
+5
+1
+User
+
+Curator
+
+4
+
+7
+
+Parser
+
+3
+
+26
+
+Part-ofspeech tagger
+Cache
+
+Figure 1: Retrieving semantic roles from the C URATOR. See the text for a detailed description.
+
+sets over the original text input, associated with labels.
+The design philosophy is that the original text is sacrosanct, and all annotations must map to that text. However, no pair of annotations is required to align with
+each other – in theory, it is possible for two annotation sources to disagree on token boundaries, for example. This problem is addressed at least in part by
+E DISON (see Section 3.), but C URATOR’s approach is
+designed to prevent loss of information.
+Figure 3 is a schematic showing C URATOR’s representation for Tree structures. Spans are the most fundamental layer, indicating character offsets in the underlying text and associating with them a label; optionally,
+a set of attribute-value pairs can be speciﬁed for each
+span. Nodes are associated with a Span, a label, and a
+list of integers corresponding to children (also Nodes).
+Trees are a list of Nodes, and an integer index into this
+list that indicates the root Node. All these data objects are held in a Record, which comprises multiple
+Views, each of which holds the annotations associated
+with a speciﬁc source, and is labeled with that source’s
+identiﬁer to allow retrieval by the client. The Record
+also holds a copy of the input text. This approach allows for modular extension of the C URATOR system
+by adding new Views corresponding to new NLP components that are added.
+
+ples omit error handling to conserve space, but the
+Thrift and C URATOR libraries may throw exceptions
+if there is a problem with the annotation service requested or with the curator itself. The Java example
+illustrates the use of C URATOR’s Record data structure
+to access elements of a Named Entity annotation.
+
+2.3. Using C URATOR services programmatically
+C URATOR’s services can be accessed using its client
+classes in the desired language. The invocation sets up
+a connection with the main server and requests annotation services using the names speciﬁed in the C URA TOR ’s annotation conﬁguration ﬁle. Figure 4 shows an
+illustrative example in java; Figure 5 shows an excerpt
+in php.
+The call requires specifying the communication protocol and making/closing a connection; these statements
+are easily rolled into a method or class for concinnity
+(see E DISON, section 3. for an example). The exam-
+
+2. Create a server to run the handler. This is largely
+the same for all components, differing mainly in
+the type and name of handler being run.
+
+2.4.
+
+Adding a new C URATOR service
+
+C URATOR’s Thrift underpinnings allow for automatic
+generation of libraries for the various data structures and service interfaces speciﬁed in the C URA TOR project, which simpliﬁes the task of adding a new
+service. To add a new service to the C URATOR instance, the following steps are required:
+1. Create a wrapper (“handler”) for the new NLP
+component. Based on the data structure that the
+component will return, it will implement one of
+a small set of pre-deﬁned interfaces: for example, a syntactic parser that returns a single tree for
+each input sentence will implement the Parser interface. The wrapper will implement a method
+that takes a C URATOR Record data structure as
+input, and maps from the relevant View type to
+the input data structure used by the component. It
+will also map from the component output structure into the appropriate View type data structure.
+
+3. Add a corresponding annotator entry to the annotator conﬁguration ﬁle, naming any dependencies,
+together with the host and port that the component
+server will use (see Figure 2).
+4. Start the component service, and restart the C U RATOR service. This forces the C URATOR service to reread the conﬁguration ﬁle and add the
+service information to its pool.
+
+Figure 3: An example of C URATOR data structures: Trees
+
+3.
+
+Edison
+
+E DISON is a Java library for representing and manipulating various NLP annotations such as syntactic
+parses, named entity tags, etc. While the C URATOR’s
+primary goal is to enable multiple NLP resources to be
+used via a common interface and single point of contact, E DISON’s goal is to enable the quick development
+of NLP applications by integrating multiple views over
+the text. E DISON provides a uniform representation
+for diverse views, which lends itself to easy feature extraction from these views.
+Structures encountered in NLP are typically graphs,
+where nodes are labeled spans of tokens. E DISON uses
+this abstraction, and represents annotations as graphs
+over Constituents, which are spans of tokens. Labeled
+directed edges between the constituents represent Relations. Each graph is called a View. For any text,
+E DISON deﬁnes a TextAnnotation object, which speciﬁes the tokenization of the text and stores a collection
+of views over it.4
+Figure 6 shows an example of E DISON’s representation. Here, the sentence “John Smith went to school.”
+is annotated with three views – named entities, full
+parse and semantic roles. The nodes (i.e. constituents)
+assign labels to spans of text. The edges between constituents (i.e. the relations) can have labels, a feature
+that is needed for representing structures like dependency trees. Note that some views do not have any
+edges – here, the named entity view is a degenerate
+graph with a single node, representing the PER anno4
+As noted earlier, C URATOR stores character level offset
+information for each view to preserve the output of each annotator. While this strategy is useful for retaining the provenance, it can be cumbersome to work with directly. Since
+E DISON allows the user to provide an arbitrary tokenization, enforcing a token-based representation does not present
+a serious limitation.
+
+tation for the span of tokens [0,2], which corresponds
+to “John Smith”. E DISON provides several specialized views for several types of frequently encountered
+design patterns: token labels (part of speech, lemma,
+etc), span labels (shallow parse, named entities, etc),
+trees (full parse and dependency parse), predicateargument structures (semantic roles) and coreference.
+These specializations extend the generic view with
+specialized accessors that suit the structure.
+The main advantage of the uniform representation (i.e.,
+views being graphs over constituents) is that it enables
+E DISON to provide general-purpose operators to access information from the views while being agnostic
+to their actual content. This can help us to deﬁne a
+feature representation language over E DISON (such as
+the Fex language described in (Cumby and Roth, 2000)
+and related work.)
+For example, it is straightforward to extract features
+such as the part-of-speech tag of a word; all part-ofspeech tags of words within a speciﬁed span; dependency tree paths from a verb to the nearest preceding
+noun; dependency tree paths from a verb to the last token of the nearest named entity that precedes it. This
+last example highlights a key utility of E DISON: the
+ability to extract features across different levels of analytic markup of a given text span.
+To give a sense of how E DISON can help with feature
+extraction, we provide two examples. These examples
+highlight how the representation can help in deﬁning
+complex features and can easily take advantage of the
+diverse structural annotations that are available. In ﬁgure 7, the ﬁrst snippet extracts the path from a token
+to the root of the Stanford parse tree, while the second
+one considers the more complex query of ﬁnding SRL
+predicates whose arguments are named entities.
+Creating E DISON objects : One way of creating
+E DISON objects is to use the C URATOR. It pro-
+
+public void u se Cu ra to r ( )
+{
+/ / F i r s t we n e e d a t r a n s p o r t
+T T r a n s p o r t t r a n s p o r t = new T S o c k e t ( h o s t , p o r t ) ;
+/ / we a r e g o i n g t o u s e a non−b l o c k i n g s e r v e r s o n e e d f r a m e d t r a n s p o r t
+t r a n s p o r t = new T F r a m e d T r a n s p o r t ( t r a n s p o r t ) ;
+/ / Now d e f i n e a p r o t o c o l w h i c h w i l l u s e t h e t r a n s p o r t
+T P r o t o c o l p r o t o c o l = new T B i n a r y P r o t o c o l ( t r a n s p o r t ) ;
+/ / make t h e c l i e n t
+C u r a t o r . C l i e n t c l i e n t = new C u r a t o r . C l i e n t ( p r o t o c o l ) ;
+t r a n s p o r t . open ( ) ;
+Map<S t r i n g , S t r i n g > a v a i l = c l i e n t . d e s c r i b e A n n o t a t i o n s ( ) ;
+transport . close ( ) ;
+f o r ( S t r i n g key : a v a i l . k e y S e t ( ) )
+System . o u t . p r i n t l n ( ‘ ‘ \ t ’ ’ + key + ‘ ‘ p r o v i d e d by ’ ’ + a v a i l . g e t ( key ) ) ;
+boolean forceUpdate = true ; / / f o r c e c u r a t o r t o i g n o r e cache
+/ / g e t an a n n o t a t i o n s o u r c e named a s ’ n e r ’ i n c u r a t o r a n n o t a t o r
+//
+configuration f i l e
+t r a n s p o r t . open ( ) ;
+record = c l i e n t . provide ( ‘ ‘ ner ’ ’ , text , forceUpdate ) ;
+transport . close ( ) ;
+f o r ( Span s p a n : r e c o r d . g e t L a b e l V i e w s ( ) . g e t ( ‘ ‘ n e r ’ ’ ) . g e t L a b e l s ( ) ) {
+System . o u t . p r i n t l n ( s p a n . g e t L a b e l ( ) + ‘ ‘ : ’ ’
++ r e c o r d . getRawText ( ) . s u b s t r i n g ( span . g e t S t a r t ( ) , span . getEnding ( ) ) ) ;
+}
+...
+}
+Figure 4: A snippet of Java code using C URATOR services
+
+vides an easy to use Java interface for the C URATOR,
+which aligns the character-level views to E DISON’s
+own token-oriented data structures. The listing in Figure 8 shows a snippet of Java code which highlight this
+usage. In addition to the C URATOR interface, E DI SON also provides readers for several standard textbased dataset formats like the Penn Treebank and the
+CoNLL column format.
+
+4.
+
+Related Work
+
+A number of NLP frameworks that can combine NLP
+component exist; we identify some key limitations of
+the most well-known frameworks that led to the development of C URATOR and E DISON.
+4.1. UIMA
+UIMA (G¨ tz and Suhre, 2004) is an annotator manageo
+ment system designed to support coordination of annotation tools, satisfying their dependencies and generating a uniﬁed stand-off markup. It supports distributed
+annotation components. A UIMA system could be implemented to wrap NLP components and to cache their
+outputs. However, it would be a more complex undertaking to use UIMA to make these components and
+
+the cache available inline to a client application at runtime. UIMA’s main limitation, from our perspective,
+is its limited support of languages other than Java. A
+signiﬁcant C++ component is in development, but support for other languages (Perl, Python, and Tcl) is indirect (via SWIG). UIMA has a very abstract, fairly large
+API, and therefore has a signiﬁcant learning curve.
+Another possible limitation is the efﬁciency of UIMA’s
+serialization. Thrift, which underpins C URATOR, supports a very wide set of programming languages, and
+is known to be very efﬁcient in terms of serialization.
+4.2.
+
+GATE
+
+GATE (Cunningham et al., 2002) is an extensive
+framework supporting annotation of text by humans
+and by NLP components, linking the annotations, and
+applying machine learning algorithms to features extracted from these representations. GATE has some capacity for wrapping UIMA components, so should be
+able to manage distributed NLP components, though
+with the caveats above. GATE is written in Java, and
+directly supports other languages only through the JNI.
+GATE is a very large and complex system, with a correspondingly steep learning curve.
+
+function useCurator () {
+/ / s e t v a r i a b l e s naming c u r a t o r h o s t and p o r t , t i m e o u t , and t e x t
+...
+$ s o c k e t = new T S o c k e t ( $hostname , $ c p o r t ) ;
+$ s o c k e t −>s e t R e c v T i m e o u t ( $ t i m e o u t ∗ 1 0 0 0 ) ;
+$ t r a n s p o r t = new T B u f f e r e d T r a n s p o r t ( $ s o c k e t , 1 0 2 4 , 1 0 2 4 ) ;
+$ t r a n s p o r t = new T F r a m e d T r a n s p o r t ( $ t r a n s p o r t ) ;
+$ p r o t o c o l = new T B i n a r y P r o t o c o l ( $ t r a n s p o r t ) ;
+$ c l i e n t = new C u r a t o r C l i e n t ( $ p r o t o c o l ) ;
+$ t r a n s p o r t −>open ( ) ;
+$ r e c o r d = $ c l i e n t −>g e t R e c o r d ( $ t e x t ) ;
+$ t r a n s p o r t −>c l o s e ( ) ;
+foreach ( $ a n n o t a t i o n s as $annotation ) {
+$ t r a n s p o r t −>open ( ) ;
+$ r e c o r d = $ c l i e n t −>p r o v i d e ( $ a n n o t a t i o n , $ t e x t , $ u p d a t e ) ;
+$ t r a n s p o r t −>c l o s e ( ) ;
+}
+f o r e a c h ( $ r e c o r d −>l a b e l V i e w s a s $view name => $ l a b e l i n g ) {
+$ s o u r c e = $ l a b e l i n g −>s o u r c e ;
+$ l a b e l s = $ l a b e l i n g −>l a b e l s ;
+$result = ‘‘ ’ ’ ;
+f o r e a c h ( $ l a b e l s a s $ i => $ s p a n ) {
+$ r e s u l t . = ‘ ‘ $span−>l a b e l ; ’ ’ ;
+...
+}
+...
+}
+...
+}
+Figure 5: A snippet of PHP code using C URATOR services
+
+4.3. Other NLP Frameworks
+LingPipe5 is a Java-only NLP development framework, which incorporates support for applying Machine Learning algorithms. NLTK (Loper and Bird,
+2002) is a comparable Python-only NLP framework.
+The Stanford NLP pipeline6 is monolithic (must run
+on a single machine) and Java-only.
+
+5.
+
+Conclusions
+
+C URATOR and E DISON arose from a constellation of
+needs that were not satisﬁed by existing NLP frameworks. The frameworks to which we have compared
+C URATOR are good for their intended purpose, and
+many are well-supported by a signiﬁcant programming
+community. However, all have limitations we considered problematic for our purposes. C URATOR is not
+intended to be a replacement for the full frameworks
+we have named; it is simply a framework that more
+directly supports management of diverse NLP annota5
+
+http://alias-i.com/lingpipe/
+6
+http://nlp.stanford.edu/software/corenlp.shtml
+
+tion components and the caching of their outputs, and
+which foregrounds a modular, multi-view representation. We believe that others may ﬁnd it useful too.
+The combination of the C URATOR and E DISON make
+it straightforward to harness a diverse range of NLP analytics in a clean, intuitive way. They have been used
+by several projects within the Cognitive Computation
+Group – the group’s state-of-the-art Semantic Role Labeler (Srikumar and Roth, 2011) and Wikiﬁer (Ratinov
+et al., 2011), both large, complex systems, strongly
+depend on C URATOR/E DISON underpinnings and are
+themselves being released with C URATOR interfaces,
+so that they can be used in other projects in a similar
+way. C URATOR and E DISON have also been used to
+build many prototype systems, greatly reducing the development effort typically involved in building an NLP
+system.
+
+6.
+
+Acknowledgements
+
+We thank our reviewers for their helpful comments.
+This research is supported by the Defense Advanced
+Research Projects Agency (DARPA) Machine Read-
+
+Raw text: John Smith went to school today.
+Tokens: {0:John, 1:Smith, 2:went, 3:to, 4:school, 5:.}
+Parse
+
+NER
+PER:
+0-2
+NP:
+0-2
+
+SRL
+Predicate:
+2-3
+
+A1:0-2
+
+NNP:
+0-1
+
+A4:3-5
+
+S:
+0-6
+VP:
+2-5
+
+NNP:
+1-2
+
+.:
+5-6
+
+VBD:
+2-3
+
+PP:
+3-5
+
+TO:
+3-4
+
+NN:
+4-5
+
+Figure 6: An example of E DISON’s representation. The sentence John Smith went to school. is annotated with the named
+entity, parse and semantic role views here.
+
+...
+CuratorClient client ;
+String h = / / curator host
+int p = / / curator port
+c l i e n t = new C u r a t o r C l i e n t ( h , p ) ;
+/ / Should the curator c a l l the
+/ / a n n o t a t a r s i f an e n t r y i s f o u n d
+/ / in th e cache ?
+boolean f o r c e = f a l s e ;
+TextAnnotation ta ;
+t a = c l i e n t . getTextAnnotation ( corpus ,
+textId , text , forceUpdate ) ;
+c l i e n t . addNamedEntityView ( t a , f o r c e )
+c l i e n t . addSRLView ( t a , f o r c e ) ;
+c l i e n t . addStanfordParse ( ta , f o r c e ) ;
+Figure 8: Creating E DISON objects using the C URATOR
+
+ing Program under Air Force Research Laboratory
+(AFRL) prime contract no. FA8750-09-C-0181. Any
+opinions, ﬁndings, and conclusion or recommendations expressed in this material are those of the author(s) and do not necessarily reﬂect the view of the
+DARPA, AFRL, or the US government.
+
+7.
+
+References
+
+E. Bengtson and D. Roth. 2008. Understanding the
+value of features for coreference resolution. In
+EMNLP, 10.
+Eugene Charniak and Mark Johnson. 2005. Coarseto-ﬁne n-best parsing and maxent discriminative
+reranking. In In Proceedings of the Annual Meet-
+
+ing of the Association of Computational Linguistics
+(ACL), pages 173–180, Ann Arbor, Michigan. ACL.
+C. Cumby and D. Roth. 2000. Relational representations that facilitate learning. In Proc. of the International Conference on the Principles of Knowledge
+Representation and Reasoning, pages 425–434.
+H. Cunningham, D. Maynard, K. Bontcheva, and
+V. Tablan. 2002. GATE: A Framework and Graphical Development Environment for Robust NLP
+Tools and Applications. In ACL.
+Y. Goldberg and M. Elhadad. 2010. An efﬁcient algorithm for easy-ﬁrst non-directional dependency
+parsing. In NAACL.
+T. G¨ tz and O. Suhre. 2004. Design and Implementao
+tion of the UIMA Common Analysis System. IBM
+Systems Journal.
+E. Loper and S. Bird. 2002. NLTK: the Natural
+Language Toolkit. In Proceedings of the ACL-02
+Workshop on Effective Tools and Methodologies for
+Teaching Natural Language Processing and Computational Linguistics.
+V. Punyakanok, D. Roth, and W. Yih. 2008. The
+importance of syntactic parsing and inference in
+semantic role labeling. Computational Linguistics,
+34(2).
+L. Ratinov and D. Roth. 2009. Design challenges
+and misconceptions in named entity recognition. In
+Proc. of the Annual Conference on Computational
+Natural Language Learning (CoNLL), 6.
+L. Ratinov, D. Downey, M. Anderson, and D. Roth.
+2011. Local and global algorithms for disambiguation to wikipedia. In Proc. of the Annual Meeting of
+the Association of Computational Linguistics (ACL).
+V. Srikumar and D. Roth. 2011. A joint model for
+extended semantic role labeling. In EMNLP, Edinburgh, Scotland.
+
+/ / The i n p u t i s a T e x t A n n o t a t i o n ’ t a ’ and an i n t e g e r ’ t o k e n I d ’
+/ / F i r s t , we g e t t h e p a r s e t r e e g e n e r a t e d by t h e S t a n f o r d
+/ / p a r s e r . T r e e V i e w i s a s p e c i a l i z e d View f o r s t o r i n g t r e e s . Here ,
+/ / we do n o t u s e any o f t h e t r e e −s p e c i f i c f u n c t i o n a l i t y and
+/ / i n s t e a d t r a v e r s e t h e graph .
+TreeView p a r s e = ( TreeView ) t a . g e t V i e w ( ViewNames . PARSE STANFORD ) ;
+/ / Get a l l c o n s t i t u e n t s whose s p a n i n c l u d e s t h i s t o k e n .
+L i s t <C o n s t i t u e n t > t o k e n C o n s t i t u e n t s = p a r s e
+. getConstituentsCoveringToken ( tokenId ) ;
+/ / Find t h e l e a f i n t h i s l i s t
+C o n s t i t u e n t node = n u l l ;
+for ( Constituent c : tokenConstituents )
+i f ( c . g e t O u t g o i n g R e l a t i o n s ( ) . s i z e ( ) == 0 )
+node = c ;
+/ / Now , b u i l d t h e p a t h by g o i n g up t h e e d g e s
+L i s t <S t r i n g > p a t h = new A r r a y L i s t <S t r i n g > ( ) ;
+do {
+/ / A R e l a t i o n i s a d i r e c t e d e d g e t h a t h a s s o u r c e and a t a r g e t
+L i s t <R e l a t i o n > i n c o m i n g R e l a t i o n s = node . g e t I n c o m i n g R e l a t i o n s ( ) ;
+/ / T h e r e can be a t m o s t one i n c o m i n g e d g e .
+node = i n c o m i n g R e l a t i o n s . g e t ( 0 ) . g e t S o u r c e ( ) ;
+p a t h . add ( node . g e t L a b e l ( ) ) ;
+} w h i l e ( node . g e t I n c o m i n g R e l a t i o n s ( ) . s i z e ( ) > 0 ) ;
+/ / F i r s t , SRL and named e n t i t y v i e w s . P r e d i c a t e A r g u m e n t V i e w and
+/ / S p a n L a b e l V i e w a r e s p e c i a l i z a t i o n s o f View s u i t e d f o r t h e s e .
+PredicateArgumentView s r l = ( PredicateArgumentView ) t a
+. g e t V i e w ( ViewNames . SRL ) ;
+SpanLabelView ne = ( SpanLabelView ) t a . g e t V i e w ( ViewNames . NER ) ;
+L i s t <C o n s t i t u e n t > l i s t = new A r r a y L i s t <C o n s t i t u e n t > ( ) ;
+/ / P r e d i c a t e A r g u m e n t V i e w a l l o w s u s t o i t e r a t e o v e r p r e d i c a t e s and g e t
+/ / i t s arguments
+for ( Constituent p r e d i c a t e : s r l . g e t P r e d i c a t e s ( ) ) {
+for ( R e l a t i o n r : s r l . getArguments ( p r e d i c a t e ) ) {
+/ / Get t h e c o n s t i t u e n t c o r r e s p o n d i n g t o t h e a r g u m e n t e d g e
+Constituent argumentConstituent = r . getTarget ( ) ;
+/ / For any view , we can a s k f o r i t s n o d e s w h i c h c o n t a i n a s p a n .
+i f ( ne . g e t C o n s t i t u e n t s C o v e r i n g ( a r g u m e n t C o n s t i t u e n t ) . s i z e ( ) > 0 ) {
+/ / I f t h e r e i s any s u c h node i n t h e named e n t i t y view , we
+/ / have found a p r e d i c a t e t h a t s a t i s f i e s t h e query .
+l i s t . add ( p r e d i c a t e ) ;
+break ;
+}
+}
+}
+Figure 7: Two snippets of E DISON code. The top one gets the path from a token to the root of the parse tree. If executed on
+the TextAnnotation shown in Figure 6, the variable path will be the list [VBD, VP, S] at the end of the ﬁnal loop.
+The second snippet identiﬁes SRL predicates which have an argument that contains a named entity.
+
+

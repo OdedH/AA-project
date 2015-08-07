@@ -1,0 +1,1044 @@
+Learning Programs: A Hierarchical Bayesian Approach
+
+Percy Liang
+pliang@cs.berkeley.edu
+Computer Science Division, University of California, Berkeley, CA 94720, USA
+Michael I. Jordan
+jordan@cs.berkeley.edu
+Computer Science Division and Department of Statistics, University of California, Berkeley, CA 94720, USA
+Dan Klein
+Computer Science Division, University of California, Berkeley, CA 94720, USA
+
+Abstract
+We are interested in learning programs for
+multiple related tasks given only a few training examples per task. Since the program
+for a single task is underdetermined by its
+data, we introduce a nonparametric hierarchical Bayesian prior over programs which
+shares statistical strength across multiple
+tasks. The key challenge is to parametrize
+this multi-task sharing. For this, we introduce a new representation of programs
+based on combinatory logic and provide an
+MCMC algorithm that can perform safe program transformations on this representation
+to reveal shared inter-program substructures.
+
+1. Introduction
+A general focus in machine learning is the estimation
+of functions from examples. Most of the literature focuses on real-valued functions, which have proven useful in many classiﬁcation and regression applications.
+This paper explores the learning of a diﬀerent but also
+important class of functions—those speciﬁed most naturally by computer programs.
+To motivate this direction of exploration, consider programming by demonstration (PBD) (Cypher, 1993).
+In PBD, a human demonstrates a repetitive task in a
+few contexts; the machine then learns to perform the
+task in new contexts. An example we consider in this
+paper is text editing (Lau et al., 2003). Suppose a user
+wishes to italicize all occurrences of the word statistics.
+If the user demonstrates italicizing two occurrences of
+Appearing in Proceedings of the 27 th International Conference on Machine Learning, Haifa, Israel, 2010. Copyright
+2010 by the author(s)/owner(s).
+
+klein@cs.berkeley.edu
+
+statistics, can we generalize to the others? The solution to this italicization task can be represented compactly by a program: (1) move the cursor to the next
+occurrence of statistics, (2) insert <i>, (3) move to the
+end of the word, and (4) insert </i>.
+From a learning perspective, the main diﬃculty with
+PBD is that it is only reasonable to expect one or two
+training examples from the user. Thus the program
+is underdetermined by the data: Although the user
+moved to the beginning of the word statistics, an alternate predicate might be after a space. Clearly, some
+sort of prior or complexity penalty over programs is
+necessary to provide an inductive bias. For real-valued
+functions, many penalties based on smoothness, norm,
+and dimension have been studied in detail for decades.
+For programs, what is a good measure of complexity
+(prior) that facilitates learning?
+We often want to perform many related tasks (e.g.,
+in text editing, another task might be to italicize the
+word logic). In this multi-task setting, it is natural to
+deﬁne a hierarchical prior (a joint measure of complexity) over multiple programs, which allows the sharing
+of statistical strength through the joint prior.
+The key conceptual question is how to allow sharing
+between programs. Here, we can take inspiration from
+good software engineering principles: Programs should
+be structured modularly so as to enable code reuse.
+However, it is diﬃcult to implement this intuition since
+programs typically have many internal dependencies;
+therefore, transforming programs safely into a modular form for statistical sharing without disrupting the
+program semantics requires care. Our solution is to
+build on combinatory logic (Sch¨nﬁnkel, 1924), a simo
+ple and elegant formalism for building complex programs via composition of simpler subprograms. Its
+simplicity makes it conducive to probabilistic modeling.
+
+Learning Programs: A Hierarchical Bayesian Approach
+C
+1
+
+λx . +
+
+x
+∗
+
+x
+
++
+B
+
+(a) lambda calculus
+
+1
+
+CB
+
+S
+∗
+
+I
+
++
+
+CC
+
+1
+
+B
+
+I
+
+I
+
+(b) no variables
+
+S
+B
+I
+∗ I
+(c) refactored
+
+Figure 1. Three equivalent representations of the function
+x → x2 + 1. (b) is variable-free; The routers at internal
+nodes encode how argument x should be routed down (as
+depicted by the arrows). (c) allows + to be refactored out;
+higher-order routers keep track of its original placement.
+
+Section 2 presents our representation of programs
+based on combinatory logic. We then present our nonparametric hierarchical Bayesian prior over multiple
+programs (Section 3) and an MCMC inference algorithm (Section 4). Finally, Section 5 shows the merits
+of our approach on text editing.
+
+2. Program Representation
+The ﬁrst order of business is to ﬁnd a suitable language
+for expressing programs. Recall that we want a representation that highlights the modularity of the computation expressed. To do this, we develop a new version
+of combinatory logic. We ﬁrst introduce it intuitively
+with lambda calculus as a reference point (Section 2.1)
+and then deﬁne it formally (Section 2.2).
+2.1. Intuitive Description
+Lambda calculus is a language for expressing computation in a functional paradigm1 (see Hankin (2004)
+for an introduction). As a running example, consider
+the simple lambda calculus program that computes the
+function x → x2 + 1 (Figure 1(a)). It will be useful
+to think of programs as binary trees where each node
+denotes the result of applying the left subtree to the
+right subtree. Functions are curried.
+One issue with lambda calculus is long-range dependencies between places where a variable is bound (λx)
+and places where it is used (x). This non-locality necessitates the maintaining of an environment (mapping
+from variable names to values), making program transformations cumbersome.
+To motivate combinatory logic, let us try to transform
+the function in Figure 1(a) into a variable-free form
+that preserves the information content: Replace the
+1
+
+We prefer functional languages to procedural ones because side eﬀects complicate reasoning about program behavior.
+
+variable x with I and label internal nodes of the tree
+with a router (for now, one of B, C, S) depending on
+whether x appeared in the right subtree, left subtree,
+or both, respectively. The result is Figure 1(b). To
+apply this function on an argument, we start the argument at the root of the transformed tree. The router
+at each node determines to which subtrees the argument should be sent. When the argument reaches I, it
+replaces I.
+One signiﬁcance of the variable-free formalism is that
+we have eliminated the distinction between program
+and subprogram. Each subtree is now a valid standalone program, and thus a candidate for multi-task
+sharing. For example, (S (B ∗ I) I) denotes the
+square function, which could be useful elsewhere.
+However, sometimes the desired unit of sharing does
+not appear as a subtree. For example, functions x →
+x2 + 1 and x → x2 − 1 have identical trees except
+for one leaf (which is + or −). To address this, we
+can pull the + (−) leaf to the top, augmenting the
+routers along the path. Figure 1(c) is the result of this
+refactoring operation. The left subtree of the root now
+denotes a higher-order function, which when applied
+to +, produces the function x → x2 + 1. Refactoring
+creates new sharable modular subprograms, analogous
+to how a good programmer might.
+2.2. Formal deﬁnition
+Having provided some intuition, we now deﬁne our
+modiﬁed version of combinatory logic formally. Combinatory logic, invented by Sch¨nﬁnkel in 1924 and furo
+ther developed by Curry, is a variable-free formalism
+for expressing computation which actually predates its
+popular rival, lambda calculus. It has been mainly
+used in the study of computability and in the low-level
+compilation of functional languages.
+Let B be a set of symbols called primitive combinators, known as the basis. A combinator is a binary
+tree whose leaves are primitive combinators. We write
+(x y) to denote the tree with left and right subtrees x
+and y, and write (x y z) for ((x y) z) (currying). We
+use an interpretation function · to map each combinator (a syntactic expression) to its semantic denotation. For example, (+ 1 1) = 2 and (+ 1) is the
+function x → x + 1. Given the denotation of primitive
+combinators ( x for all x ∈ B), we can deﬁne the denotation of all other combinators recursively: (x y)
+is the result of applying function x to argument y .
+A main theoretical result in combinatory logic is that a
+basis consisting of just two elements (called S and K)
+suﬃces to build all computable functions. However, a
+
+Learning Programs: A Hierarchical Bayesian Approach
+
+z ⇔ x
+
+B
+x
+
+z ⇔
+
+C
+y
+
+y
+
+z
+
+x
+
+x
+
+y
+
+route right
+z ⇔
+
+S
+x
+
+y
+
+x
+
+z
+
+y
+z
+
+route left
+
+y
+
+route left and right
+
+z
+
+I
+
+x ⇔ x
+
+destination
+
+Figure 2. Equivalences deﬁned by the ﬁrst-order routers
+B, C, S, I, which hold for any combinators x, y, z. These
+are also among the transformations used during inference
+(Section 4.2.2).
+
+be the smallest set such that T0 ⊂ T and if t1 , t2 ∈ T ,
+t1 → t2 ∈ T . The arrow operator is right associative,
+meaning t1 → t2 → t3 ≡ t1 → (t2 → t3 ). For each
+type t, let Bt be the set of primitive combinators of
+that type. In the arithmetic domain, we have Bint =
+{. . . , −2, −1, 0, 1, 2, . . . }, Bint→int→int = {+, −, ∗, /},
+Bint→int→bool = {<, >, =}, and Bbool→int→int→int = {if}.
+Deﬁne Ct , the set all combinators of type t ∈ T , as
+follows. Write t = a1 · · · → · · · ak(t) → b, where b is a
+base type and k(t) is the arity of type t. Deﬁne
+def
+
+TC (t, r, s) = ai1 · · · → · · · ain → s → b,
+def
+
+major disadvantage with this basis is that the resulting combinators become quite large and cumbersome.
+To strike a balance between minimality and practical
+usability, we make two modiﬁcations to SK combinatory logic: (1) we introduce higher-order combinators
+to capture the intuition of routing; and (2) we place
+these combinators at internal nodes.
+Deﬁne a router to be a primitive combinator represented by a ﬁnite sequence of elements from {B, C, S}.
+Let Rk = {B, C, S}k (the set of k-th order routers),
+R≤k = ∪k Rj (routers up to order k), and R =
+j=0
+∪∞ Rj (all routers). For a router r ∈ R, its behavior
+j=0
+is given by
+(r x y z1 · · · z|r| ) = ((x zi1 · · · zin ) (y zj1 · · · zjm )),
+
+(1)
+
+where i1 < · · · < in are indices i such that ri ∈ {C, S}
+and j1 < · · · < jm are indices j such that rj ∈ {B, S}.
+Routers generalize the idea of function application: r
+ﬁrst applies x and y to the appropriate subset of arguments z1 , . . . , z|r| to get x and y , and then applies
+x to y .
+While routers are just combinators, they play a vital
+structural role in a program, so we will treat them
+specially. Deﬁne a combinator with routing to be a
+binary tree where each internal node is labeled with a
+router. We write (r x y) for a combinator with router
+r, left subtree x, and right subtree y; we simply write
+(x y) if |r| = 0. Figure 2 illustrates combinators with
+ﬁrst-order routers and their behavior.
+2.3. Types
+The ﬁnal piece of our representation is types, which
+allows us to prohibit programs such as (3 I), invalid
+because an integer cannot be applied to a function.
+We will work with a monomorphic type system: Let
+T0 denote the set of base types (e.g., T0 = {int, bool}).
+Let T denote the (inﬁnite) set of all types, deﬁned to
+
+TB (t, r, s) = aj1 · · · → · · · ajm → s,
+
+(2)
+
+(3)
+
+where i1 < · · · < in are the indices i corresponding to
+ri ∈ {C, S}, and j1 < · · · < jm are the indices j corresponding to rj ∈ {B, S}. The idea is that for any (r, s),
+if x has type TC (t, r, s) and y has type TB (t, r, s), then
+(r x y) has type t. We deﬁne {Ct } to be the smallest
+sets that satisfy the following ﬁxed point equations:
+Ct = Bt ∪
+
+[
+
+{r} × CTC (t,r,s) × CTB (t,r,s) , ∀t ∈ T
+
+r∈R≤k(t) ,s∈T
+
+(4)
+def
+
+Let C = ∪t∈T Ct be all well-typed combinators. This
+completes the description of our simply-typed routingbased combinatory logic. Its variable-free nature gives
+us a fully compositional representation of programs,
+which will exploit in the sequel.
+
+3. Probabilistic Model
+Our goal is to deﬁne a distribution over combinators
+Ct for each type t ∈ T . We start with a simple PCFG
+model (Section 3.1), and then develop a model based
+on adaptor grammars (Section 3.2). Section 3.3 shows
+how we use this model for multi-task learning.
+3.1. Probabilistic Context-Free Grammars
+Given that Ct consists of binary trees, a starting
+point is to model them using a probabilistic contextfree grammar (PCFG). The parameters of the PCFG
+model are as follows: λ0 , the probability of generating a terminal; pB (z | t), a distribution over primitive
+0
+combinators (including I if t = a → a for some a ∈ T );
+pR (r | k), a distribution over routers of order k; and
+0
+pT (t) a distribution over types. Figure 3 describes the
+0
+generative process: a call to GenIndep(t) returns a
+combinator of type t by either generating a primitive
+combinator or recursively generating a non-primitive
+combinator.
+
+Learning Programs: A Hierarchical Bayesian Approach
+GenIndep(t):
+−With probability λ0 : [primitive]
+−−Return a primitive z ∈ Bt according to pB (z | t)
+0
+−Else: [non-primitive]
+−−Generate a router r ∈ R≤k(t) from pR (r | k(t))
+0
+−−Generate an intermediate type s ∈ T from pT (s)
+0
+−−Recursively sample x from GenIndep(TC (t, r, s))
+−−Recursively sample y from GenIndep(TB (t, r, s))
+−−Return combinator (r x y)
+
+Figure 3. A distribution over programs based on a probabilistic context-free grammars.
+for t ∈ T : Ct ← [ ] [initialize caches]
+Deﬁnitions:
+−Nt : number of distinct elements in Ct
+−Mz : number of times z occurs in Ct(z)
+−Return∗ z = add z to Ct(z) and return z
+GenCache(t):
+α0 +N
+−With probability α0 +|Cttd : [construct]
+|
+−−With probability λ0 : [primitive]
+−−−Return∗ a primitive z ∈ Bt according to pB (z | t)
+0
+−−Else: [non-primitive]
+−−−Add a placeholder z † to Ct
+−−−Generate a router r ∈ R≤k(t) from pR (r | k(t))
+0
+−−−Generate an intermediate type s ∈ T from pT (s)
+0
+−−−Recursively sample x from GenCache(TC (t, r, s))
+−−−Recursively sample y from GenCache(TB (t, r, s))
+−−−Remove z † from Ct
+−−−Return∗ combinator (r x y)
+−Else: [fetch]
+Mz −d
+−−Return∗ z ∈ Ct with probability |Ct |−Nt d
+
+Figure 4. Speciﬁes a distribution over programs based on
+adaptor grammars. This model allows sharing of subprograms via caches.
+
+To capture the desired notion of sharing, we introduce
+a cache Ct for each type t, a list which stores all the
+combinators of type t that have been generated. The
+idea is that when asked to generate a combinator of
+type t, we can either return an existing one from Ct
+(achieving sharing) or a new combinator, which might
+be constructed from existing combinators from other
+caches (or even the same cache).
+Figure 4 describes the generative process for the new
+model, which we call GenCache. The new model
+has two additional hyperparameters, a concentration
+α0 > 0 and a discount 0 < d < 1, which determine the
+amount of desired sharing. Much of GenCache is the
+same as GenIndep. The major diﬀerence is the possibility of generating from the cache, which happens
+with probability proportional to |Ct | − Nt d, where Nt
+is the number of distinct combinators. A new combinator is generated with probability proportional to
+α0 + Nt d. Thus, the smaller α0 and d are, the more
+sharing we have.
+Note that for generating non-primitive combinators,
+we add a special placeholder z † to Ct before we recurse. This is needed for the correctness of a recursively hierarchical Pitman-Yor process. A recursive
+call could return this placeholder, thereby creating a
+cyclic combinator. Cyclicity actually provides a very
+natural (but non-standard) way to implement recursion, which is commonly achieved by using variables.
+Cyclicity allows for direct self-reference without names
+and has been studied in programming language theory
+(Ariola & Blom, 1997).
+
+GenIndep fully exploits the compositional structure
+of combinators, aligning it with conditional independence in the statistical world. Though attractive computationally, GenIndep’s assumption of conditional
+independence—that the function and argument are independent conditioned on their types—is too strong,
+and we will weaken this assumption in the next model.
+
+Suppose that for some type t, we generate programs
+Zi = GenIndep(t) for i = 1, . . . , K. GenCache induces a joint distribution p(Z1 , . . . , ZK ). Although the
+deﬁnition of GenCache is sequential, the induced distribution p(Z1 , . . . , ZK ) is actually exchangeable (the
+exact form is given in (5)). Therefore by de Finetti’s
+theorem, there exists a random collection of distributions over programs {Gt }t∈T such that Z1 , . . . , ZK are
+independent.
+
+3.2. Adaptor Grammars
+
+3.3. Multi-task Learning
+
+We create a richer model by leveraging two statistical
+ideas: (1) Bayesian nonparametric modeling, which allows us to relax the rigid compositionality of GenIndep and treat large subprograms atomically, and (2)
+Bayesian hierarchies, which allow these subprograms
+to be shared across tasks. In particular, we use adaptor grammars (Johnson et al., 2006), which are based
+on the Pitman-Yor process (Pitman & Yor, 1997)
+and ideas from the hierarchical Dirichlet process (Teh
+et al., 2006).
+
+Having deﬁned a prior over combinators, let us apply
+it to multi-task learning. Assume we have K tasks,
+and for each task i = 1, . . . , K, we are given n training
+examples {(Xij , Yij )}n . For each task i, we would
+j=1
+like to infer a latent combinator program Zi such that
+the program is consistent with those examples; that is,
+( Zi Xij ) = Yij for all j = 1, . . . , n.
+We draw each program as follows:
+Zi =
+GenCache(ti ), where ti = t(Xi1 ) → t(Yi1 ) is the type
+
+Learning Programs: A Hierarchical Bayesian Approach
+
+signature of task i. A nice feature of our setup is that
+multi-task sharing can still occur across tasks with different type signatures, since the programs Zi s can be
+composed of common subprograms.
+
+4. Bayesian Inference
+
+4.1. Constraining the Prior
+In Section 3, we used GenCache to deﬁne a joint
+distribution p(Z). However, evaluating p(Z) involves
+integrating out all the possible ways Z could have been
+generated. To avoid this marginalization, we introduce
+the following constraint: Let Q1 be the event that each
+combinator which is constructed rather than fetched
+did not already exist in the cache; consequently, a
+combinator z which occurs Mz times in its cache Ct(z)
+must have been constructed the ﬁrst time and fetched
+the next Mz − 1 times. Also, let Q2 be the event that
+Z contains no cyclic combinators, as cyclicity complicates inference. Let Q = Q1 ∧ Q2 .2
+The signiﬁcance of Q is that p(Z, Q = 1) has an analytic expression. Let Mz and Nt be deﬁned as in
+Figure 4. Then we have:
+p(Z, Q = 1) =
+
+t∈T
+
+(5)
+
++ (i − 1)d)
+
+z∈Ct
+
+Nt −1
+i=0 (α0
+
+ψ(z)
+
+Mz −1
+i=1 (i
+
++ i)
+
+− d)
+
+λ0 pB (z | t)
+0
+(1−λ0 )pR (r(z) | k(t(z)))pT (s(z))
+0
+0
+
+,
+
+z primitive
+otherwise.
+
+Note that as α0 , d → 0, p(Z, Q = 1) concentrates all
+probability mass on those Z which have the absolute
+smallest number of distinct subprograms, thus encouraging maximum sharing. Larger α0 and d tend to be
+less forceful.
+One might be tempted to change GenCache to enforce Q = 1 directly. This would correspond to deﬁning a prior p(Z | Q = 1), which would be intractable to
+work with. Remember that GenCache is only used
+as a vehicle for deﬁning the prior and is not used for
+forward generation.
+2
+
+n
+
+p(Y | X, Z) =
+
+I[( Zi Xij ) = Yij ],
+
+Johnson et al. (2006) implicitly assumed Q1 and did
+not worry about Q2 since their hierarchies are not recursive.
+
+(6)
+
+i=1 j=1
+
+which is 1 iﬀ all programs are consistent with the
+training examples. This sharply discontinuous likelihood creates a posterior whose support is disconnected, making it diﬃcult to design an MCMC kernel
+that can jump across zero probability states and explore all programs. Our strategy will therefore be to
+rely on a restricted set of candidate correct programs
+to be provided.
+We use a candidate structure to compactly represent
+an exponentially large set of programs, similar to the
+version space algebra of Lau et al. (2003). Formally, a
+candidate structure s is associated with the following:
+(1) a partial function fs which speciﬁes the desired
+computation; and (2) a set Ss , where each element is
+either a primitive combinator (element of B) or a triple
+(r, s1 , s2 ), where r is a router and s1 , s2 are candidate
+structures. We require that fs be compatible with (r,
+fs1 , fs2 ), meaning that for any extension gs1 of fs1 and
+gs2 of fs2 , (r gs1 gs2 ) is an extension of fs .
+Let U (s) be the set of combinators deﬁned by recursively walking down the structure and choosing elements in Ss to follow; formally,
+{r} × U (s1 ) × U (s2 ). (7)
+
+U (s) = (Ss ∩ B) ∪
+
+where
+ψ(z) =
+
+We now combine the likelihood p(Y | X, Z) with the
+prior that we constructed in (5), yielding the posterior
+p(Z | X, Y, Q = 1). The likelihood is an indicator
+function
+K
+
+The goal of inference is to ﬁnd the posterior distribution over the latent programs Z = (Z1 , . . . , ZK ) given
+training examples {(Xij , Yij )}. We ﬁrst explicate our
+distribution over p(Z) (Section 4.1) and then discuss
+how to incorporate the training data and perform approximate inference via MCMC (Section 4.2.1).
+
+Nt
+i=1 (α0
+
+4.2. Incorporating Training Data
+
+(r,s1 ,s2 )∈Ss
+
+It can be veriﬁed that any z ∈ U (s) is an extension of
+fs . Also, let S∗ (s) = {s}∪ (r,s1 ,s2 )∈Ss (S∗ (s1 )∪S∗ (s2 ))
+denote all candidate structures in s. Also, let R(z) be
+the programs which can be obtained by refactoring z;
+this set is deﬁned more precisely in Section 4.2.2.
+We assume a candidate structure si is given for each
+task i. The target sampling distribution is then p(Z |
+K
+Z ∈ U, Q = 1), where U = i=1 ∪z∈U (si ) R(z), programs which can be refactored from some candidate.
+Our sampler uses two types of moves to explore U:
+candidate switching moves (Section 4.2.1) and refactoring moves (Section 4.2.2).
+4.2.1. Candidate Switching
+For purposes of switching candidates, it will be convenient to operate on an expanded set of random variables which parametrize Z. Let S∗ = ∪K S∗ (si ) dei=1
+note the candidate structures across all tasks. Deﬁne
+
+Learning Programs: A Hierarchical Bayesian Approach
+
+G = {Gs }s∈S∗ , where Gs ∈ Ss . Let Z(G) denote the
+K programs formed by following G down the candidate structures. Note that G also contains variables
+whose candidate structures specify subprograms not
+part of Z(G). Let S∗ (Z, G) be only the candidate
+structures which are part of Z(G).
+Given these structures the candidate switching
+move is now straightforward.
+We use the following Metropolis-Hastings proposal: choose s ∈
+S∗ (Z, G) uniformly at random (with probability
+1
+|S∗ (Z,G)| ), and propose changing Gs to an element
+of Ss uniformly at random. This proposal is accepted with the usual Metropolis-Hastings probability,
+min{1, p(Z ,Q=1)|S∗ (Z ,G)| }, where Z is the new state.
+p(Z,Q=1)|S∗ (Z,G)|
+The ratio of model probabilities can be computed according to (5).
+
+r0
+r1Br
+x y
+
+r0
+
+r0 r
+z
+
+⇔
+
+x
+
+r1
+y
+
+z
+
+⇔
+
+y
+
+r1
+x
+
+z
+
+∀(r0, r1) comptabile with (r0, r1)
+
+∀(r0, r1) comptabile with (r0, r1)
+
+r0
+r1Sr
+x y
+
+r0 r
+
+z
+
+r1Cr
+x y
+
+r0 r
+z
+
+⇔
+
+r2
+
+r1
+x
+
+z
+
+y
+
+z
+
+∀(r0, r1) comptabile with (r0, r1, r2)
+
+Figure 5. Templates specifying higher-order transformations, which allow refactoring in the presence of other
+routers. Let r0 and r1 be any routers that send arguments a1 , . . . , ak each to some subset of {x, y, z}. After
+they apply, z will be routed down by the core B,C, or S.
+We require that r0 and r1 (and also r2 in the case of S)
+be compatible with r0 and r1 , that is, they route a1 , . . . , ak
+to the same subset of {x, y, z} in the new tree structure
+induced by the core router. There no constraints on r.
+
+4.2.2. Refactoring
+So far, we can switch candidates and let the prior drive
+sampling to those programs in U with more sharing
+across tasks. However, as mentioned in Section 2.1,
+the potential for sharing is sometimes not immediate.
+Consider the two programs in Z(2) (Figure 6) for computing the min and the max. Although the programs
+diﬀer only in one leaf, this similarity is not reﬂected
+by examining the subprograms they share. Refactoring the programs to Z(4) exposes the modularity while
+still preserving the same functionality, and indeed, Z(4)
+has much higher likelihood than Z(2) .
+We deﬁne a set of refactoring transformations F,
+where each transformation [f1 ↔ f2 ] ∈ F is deﬁned
+on a pair of combinator patterns. One example is the
+basic B-transformation [((B x y) z) ↔ (x (y z))], depicted at the top of Figure 2. This transformation
+states that for all combinators x, y, z ∈ C, ((B x y) z)
+has the same denotation as (x (y z)); we can therefore
+freely replace one with the other. Figure 2 lists three
+other basic transformations based on removing/adding
+C, S, and I.
+These four basic transformations work for programs
+that take no arguments, which is clearly insuﬃcient
+for our needs. For example, none of the basic transformations can account for the equivalence between
+(3)
+(1)
+programs Z1 and Z1 for computing x − y + 1. At
+the same time, modulo the presence of extra routers,
+the diﬀerence between the two at the core is just
+a C-transformation; therefore, we need a more general version. We add to F higher-order transformations which allow one to work when other routers are
+present (see Figure 5). We can apply a higher-order
+C-transformation with r = ∅, r0 = BB, r1 = ∅,
+
+(1)
+
+(3)
+
+r0 = CC, r1 = BB to move between Z1 and Z1 .
+Let R(z) be the set of combinators reachable by applying transformations in F to z.
+We can turn the set of transformations F into a
+Metropolis-Hastings proposal as follows: First choose
+a transformation f uniformly from those in F that
+involve routers of some bounded order (to keep the
+set ﬁnite). Then, choose a task i and subtree z of
+Zi uniformly at random. If f is applicable at z, propose replacing z with f (z). The proposal is accepted
+or rejected according to the usual Metropolis-Hastings
+acceptance ratio.
+Note that refactoring disrupts candidate structures.
+When f is applied, we remove any aﬀected candidate
+structures from S∗ (Z, G) (all descendants of the transformed tree) add them back when f is undone. Candidate switching moves will simply skip over those structures that do not contribute to Z.
+
+5. Experiments
+We ﬁrst illustrate our model in a simple arithmetic
+domain (Section 5.1) and then present experiments in
+the text editing domain (Section 5.2).
+5.1. An Arithmetic Example
+Consider the two tasks shown at the top of Figure 6.
+For the candidate structure si of each task i ∈ {1, 2},
+we set Ssi to (the degenerate candidate structures cor(1)
+(2)
+responding to) {Zi , Zi } and initialize the sampler
+(1)
+to Z . There are two generalizations of the training
+examples: one using arithmetic operations (Z(1) ) and
+
+Learning Programs: A Hierarchical Bayesian Approach
+Task 1 examples: X11 = (3, 2), Y11 = 2, X12 = (7, 4), Y12 = 4
+Task 2 examples: X21 = (3, 6), Y21 = 6, X22 = (2, 4), Y22 = 4
+(1)
+
+Z
+
+[x − y + 1;
+
+y
+2
+
+BC
+
+CC
+1
+BB
++ −
+
+B
++
+
+y
+2
+
+(3)
+
+Z1
+
+B
++
+
+I
+C
+2
+
+/
+
+(3)
+
+Z2
+
+CS
+SC
+I
+I
+BB
+if <
+(2)
+
+BC
+−
+
+Z(2) [min(x, y); max(x, y)]:
+
+Z1
+
+= −42.89
+
++ x]:
+
+BB
+1
+
+2
+(1)
+
+Z2
+
+Z(3) [x − y + 1;
+
++
+
+I
+C
+
+/
+
+(1)
+
+Z1
+
+C
+
+= −46.76
+
++ x]:
+
+(2)
+
+Z2
+
+Z(4) [min(x, y); max(x, y)]:
+SS
+CBC <
+BC I
+if I
+(4)
+Z1
+
+= −54.96
+
+CS
+SC
+I
+I
+BB
+if >
+
+= −35.96
+
+SS
+CBC >
+BC I
+if I
+(4)
+Z2
+
+Figure 6. An arithmetic example: Each of the four boxes
+represent a state Z could be in; the dotted edges represent
+paths that our sampler must follow. Z(1) and Z(2) are provided by the candidate structures, whereas Z(3) and Z(4)
+are reachable only by refactoring. Although Z(1) is simpler
+than Z(2) , as conﬁrmed by the log-likelihood ( ), the true
+simplicity of Z(2) can be revealed only by refactoring into
+Z(4) , which has the highest .
+
+one using comparison operations (Z(2) ). As explained
+in Figure 6, while the former yields smaller individual
+programs, the latter, after refactoring, is simpler when
+considered as a whole.
+5.2. Text Editing
+We now turn to text editing. We can represent the
+editing process functionally by encapsulating the state
+of the editor into a variable s of type state, which
+contains the contents of the buﬀer, the cursor position,
+the selection extent, and the contents of the clipboard.
+Figure 7 describes the primitive combinators.
+We took 24 editing scenarios obtained from Tessa
+Lau, with substantial but not complete overlap with
+those reported in Lau et al. (2003). Each example consists of a sequence of user actions. Suppose we have two examples [(move 10), (insert hello)]
+and [(move 28), (insert hello)]. We construct candidate structures as follows: The root candidate
+structure is a composition of the primitive combinators corresponding to those actions; in our example, (B (C insert s) (C move s )), where s and s are
+candidate structures such that fs : state → int returns 10 and 28, respectively, on the initial states of
+the two examples; and fs : state → string returns
+hello on both. Next, for each candidate structure s
+for which fs : state → int, we have a small set of
+rules for constructing Ss by considering possible ways
+of returning the desired integer: returning an absolute oﬀset x, returning a relative oﬀset (+ (pos s) x),
+
+Base types: state, int, string
+Primitive combinators:
+. . . , −2, −1, 0, 1, 2, . . . , +, −, string-append
+(pos s): cursor position of state s
+(caseNum s): index of the current example
+(ﬁnd s q w): position of k-th ﬁrst/last occurrence of w
+in s after/before (pos s); exact variant is speciﬁed by q
+(coarse-ﬁnd s w): same as ﬁnd, but operates on a
+coarsened version of w and s (e.g., “aa aaaa00x”
+replaces “at ICML10!”)
+(begin-word s): position of beginning of next word
+(whitespace s): position of next whitespace character
+(end-of-ﬁle s): position at end of ﬁle
+(move s i): new state where the cursor position is i
+(select s i j): new state where contents between i and
+j are selected
+(paste s): new state where clipboard contents are
+inserted at the current position
+(cut s): new state where the selected text is cut to the
+clipboard
+(copy s): new state where the selected text is copied to
+the clipboard
+(delete s i) new state where the text between (pos s)
+and i is deleted
+(insert s w) new state where w has been inserted at the
+current position
+(delete-selection s w) new state where the selected text
+in s is deleted
+
+Figure 7. Description of the text editing domain. Our
+primitives are similar to the ones used in Lau et al. (2003),
+
+matching a string (ﬁnd s q w), etc., for various values
+of x, w, q. For each candidate structure s for which
+fs : state → string, we construct Ss in a similar vein.
+Recall that refactoring allows us to expose new subprograms. Using the full set of transformations F is
+too general for text editing, so we replace F as follows to target two types of desired sharing: We use B
+transformations on the composition of user actions at
+the top of the candidate structure; this corresponds to
+forming a hierarchical grouping via tree rotations. Second, we allow extraction/unextraction of string-typed
+primitive combinators to the top of the program using
+a single program transformation, as in Figure 1(b).
+Having deﬁned our candidate structures and allowable
+set of refactorings, we now apply MCMC to infer the
+programs. We set the hyperparameters of the model
+to α0 = 1 and d = 0.2. We perform 1000 passes over
+our training data, applying both candidate and refactoring transformations, and annealing from a temperature of 10 down to 1 during the ﬁrst 900 iterations.
+During the ﬁnal 100 iterations, we collected samples
+of Z. On a test input X on task i, we perform approximate Bayesian averaging by predicting the most
+common output ( Zi X) over samples Zi .
+We compared our approach with two baselines: (1)
+
+Learning Programs: A Hierarchical Bayesian Approach
+Table 1. Average test error rates across all text editing
+tasks (the mean is reported over 10 trials) with n training examples per task. Note that using an independent
+prior actually works substantially worse than using a uniform prior due to an overly-aggressive penalization of the
+program size. Using a joint prior over all tasks oﬀers substantial improvements.
+
+n
+Uniform prior
+Independent prior
+Joint prior
+
+2
+19.6
+25.4
+13.9
+
+3
+17.0
+21.8
+9.5
+
+4
+7.0
+20.9
+5.9
+
+5
+2.7
+12.1
+3.4
+
+new and exciting challenges.
+Acknowledgments We thank Tessa Lau for providing us with the text editing dataset and anonymous
+reviewers for their comments.
+
+References
+Ariola, Z. M. and Blom, S. Cyclic lambda calculi. In
+Theoretical Aspects of Computer Software, pp. 77–106,
+1997.
+Briggs, F. and O’Neill, M. Functional genetic programming
+with combinators. In Third Asian-Paciﬁc workshop on
+Genetic Programming, pp. 110–127, 2006.
+
+using a uniform prior over programs (in U), (2) and
+using our GenCache model but treating each task independently. Table 1 shows our results as the number
+of training examples n varies. Independent learning
+performs worse than no learning, but joint learning
+works best.
+
+6. Related Work
+Combinatory logic (without routing) has been used
+to learn programs in genetic programming (Briggs &
+O’Neill, 2006) with the goal of facilitating program
+transformations as in our work, but this approach does
+not provide a declarative prior on programs. Lau et al.
+(2003) used a hand-crafted prior. In contrast, we learn
+a distribution over programs from multiple tasks.
+An important special case of functional programs are
+logical formulae, programs that return boolean values.
+Bayesian inference has been used to induce logical formulae using a PCFG in several contexts, e.g., in representing natural language semantics (Piantadosi et al.,
+2008) and cognitive concepts (Goodman et al., 2008b).
+A diﬀerent point of convergence of programming languages and probabilistic modeling is in Church (Goodman et al., 2008a). They infer the random trace of
+a ﬁxed (stochastic) program, whereas we infer the
+(deterministic) program itself, although Mansinghka
+(2009) did show that Church, being universal, can be
+used in principle to infer programs by forward simulation and rejection.
+
+7. Conclusion
+We have presented a hierarchical Bayesian model of
+combinator programs which enables multi-task sharing
+of subprograms. One of the main new ideas is refactoring to reveal shared subprograms via safe transformations. Programs are rich objects which have been
+studied at length from a logical perspective. Treating them as objects of statistical inference raises many
+
+Cypher, A. Watch what I do: Programming by demonstration. MIT Press, 1993.
+Goodman, N. D., Mansighka, V. K., Roy, D., Bonawitz, K.,
+and Tenenbaum, J. B. Church: a language for generative
+models. In Uncertainty in Artiﬁcial Intelligence (UAI),
+2008a.
+Goodman, N. D., Tenenbaum, J. B., Feldman, J., and Grifﬁths, T. L. A rational analysis of rule-based concept
+learning. Cognitive Science, 32:108–154, 2008b.
+Hankin, C. An Introduction to Lambda Calculi for Computer Scientists. Lightning Source, 2004.
+Johnson, M., Griﬃths, T., and Goldwater, S. Adaptor
+grammars: A framework for specifying compositional
+nonparametric Bayesian models. In Advances in Neural
+Information Processing Systems (NIPS), pp. 641–648,
+Cambridge, MA, 2006. MIT Press.
+Lau, T., Wolfman, S., Domingos, P., and Weld, D. S. Programming by demonstration using version space algebra.
+Machine Learning, 53:111–156, 2003.
+Mansinghka, V. Natively Probabilistic Computation. PhD
+thesis, MIT, 2009.
+Piantadosi, S. T., Goodman, N. D., Ellis, B. A., and Tenenbaum, J. B. A Bayesian model of the acquisition of
+compositional semantics. In Proceedings of the Thirtieth Annual Conference of the Cognitive Science Society,
+2008.
+Pitman, J. and Yor, M. The two-parameter PoissonDirichlet distribution derived from a stable subordinator. Annals of Probability, 25:855–900, 1997.
+¨
+Sch¨nﬁnkel, M. Uber die bausteine der mathematischen
+o
+logik. Mathematische Annalen, 92:305–316, 1924.
+Teh, Y. W., Jordan, M. I., Beal, M., and Blei, D. Hierarchical Dirichlet processes. Journal of the American
+Statistical Association, 101:1566–1581, 2006.
+
+

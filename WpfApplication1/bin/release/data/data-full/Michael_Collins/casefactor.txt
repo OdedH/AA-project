@@ -1,0 +1,1052 @@
+Case-Factor Diagrams
+for Structured Probabilistic Modeling
+
+David McAllester
+TTI at Chicago
+mcallester@tti-c.org
+
+Michael Collins
+CSAIL
+Massachusetts Institute of Technology
+mcollins@ai.mit.edu
+
+Fernando Pereira
+CIS
+University of Pennsylvania
+pereira@cis.upenn.edu
+
+Abstract
+We introduce a probabilistic formalism subsuming Markov random ﬁelds of bounded
+tree width and probabilistic context free
+grammars. Our models are based on a representation of Boolean formulas that we call
+case-factor diagrams (CFDs). CFDs are similar to binary decision diagrams (BDDs) but
+are concise for circuits of bounded tree width
+(unlike BDDs) and can concisely represent
+the set of parse trees over a given string under a given context free grammar (also unlike
+BDDs). A probabilistic model consists of a
+CFD deﬁning a feasible set of Boolean assignments and a weight (or cost) for each individual Boolean variable. We give an insideoutside algorithm for simultaneously computing the marginal of each Boolean variable,
+and a Viterbi algorithm for ﬁnding the mininum cost variable assignment. Both algorithms run in time proportional to the size of
+the CFD.
+
+1
+
+Horn abduction [15], and probabilistic relational models (PRMs) [10].
+For each of these model types one can deﬁne a corresponding structured classiﬁcation problem. In HMMs,
+for example, the problem is to recover the hidden state
+sequence from the observable sequence. For PCFGs,
+the problem is to recover a parse tree from a given
+word string. In PRMs, the problem is to recover latent entity labels and relations for a given set of observed entities and relations. We follow an approach
+where the statistical model deﬁnes P (y|x) and structured classiﬁcation ﬁnds the most likely y for a given
+x. (Other approaches are possible – for example, maximum margin classiﬁers are discussed below.)
+
+Introduction
+
+In this paper, we investigate eﬃcient representations
+for structured probabilistic models. Informally, a
+structured model deﬁnes a distribution on structured
+objects such as sequences, parse trees, or assignments
+of values to variables. The number of possible structured objects typically grows exponentially in a natural measure of problem size. For example, the number of possible parse trees grows exponentially in the
+length of the string being parsed. Structured statistical models include Markov random ﬁelds (MRFs),
+probabilistic context free grammars (PCFGs), hidden
+Markov models (HMMs), conditional random ﬁelds
+(CRFs) [12], dynamic Bayes nets [11], probabilistic
+
+The structured statistical models discussed above are
+intuitively similar. They all involve local probability
+tables or local cost functions. It is widely believed
+that many, if not all, of the above modeling formalisms
+can be viewed as special cases of MRFs (undirected
+graphical models). More speciﬁcally, in a structured
+classiﬁcation problem one should be able to represent
+P (y|x) as an MRF. By assuming P (y|x) is modeled
+as an MRF one can prove theorems and design algorithms and software at an abstract level which simultaneously applies to all of the modeling formalisms discussed above.
+Unfortunately, for some of the above models the representation of P (y|x) as an MRF is problematic. The
+most problematic case is perhaps PCFGs. It is fairly
+easy to construct an MRF representing P (y|x) where
+y is a parse tree and x is a word string. Unfortunately,
+standard MRF algorithms take exponential time when
+applied to the natural MRF representation. This is
+a somewhat surprising outcome, given that there are
+well-known inference algorithms for PCFGs which run
+in cubic time in the length of the word string x.
+This paper presents a modeling formalism which handles both MRFs of bounded tree width and PCFGs.
+
+First we deﬁne a linear Boolean model (LBM). An
+LBM consists of three parts: a set of boolean variables; a formula deﬁning a set of possible assignments
+to these variables (a “feasible set”); and an assignment
+of a weight to each variable. The weight for a complete variable assignment is then the sum of weights
+for those variables in the assignment that are true.
+The weight associated with a truth assignment can be
+written as a linear function of the bits in the assignment — hence the term “linear”. We show how to
+encode both standard MRFs and PCFGs, as LBMs.
+The main problem we solve is how to encode compactly the set of possible assignments to the variables in an LBM in a single formalism handling both
+MRFs of bounded tree width and PCFGs. The casefactor diagrams (CFDs) we introduce for that purpose
+are similar to binary-decision diagrams (BDDs) [4].
+CFDs diﬀer from BDDs in two ways. First, CFDs
+are similar to zero-suppressed BDDs (ZBDDs) [14].
+ZBDDs are designed for sparse truth assignments —
+truth assignments where most of the Boolean variables
+are false. Sparseness is important for representing
+PCFGs. In addition to being zero-surpressed, CFDs
+have “factor nodes” which allow a concise representation of problems that factor into independent subproblems. Factoring is important for representing MRFs of
+bounded tree width. We describe algorithms for CFDs
+that compute partition functions under Gibbs distributions for P (y|x), that select the maximum likelihood (Viterbi) structure, and an inside-outside algorithm for computing the marginal distributions of all
+of the Boolean variables. These algorithms all run in
+time linear in the number of nodes in the CFD. We
+demonstrate that PCFG models can be encoded in a
+CFD which has O(n3 ) size where n is the length of
+the input string. We also show that MRFs of bounded
+tree width can be represented by a CFD with a polynommial number of nodes.
+There are various lines of related work. A variant of
+BDDs for circuits of bounded tree width was introduced by McMillan [13]. Although McMillan’s formalism is more elaborate, it turns out that simply
+extending BDDs with “and” nodes suﬃces for representing MRFs of bounded width. But representing
+PCFGs seems to require a zero-suppressed formalism.
+CFDs are related to the recursive conditioning algorithm introduced by Darwiche [6, 1]. The nodes of a
+CFD correspond to the “subproblems” that arise in
+recursive conditioning. Recursive conditioning cases
+on the value of a variable, factors the remaining problem into independent subproblems, and then solves the
+subproblems recursively. CFDs provide a data structure that explicitly represents this case-factor structure. The CFD allows diﬀerent algorithms to exploit
+
+that same structure. CFDs and recursive conditioning
+can both exploit context-sensitive independence (CSI)
+[3]. CSI is particularly important for PCFGs where the
+tree width of the natural MRF representation is large
+and tractability is due to CSI. Darwiche [7] provides a
+representation of case-factor structure based on arithmetic expressions, but it is not clear how to represent
+the feasible set of parse trees in that form.. Dechter [8]
+presents a representation of case-factor structure based
+on and/or graphs, and also discusses representations
+in terms of BDDs, but she does not consider the question of sparse assignments which is critical for PCFGs.
+However, it is possible to represent the distribution of
+parse trees with an appropriate and/or graph. In doing this one must use the convention that the feasible
+set is in one-to-one correspondence with the “solution
+trees” of the graph. CFDs explicitly represent the feasible set as a set of truth assignments. In the case
+of PCFGs, the truth assignment representation of the
+feasible set is natural because each Boolean variable
+can be given a natural meaning as a statement about
+the parse tree represented by the assignment.
+Developing a common language for structured modeling has potential applications to maximum-margin
+structured classiﬁcation [16, 5, 2]. A maximum margin model is trained using an objective function stated
+in terms of margins rather than in terms of P (y|x).
+However, the model parameters can still be viewed as
+deﬁning an log-linear or maxent probabilistic representation. CFDs provide a formalism for structured
+modeling that allows these algorithms and others to
+be formulated at a level of generality that covers both
+MRFs of bounded tree width and weighted grammar
+formalisms like PCFGs.
+
+2
+
+Linear Boolean Models
+
+We ﬁrst ﬁx some notation and terminology. Given a
+set of variables V and domains dom(x) for each x ∈ V ,
+an assignment ρ maps x ∈ V to ρ(x) ∈ dom(x); a
+partial assignment σ maps a subset of the variables
+dom(σ) ⊆ V to appropriate values. The number
+of variables given values by (partial) assignment ρ is
+|ρ| = |dom(ρ)|. We write ρ
+ρ if dom(ρ ) ⊆ dom(ρ)
+and ρ (x) = ρ(x) ∀x ∈ dom(ρ ). If ρ is a (possibly partial) assignment on V and V ⊆ V , ρ|V
+is the unique assignment such that ρ|V
+ρ and
+dom(ρ|V ) = dom(ρ) ∩ V . If all the variables are
+Boolean, that is dom(x) = B = {0, 1} ∀x ∈ V ,
+the assignment is a truth assignment. If ρ is a (possibly partial) assignment, x ∈ V a variable, and
+v ∈ dom(x), ρ[x := v] is the assignment identical to
+ρ except that ρ[x := v](x) = v. If F is a set of assignments, F [x := v] = {ρ[x := v] : ρ ∈ F }. If ρ
+
+and σ are truth assignments, ρ ∨ σ is the assignment
+such that (ρ ∨ σ)(x) = 1 if and only if ρ(x) = 1 or
+σ(x) = 1. If F1 and F2 are sets of truth assignments,
+F1 ∨ F2 = {ρ ∨ σ : ρ ∈ F1 and σ ∈ F2 }. The support of
+a truth assignment is the set of variables set to 1 by
+the assignment.
+We can now describe a general class of structured
+probabilistic models with Boolean variables. A linear Boolean model (LBM) is a triple V, F, Ψ where
+V is a set of Boolean variables, F is a set of feasible
+conﬁgurations, each of which is a truth assignment to
+V , and Ψ is an energy function Ψ : V → R. We extend
+Ψ to conﬁgurations ρ ∈ F with the following “linear”
+deﬁnition:
+Ψ(ρ) =
+Ψ(z)ρ(z)
+(1)
+z∈V
+
+If we view Ψ as a vector in R|V | and ρ as a vector
+in B|V | then Ψ(ρ) is simply the inner product of Ψ
+and ρ. A LBM M deﬁnes a probability distribution
+P (· | F, Ψ) on feasible conﬁgurations ρ ∈ F as follows.
+P (ρ|F, Ψ)
+
+=
+
+1
+e−Ψ(ρ)
+Z(F, Ψ)
+
+(2)
+
+Z(F, Ψ)
+
+=
+
+e−Ψ(ρ)
+
+(3)
+
+ρ∈F
+
+Given equation (2) we have that an LBM is really just
+a log-linear or maxent model [9] on a set F under the
+restrictions that all features are Boolean and that each
+element of F is uniquely determined by its feature values. A critical issue is how to represent the feasible
+set F . Before discussing the representation of F , however, we give two examples of representing structured
+models with LBMs.
+
+An MRF M deﬁnes a probability distribution over conﬁgurations P (ρ|M ) by the following equations:
+P (ρ|M )
+
+1
+e−Ψ(ρ)
+Z(M )
+
+Z(M )
+
+=
+
+e−Ψ(ρ)
+ρ
+
+Ψ(ρ)
+
+=
+
+Ψk (ρ)
+k
+
+To represent an MRF as a LBM we must represent a
+conﬁguration of M as a truth assignment on Boolean
+variables and represent the energy terms by an energy function on Boolean variables. Given an MRF M
+we construct Boolean variables of the form "yi = v"
+with yi a variable of M and with v ∈ Yi . For each
+energy term Ψk with Vk = {y1 , . . . , ym } and each tuple of values v1 , . . . , vk with vi ∈ Yi we also introduce
+the Boolean variable "k, y1 = v1 ∧ · · · ∧ ym = vm ".
+Of course not all truth assignments to these Boolean
+variables correspond to conﬁgurations of the random
+ﬁeld M . In order for a Boolean assignment to be
+feasible we must have that for each y exactly one
+of "y = v1 ", . . ., "y = vn " is true and furthermore
+"k, y1 = v1 ∧ · · · ∧ ym = vm " is true if and only if
+each of "y1 = v1 ", . . ., "ym = vm " is true. Section 5
+discusses a method for representing this feasible set
+of truth assignments. Finally we deﬁne the variable
+energy function as follows.
+Ψ("y = v") = 0
+Ψ("k, y1 = v1 ∧ · · · ∧ ym = vm ") = Ψk (v1 , . . . , vm )
+
+4
+3
+
+=
+
+Parse Distributions as LBMs
+
+Markov Random Fields
+
+A Markov random ﬁeld (MRF) consists of variables
+and energy terms on conﬁgurations of those variables.
+More precisely, we assume a ﬁnite set of variables y1 ,
+. . . y with associated domains Y1 , . . ., Y . We take the
+domains Yj to be ﬁnite sets with |Yi | ≥ 2. We deﬁne
+a conﬁguration to be an assignment ρ of values to the
+variables. An MRF is a set of such variables plus a
+set of energy terms Ψ1 , . . . , ΨN each of which maps a
+conﬁguration to a real number. Any such set of energy
+terms deﬁnes a hypergraph on the variables. More
+speciﬁcally, we say that Ψk depends on variable yj if
+there exists conﬁgurations ρ and ρ which agree on all
+variables except yj and such that Ψk (ρ) = Ψk (ρ ). Let
+Vk denote the set of variables on which Ψk depends.
+The sets Vk deﬁne a hypergraph on the variables. If
+|Vk | = 2 for all k then these sets deﬁne a graph.
+
+A CFG in Chomsky normal form is a set of productions of the following form where X, Y and Z are
+nonterminal symbols and a is a terminal symbol.
+X
+X
+
+→ YZ
+→ a
+
+A parse tree is a tree each node of which is labeled by
+a production of the grammar in the standard way. In
+a weighted CFG each production X → γ is assigned
+an energy (weight) Ψ(X → γ). For any parse tree y
+we write yield(y) for the yield of y, i.e., the sequence
+of terminal symbols at the leaves of the parse tree. We
+write Ψ(y) for the total energy of the parse tree y —
+Ψ(y) is the sum over all nodes of y of the energy of
+the production used at that node. For a given string x
+of terminal symbols we have a probability distribution
+
+on parse trees y with yield(y) = x deﬁned as follows.
+P (y|x)
+Z(x)
+
+=
+
+1 −Ψ(y)
+e
+Z(x)
+
+(4)
+e−Ψ(y)
+
+=
+
+(5)
+
+y: yield(y)=x
+
+To construct an LBM representation of P (y|x) we ﬁrst
+deﬁne a set of Boolean variables. Let n be the length
+of x. First we have a phrase variable "Xi,j " for each
+nonterminal X in the grammar and 1 ≤ i < j ≤ n + 1.
+This phrase variable represents the statement that the
+parse contains a phrase with nonterminal X spanning
+the string from i to j − 1 inclusive. Second we have a
+branch variable "Xi,k → Yi,j Zj,k " for each production
+X → Y Z in the grammar and 1 ≤ i < j < k ≤ n + 1.
+A branch variable represents the statement that the
+parse contains a node labeled with the given production where the left child of the node spans the string
+from i to j − 1 and the right child spans j to k − 1.
+Finally, we have a terminal variable "Xi,i+1 → a" for
+each terminal production X → a and position i in the
+input string. A terminal variable represents the statement that the parse tree produces terminal symbol a
+from nonterminal X at position i. We take V to be
+the set of all such phrase, branch, and terminal variables. Each parse tree determines a truth assignment
+to the variables in V and we take F to be the set of
+assignments corresponding to parse trees. Finally, we
+must deﬁne the energy of each Boolean variable. The
+variable energy function Ψ is given by the following
+equations.
+Ψ("Xi,j ") = 0
+Ψ("Xi,k → Yi,j Zj,k ") = Ψ(X → Y Z)
+Ψ("Xi,i+1 → a") = Ψ(X → a)
+
+5
+
+We denote by V (D) the set of variables occurring in
+D.
+
+Case Factor Diagrams (CFDs)
+
+To deﬁne the meaning of CFDs, it is convenient to see
+all CFD variables as members of a common countably
+inﬁnite set of variables V . The interpretation F (D) of
+a CFD D is then a ﬁnite set of ﬁnite support assignments to V . We use 0 for the totally false assignment
+(the zero vector). F (D) is deﬁned as follows.
+F (unit) = {0}
+F (empty) = ∅
+F (case(x, D1 , D2 )) = F (D1 )[x := 1] ∪ F (D2 )
+F (factor(D1 , D2 )) = F (D1 ) ∨ F (D2 )
+Therefore, like in ZBDDs, variables that are false in
+all assignments in F (D) are not mentioned in D. In
+contrast, a BDD must test all variables in its domain,
+precluding the compact representation of sparse assignments.
+An an example consider variables x1 , x2 , . . . and consider the CFD Ai deﬁned as follows.
+A0
+Ai+1
+
+Under the semantics stated above we have that F (Ai )
+is the set of all the 2i truth assignments ρ satisfying
+the constraint that ρ(xj ) = 0 for all j > i. As another
+example, consider Bi deﬁned as follows.
+B0
+Bi+1
+
+= unit
+= factor(case(xi+1 , unit, unit), Bi )
+
+We leave it to the reader to verify that F (Bi ) = F (Ai ).
+As a third example consider Ci deﬁned as follows.
+C0
+Ci+1
+
+A case-factor diagram represents the feasible set by a
+search tree over the set of possible truth assignments.
+The search tree cases on the value of individual variables and factors the feasible set into a product of independent feasible sets when possible. We represent
+this case-factor search tree by an expression.
+Deﬁnition 1 A case-factor diagram (CFD) D is an
+expression generated by the following grammar where x
+is a Boolean variable; a case expression case(x, D1 , D2 )
+must satisfy the constraint that x does not appear in
+D1 or D2 ; and a factor expression factor(D1 , D2 ) must
+satisfy the constraint that no variable occurs in both D1
+and D2 .
+D ::= case(x, D1 , D2 ) | factor(D1 , D2 ) | unit | empty
+
+= unit
+= case(xi+1 , Ai , Ai )
+
+= unit
+= case(xi+1 , Ci , empty)
+
+We have that F (Ci ) contains only the single truth assignment ρ such that ρ(xj ) = 1 for j ≤ i and ρ(xj ) = 0
+for j > i. In general this semantics has the property
+that if x does not occur in D then ρ(x) = 0 for any
+assignment ρ ∈ F (D). Because the two arguments
+of a factor expression cannot share variables, we have
+that the number of assignments in F (factor(D1 , D2 ))
+equals the number of assignments in F (D1 ) times the
+number of assignments in F (D2 ). We leave it to the
+reader to verify that any feasible set on any ﬁnite set
+of variables can be represented by a CFD.
+The meaning of CFD expressions is independent of
+their representation as data structures. However, the
+running time of algorithms depends crucially on that
+
+representation. For all the algorithms we discuss, we
+assume that CFD expressions are represented as diagrams, which are DAGs with one node for each distinct subexpression, and edges from the node for an
+expression to the nodes for its immediate subexpressions. That is, common subexpressions are represented
+uniquely. For example, the CFD Ai deﬁned above
+viewed as a tree has 2i leaves. Viewed as a diagram,
+however, Ai has only i + 1 nodes but 2i diﬀerent paths
+from the root node to the leaf node. The size of a
+CFD D, denoted |D|, is deﬁned to be the number of
+distinct subexpressions of D (including D itself). In
+other words, |D| is the number of nodes in the diagram view of D. We will often use the word “node”
+as a synonym for “expression”. We will also use the
+standard DAG notions of parent, child, and (directed)
+path for CFDs. We write D
+D to state that node
+D is a (possibly improper) descendant of node D. If
+D
+D, the depth of D (in D) is the length of the
+longest path from D to D .
+
+6
+
+CFDs for MRFs
+
+Here we deﬁne a CFD representation of the feasible
+set for the LBM constructed in section 3. Consider
+the problem of computing Z(M ) for an MRF M . We
+assume that the variables of M have been given in a
+ﬁxed order y1 , y2 , . . . , yn . The assignments to these
+variables form a tree whose root has a branch for each
+value of y1 , the next level branches for each value of
+y2 and so on. As variables are assigned, however, the
+residual hypergraph deﬁned by the energy terms often
+factors into disjoint sets of terms on disjoint sets of
+variables. So one can compute Z(M ) by factoring the
+residual problem when possible and, if no factoring is
+possible, casing out on the value of the next variable
+(after which more factoring may be possible). This
+“case-factor process” determines a set of subproblems.
+The nodes (subexpressions) in the CFD representation
+of the MRF correspond to the subproblems that arise
+in this way. Each such subproblem is deﬁned by a
+subset Σ of the energy terms and a partial assignment
+ρ to (some of) the variables occurring in Σ.
+More formally, consider a subset Σ of the energy terms
+of M . Let V (Σ) be the set of variables on which
+some energy term in Σ depends, i.e., V (Σ) = ∪k∈Σ Vk .
+Let ρ be a partial assignment of values to (some of)
+the variables in V (Σ). Note that ρ is deﬁned on the
+general variables of M rather than the Boolean variables of M . For each pair of such a subset Σ and
+partial assignment ρ we now deﬁne a CFD D(Σ, ρ).
+The CFD for the full feasible constraint is D(Σ(M ), ∅)
+where Σ(M ) is the set of all energy terms in M and
+∅ is the empty partial assignment. For a given par-
+
+tial assignment ρ we deﬁne a graph structure on the
+energy terms in Σ by saying that there is an edge between two energy terms if there is a variable not assigned a value by ρ on which both terms depend. The
+key to concise representation is to factor the problem when Σ becomes disconnected. We use the notation case( z1 , D1 , z2 , D2 , . . . , zm , Dm ) as an abbreviation for case(z1 , D1 , case( z2 , D2 , . . . , zn , Dn ))
+where case( z, D ) is case(z, D, empty). The CFD
+D(Σ, ρ) is deﬁned as follows.
+1. If Σ is disconnected under partial assignment ρ,
+let Σ = Σ1 ∪ Σ2 where Σ1 and Σ2 are disjoint and
+not connected to each other. Then:
+D(Σ, ρ) = factor(D(Σ1 , ρ|V (Σ1 ) ), D(Σ2 , ρ|V (Σ2 ) ))
+2. Otherwise, if Σ consists of a single constraint Ψk
+and ρ assigns values to all of V (Σ), we have the
+following where Vk = {y1 , . . . , ym } and vi = ρ(yi ).
+D(Σ, ρ) =
+case("k, y1 = v1 , . . . , ym = vm ", unit, empty)
+3. Otherwise, let y be the earliest variable (under
+the given variable order) in V (Σ) that is not in
+dom(ρ). In this case we have the following where
+dom(y) = {v1 , . . ., vn }.
+D(Σ, ρ) =
+
+
+"y = v1 ", D(Σ, ρ[y := v1 ]) ,
+
+
+.
+.
+case 
+
+.
+"y = vn ", D(Σ, ρ[y := vn ])
+We now show that MRFs of small tree width have concise CFD representations. First we deﬁne the notion
+of tree width.
+Deﬁnition 2 We consider a ﬁxed variable order y1
+. . . yn . For i with 1 ≤ i ≤ n we deﬁne the present variable to be yi , the past variables to be all variables yj
+with j ≤ i, and the future variables to be all variables
+yj with j ≥ i. Note that the present variable is both
+past and future. We deﬁne Gi to be the graph whose
+nodes are the energy terms of M and where two energy
+terms are connected by an edge if they both depend on
+the same future variable. The connected components
+of Gi give independent subproblems on the future variables. If Σ is a connected component of Gi then we
+deﬁne the width of Σ (at time i) to be the number of
+past variables occurring in Σ. The tree width of M under the given variable ordering is the maximum over
+all i of the maximum width (at time i) of a connected
+component of Gi .
+
+We now have the following theorem.
+Theorem 1 Let w be the tree width of M under the
+given variable ordering. Then |D(M )| is O(N dw )
+where N is the number of energy terms in M and
+d = maxi |Yi |.
+Proof: We ﬁrst show that the total number of nodes
+of the CFD can be no more than twice the number
+of pairs Σ, ρ where Σ is a connected component of
+Gi for some i and ρ is a partial assignment to past
+variables of Σ. All nodes in the CFD are either of
+this form, are on of the constants unit, or empty, or
+are factor nodes generated by step 1 of the procedure.
+Suppose the top level problem can be factored into
+some number of independent subproblems. The factoring is represented by a binary tree whose leaves are
+the ﬁnal factors, so the number of nodes in the tree is
+proportional to the number of factors. A similar observation applies to any factoring that occurs following
+a case analysis introduced by step 3. So, without loss
+of generality, we need only consider pairs Σ, ρ where
+Σ is a connected component of Gi . The set of all such
+subsets forms a tree whose leaves consist of single energy terms. Hence there are at most 2N such subsets.
+For a ﬁxed subset Σ, the set of possible assignments
+to past variables form a tree with at most dw leaves.
+So there are at most 2dw values of ρ for a given value
+of Σ.
+
+7
+
+CFDs for Parsing
+
+Here we construct a CFD for the feasible set of the
+LBM deﬁned in Section 4 for a grammar G. We deﬁne the CFD D("Xi,k ") such that the assignments in
+F (D("Xi,k ")) are in one-to-one correspondence with
+the parse trees of the span from i to k−1 with root nonterminal X. The CFD representing the full feasible set
+of parses is D("S1,n+1 "). First we deﬁne D("Xi,k ") as
+follows where B("Xi,k ") represents the consequences
+of making "Xi,k " true.
+
+Finally, if ai is the ith input symbol, we have
+B("Xi,i+1 ") =
+case("Xi,i+1 → ai ", unit, empty) if X → ai ∈ G
+empty
+otherwise
+This construction has the property that |D("S1,n+1 ")|
+is O(|G|n3 ) where |G| is the number of productions in
+the grammar.
+
+8
+
+Inference on CFD Models
+
+A CFD model D, Ψ is an LBM whose feasible set
+is deﬁned by a CFD D and whose energy function Ψ
+assigns costs to the variables of D. We will now present
+the main inference algorithms on CFDs.
+The Inside Algorithm. We ﬁrst consider the problem of computing Z(F (D), Ψ) as deﬁned by equation (3). Here we write Z(D, Ψ) as an abbreviated
+form of Z(F (D), Ψ). It turns out that Z(D, Ψ) can be
+computed by recursive descent on subexpressions of D
+using the following equations.
+Z(case(x, D1 , D2 ), Ψ) = e−Ψ(x) Z(D1 , Ψ) + Z(D2 , Ψ)
+Z(factor(D1 , D2 ), Ψ) = Z(D1 , Ψ)Z(D2 , Ψ)
+Z(unit, Ψ) = 1
+Z(empty, Ψ) = 0
+The correctness of these equations can be proved by
+induction on the size of D. By caching these computations for each subexpression of D, these equations
+give a way of computing Z(D, Ψ) in time proportional
+to |D|. These equations are analogous to the inside
+algorithm used in statistical parsing.
+The Viterbi Algorithm. Next we consider the
+problem of computing minimum energy over the elements of F (D). In particular we deﬁne Ψ∗ (D, Ψ) as
+follows.
+Ψ∗ (D, Ψ) = min Ψ(ρ)
+ρ∈F (D)
+
+D("Xi,k ") = case("Xi,k ", B("Xi,k "), empty)
+For k > i + 1 we deﬁne the consequences B("Xi,k ") as
+follows using the multi-branch case notation deﬁned in
+section 6.
+B("Xi,k ") = case( b1 , B(b1 ) , . . . , bn , B(bn ) )
+where the variables bp are all possible branch variables of the form "Xi,k → Yi,j Zj,k ", and B("Xi,k →
+Yi,j Zj,k ") = factor(D("Yi,j "), D("Zj,k ")).
+
+∗
+
+We can compute Ψ (D, Ψ) using the following equations.
+Ψ∗ (case(z, D1 , D2 ), Ψ) = min
+
+Ψ(z) + Ψ∗ (D1 , Ψ),
+Ψ∗ (D2 , Ψ)
+
+Ψ∗ (factor(D1 , D2 ), Ψ) = Ψ∗ (D1 , Ψ) + Ψ∗ (D2 , Ψ)
+Ψ∗ (unit, Ψ) = 0
+Ψ∗ (empty, Ψ) = +∞
+Again the correctness of these equations can be proved
+by a direct induction on the size of D. These equations
+
+can easily be modiﬁed to also compute a truth assignment that achieves the minimum energy. This is a
+truth assignment of highest probability.
+Marginals. Next we consider the problem of computing marginal probabilities of the form P (z =
+1 | D, Ψ, σ) where σ is a partial truth assignment that
+ﬁxes the values of some of the CFD model variables.
+We will show that these marginals can be computed
+in time proportional to |D||σ|.
+The marginal P (z = 1 | D, Ψ, σ) can be written as
+follows:
+P (z | D, Ψ, σ) =
+
+Z(D, Ψ, σ[z := 1])
+Z(D, Ψ, σ)
+
+Z(D, Ψ, σ) =
+
+e−Ψ(ρ)
+ρ∈F (D): σ ρ
+
+So it suﬃces to be able to compute Z(D, Ψ, σ).
+We now deﬁne the auxiliary quantity Z (D, Ψ, σ) =
+Z(D, Ψ, σ|V (D) ). Our procedure computes Z(D, Ψ, σ)
+by computing Z (D , Ψ, σ) for all subnodes D of D.
+Note that the number of such values is |D|. The Z
+values satisfy the following equations for factor, unit
+and empty expressions.
+
+The Inside-Outside Algorithm. Using the above
+conditional probability algorithm to compute P (z =
+1 | D, Ψ) for all variables z can take Ω(|D|2 ) time.
+However, a generalization of the inside-outside algorithm can be used to simultaneously compute P (z =
+1 | D, Ψ) for all variables z in D in O(|D|) time. The
+value Z(D, Ψ) is the “inside” value associated with D.
+Intuitively, the outside value of a node in a CFD is
+the total weight of the “contexts” in which that node
+appears. Formalizing the appropriate notion of context for general CFDs is somewhat subtle and is done
+in the appendix. Although the deﬁnition of context is
+subtle, the equations for computing outside values are
+rather natural.
+A node is open if it does contain variables and closed
+otherwise. Outside values are only deﬁned for open
+nodes. For D
+D, and D open, we now deﬁne the
+outside value O(D , D, Ψ) of D (in D). For D = D,
+O(D, D, Ψ) = 1. For D = D and D open, we have:
+
+case(z,D ,D ) D
+
++
++
+
+(6)
+
+O(factor(D , D ), D, Ψ)Z(D , Ψ)
+
+factor(D ,D ) D
+
++
+
+O(factor(D , D ), D, Ψ)Z(D , Ψ)
+
+factor(D ,D ) D
+
+Once the inside value of every node has been computed, these equations allows the outside values of
+open nodes to be computed from the top down. This
+top-down calculation can be done in time proportional
+to the number of nodes. Finally we can compute
+P (z = 1|D, Ψ) as follows.
+Theorem 2
+P (z = 1|D, Ψ)
+
+=
+
+Z(D, Ψ, ∅[z := 1])
+Z(D, Ψ)
+
+Z(D, Ψ, ∅[z := 
+1])
+
+Z(z, D, D , Ψ, σ) expresses the constraint that omitted
+variables default to 0 in CFDs. If σ(z ) = 1 where
+z occurs in D but not in D , Z(z, D, D , Ψ, σ) = 0,
+otherwise Z(z, D, D , Ψ, σ) = Z (D , Ψ, σ).
+To analyze the running time of computing Z(D, Ψ, σ)
+we ﬁrst note that there are a linear number of values needed of the form Z(z, D , D , Ψ, σ). Assuming unit time hash table operations, it is possible to
+cache the answer to all queries of the form z ∈ D , for
+z ∈ dom(Σ) and D a node in D, in O(|D||σ|) time.
+Given this cache, each call to Z(z, D, D , Ψ, σ) can be
+computed in time proportional to |σ|. So the overall
+computation takes time proportional to |D||σ|.
+
+O(case(z, D , D ), D, Ψ)
+
+case(z,D ,D ) D
+
+Z (factor(D1 , D2 ), Ψ, σ) = Z (D1 , Ψ, σ)Z (D2 , Ψ, σ)
+Z (unit, Ψ, σ) = 1
+Z (empty, Ψ, σ) = 0
+Computing Z on case expressions is more subtle. Let
+D be the expression case(z, D1 , D2 ). We now have the
+following equation where Z(v, D, D , Ψ, σ) is deﬁned
+below.
+ −Ψ(z)
+Z(z, D, D1 , Ψ, σ) if σ(z) = 1
+e
+
+
+Z(z, D, D , Ψ, σ)
+if σ(z) = 0
+2
+Z (D, Ψ, σ) =
+e−Ψ(z) Z(z, D, D1 , Ψ, σ)
+
+
+
++Z(z, D, D2 , Ψ, σ)
+otherwise
+
+O(case(z, D D ), D, Ψ)e−Ψ(z)
+
+O(D , D, Ψ) =
+
+case(z,D ,D )
+
+=
+
+O(case(z, D D ), D, Ψ)
+
+ e−Ψ(z)
+Z(D , Ψ)
+D
+
+The proof, which requires a careful deﬁnition of the
+meaning of the outside numbers, is given in the appendix.
+
+9
+
+Conclusions
+
+We have described a class of structured probabilistic
+models based on case-factor diagrams. We have also
+
+shown that for a given a weighted context free grammar G and input string x the conditional probability P (y|x) can be represented by a CFD model with
+O(|G|n3 ) nodes. We have also shown that any MRF
+with tree width w in which variables have V possible
+values and with N energy terms can be represented by
+a CFD model with O(N V w ) nodes. We have shown
+that for an arbitrary CFD model, computing the partition function, most likely variable assignment, and the
+probability of each Boolean variable, can all be done
+in time linear in the number of nodes. We believe
+that CFD models will provide a common language for
+specifying algorithms and stating theorems that can
+play for structured probabilistic models a similar role
+to that of BDDs in Boolean inference problems.
+Acknowledgments Michael Collins and Fernando
+Pereira were supported in this work by the National Science Foundation under grants 0347631 and EIA-0205456,
+respectively.
+
+References
+[1] D. Allen and A. Darwiche. New advances in inference
+by recursive conditioning. In UAI03, 2003.
+[2] Y. Altun and T. Hofmann. Large margin methods
+for label sequence learning. In 8th European Conference on Speech Communication and Technology (EuroSpeech), 2003.
+[3] C. Boutilier, N. Friedman, M. Goldszmidt, and
+D. Koller. Context-speciﬁc independence in bayesian
+networks. In UAI96, 1996.
+[4] R. E. Bryant. Graph-based algorithms for boolean
+function manipulation. IEEE Transactions on Computers, C-35(8):677–691, 1986.
+[5] M. Collins. Parameter estimation for statistical parsing models: Theory and practice of distribution-free
+methods. In H. Bunt, J. Carroll, and G. Satta, editors,
+New Developments in Parsing Technology. Kluwer,
+2004.
+[6] A. Darwiche. Recursive conditioning. Artiﬁcial Intelligence, 125(1-2):5–41, 2001.
+[7] A. Darwiche. A diﬀerential approach to inference in
+Bayesian networks. Journal of the ACM, pages 280–
+305, May 2003.
+[8] R. Dechter. And/or search spaces for graphical models. ICS Technical Report, March 2004.
+[9] S. Della Pietra, V. Della Pietra, and J. Laﬀerty. Inducing features of random ﬁelds. IEEE Transactions on
+Pattern Analysis and Machine Intelligence, 19(4):380–
+393, 1997.
+[10] L. Getoor, N. Friedman, D. Koller, and A. Pfeﬀer.
+Learning probabilistic relational models. In S. Dzeroski and N. Lavrac, editors, Relational Data Mining.
+Springer-Verlag, 2001.
+[11] K. Kanazawa, D. Koller, and S. Russell. Stochastic
+simulation algorithms for dynamic probabilistic networks. In UAI95, 1995.
+
+[12] J. Laﬀerty, A. McCallum, and F. Pereira. Conditional
+random ﬁelds: Probabilistic models for segmenting
+and labeling sequence data. In Proceedings of ICML01, 2001.
+[13] K. L. McMillan. Hierarchical representation of discrete functions, with application to model checking. In
+Computer Aided Veriﬁcation, 6th International Conference, 1994.
+[14] S. Minato.
+Zero-suppressed BDDs for set manipulation in combinatorial problems.
+In Proc.
+of 30th ACM/IEEE Design Automation Conference
+(DAC’93), pages 272–277. ACM Press, 1993.
+[15] D. Poole. Probabilistic Horn abduction and Bayesian
+networks. Artiﬁcial Intelligence, 64(1), 1993.
+[16] B. Taskar, C. Guestrin, and D. Koller. Max-margin
+markov networks. In Neural Information Processing
+Systems Conference (NIPS03), 2003.
+
+Appendix: Proof of Theorem 2
+The proof uses a series of lemmas on the meaning of
+outside values. For a PCFG, the outside value of a
+phrase is the total weight of all extensions of the phrase
+to a full parse tree. We will see that the corresponding
+notion for a CFD model D, Ψ is the outside value
+O(D , D, Ψ) of a node D
+D, with the contexts being
+certain assignments that “lead to” D . More precisely,
+the set γ(D, ρ) of nodes that an assignment ρ to the
+variables of D leads to is given by:
+γ(D, ρ) = {D} ∪ γ (D, ρ)
+γ (case(z, D1 , D2 ), ρ) =
+
+γ(D1 , ρ) if ρ(z) = 1
+γ(D2 , ρ) if ρ(z) = 0
+
+γ (factor(D1 , D2 ), ρ) = γ(D1 , ρ) ∪ γ(D2 , ρ)
+γ (unit, ρ) = {unit}
+γ (empty, ρ) = {empty}
+For D
+D we deﬁne the set of assignments that lead
+to D as follows:
+F (D , D) = {ρ ∈ F (D) : D ∈ γ(D, ρ)}
+Each assignment ρ ∈ F (D , D) can be split into an
+outside part and an inside part ρ = ρ ↑ D ∨ ρ ↓ D ,
+where ρ↑D = ρ|dom(ρ)−V (D ) and ρ↓D = ρ|V (D ) . The
+set of contexts for D is then
+O(D , D) = {ρ↑D : ρ ∈ F (D , D)}
+We now prove the expected relationship between outside values and contexts:
+Lemma 3 For D
+
+D with D open
+e−Ψ(σ)
+
+O(D , D, Ψ) =
+σ∈O(D ,D)
+
+(7)
+
+The proof requires several auxiliary lemmas giving
+properties of γ(D, ρ) and F (D , D).
+Lemma 4 If D is open and D ∈ γ(D, ρ) then
+γ(D, ρ) contains exactly one path from D to D .
+Proof: The proof is by induction on |D|. The lemma
+is vacuously true if D is closed. Now suppose D is
+of the form case(z, U, W ) and assume the lemma for
+U and W . If ρ(z) = 1 then γ(D, ρ) is {D} ∪ γ(U, ρ)
+and the lemma follows from the induction hypothesis on paths into U . A similar observation holds for
+paths into W when ρ(z) = 0. Finally, suppose D is
+factor(U, W ). Since U and W do not share variables,
+any open node in U or W must be in only one of these
+nodes. The lemma again follows from the induction
+hypothesis on paths into U and paths into W .
+Lemma 5 If ρ ∈ F (D) then empty ∈ γ(D, ρ).
+Proof: The proof is by induction on |D|. If D = empty
+then F (D) = ∅ and the lemma is vacuously true. If
+D = unit, γ(D, ρ) = {unit}, satisfying the lemma. Now
+suppose D = case(z, D , D ) and assume the lemma
+for D and D . If ρ(z) = 1 then γ(D, ρ) = {D} ∪
+γ(D , ρ). But by construction γ(D , ρ) depends only on
+the values of ρ on V (()D ), so γ(D , ρ) = γ(D , ρ↓D ).
+By deﬁnition of F (D), ρ ↓ D ∈ F (D ). So by the
+induction hypothesis empty ∈ γ(D , ρ↓D ) and hence
+empty ∈ γ(D, ρ). Similar arguments prove the cases
+ρ(z) = 0 and D = factor(D , D ).
+Lemma 6 If ρ ∈ F (D , D) then ρ↓D ∈ F (D ).
+Proof: If ρ ∈ F (D , D) and D is closed, by deﬁnition
+of F (D , D) and of γ(D, ρ), all subnodes of D are in
+γ(D, ρ). By Lemma 5, none of those subnodes can be
+empty. Therefore, D involves only factor and unit, so
+F (D ) = {0} and ρ↓D = 0 so the lemma follows. For
+open nodes D the proof is by induction on the depth
+of D in D. If D = D, F (D , D) = F (D) and the result is immediate. Now assume the lemma for all open
+nodes of depth k in D and consider an open node D
+in D of depth k + 1. Consider ρ ∈ F (D , D). The set
+γ(D, ρ) includes D and, by Lemma 4, a unique path
+from D to D . Let D be the parent of D in this path.
+By the induction hypothesis, σ = ρ ↓ D ∈ F (D ).
+In addition, by construction D ∈ γ(D , σ) and hence
+σ ∈ F (D , D ). To complete the proof, we just need to
+show that σ↓D ∈ F (D ). First suppose the parent D
+is of the form case(z, D , V ) where σ(z) = 1. Then the
+result follows from the deﬁnition of F (case(z, D , V )).
+Similar arguments apply when D is of one of the
+forms case(z, V, D ), factor(D , V ) or factor(V, D ).
+
+Lemma 7 If σ and σ agree on all variables not occurring in D then D ∈ γ(D, σ) if and only if D ∈
+γ(D, σ ).
+Proof: If D is closed then σ = σ and the result is immediate. For open nodes the proof is by induction on
+the depth of D . If D = D then the result is immediate. Now assume the result for all open nodes of depth
+k and consider an open node D of depth k + 1. Let σ
+and σ be two assignments that agree on all variables
+not in D . Suppose D ∈ γ(D, σ). Let D the parent of D in the unique path from D to D contained
+in γ(D, σ). By the induction hypothesis, D is also
+included in γ(D, σ ). Now suppose D is of the form
+case(z, D , V ) and σ(z) = 1. Since z does not occur in
+D we have σ (z) = 1 and hence D ∈ γ(D, σ ). A similar argument holds if D is of the form case(z, V, D ),
+factor(D , V ) or factor(V, D ). The converse where we
+assume D ∈ γ(D, σ ) is similar.
+Lemma 8 If σ ∈ O(D , D) and ρ ∈ F (D ) then σ ∨
+ρ ∈ F (D , D).
+Proof: If D is closed then ρ = 0 and σ ∈ F (D) and
+the result is immediate. For open nodes the proof is by
+induction on the depth of D . For D = D, O(D , D) =
+{0} and F (D , D) = F (D), so the result is immediate.
+Now assume the result for all open nodes of depth
+k in D and consider an open node D depth k + 1.
+Consider σ ∈ O(D , D) and ρ ∈ F (D ). By deﬁnition
+of O(D , D), there is σ ∈ F (D , D) such that σ ↑D =
+σ. We must show that σ ↑D ∨ ρ ∈ F (D , D). Since
+D ∈ γ(D, σ ), Lemma 7 implies D ∈ γ(D, σ ↑D ∨ ρ).
+It remains only to show that σ ↑D ∨ρ ∈ F (D). Let D
+be the unique parent of D in γ(D, σ ). Suppose D is
+of the form case(z, D , V ) with ρ(z) = 1. We now apply
+the induction hypothesis to the pair of assignments
+σ ↑D and ρ[z := 1] to conclude that σ ↑D ∨ ρ[z :=
+1] ∈ F (D). But σ ↑D ∨ρ[z := 1] = σ ↑D ∨ρ, therefore
+and hence σ ↑ D ∨ ρ ∈ F (D). A similar argument
+holds if D = Case(z, V, D ) with ρ(z) = 0. Now
+suppose D = factor(D , V ). By Lemma 6, σ ↓V ∈
+F (V ). By the deﬁnition of F (factor(D , V )),ρ ∨ σ ↓
+V ∈ F (factor(D , V )). We now apply the induction
+hypothesis to σ ↑ D and ρ ∨ σ ↓ V to conclude σ ↑
+D ∨ρ∨σ ↓V ∈ F (D). But σ ↑D ∨ρ∨σ ↓V = σ ↑D ∨ρ,
+thus σ ↑D ∨ ρ ∈ F (D). The case D = factor(V, D )
+is similar.
+Now for σ ∈ O(D , D) we deﬁne γ(D , D, σ) to be the
+unique path from D to D contained in γ(D, σ ∨ ρ) for
+arbitrary ρ ∈ F (D ).
+Lemma 9 If σ ∈ O(D , D), γ(D , D, σ) is well deﬁned.
+
+Proof: By Lemma 8, σ ∨ ρ ∈ F (D , D) for any ρ ∈
+F (D ), and by Lemma 4 the path p from D to D in
+γ(D, σ ∨ ρ) is unique. Now let ρ ∈ F (D ), and let D
+be any node on the path from D to D in γ(D, σ ∨ ρ).
+By Lemma 7, D ∈ γ(D, σ ∨ ρ ). Hence γ(D, σ ∨ ρ )
+must contain p.
+Lemma 10 For D
+D, F (D , D) = {σ ∨ ρ : σ ∈
+O(D , D) and ρ ∈ F (D )}.
+Proof: For ρ ∈ F (D , D), ρ = ρ↑D ∨ρ↓D . By the definition of O(D , D), ρ↑D ∈ O(D , D), and Lemma 6,
+ρ↓D ∈ F (D ), so ρ has the desired form. The converse
+follows from Lemma 8.
+Proof of Lemma 3: The proof is by induction
+on depth of D in D. If D = D, by deﬁnition
+O(D , D, Ψ) = 1 and O(D, D) = {0}, so the result
+follows. Now assume that the lemma holds for nodes
+of depth k or less and let D be a node of depth
+k + 1. By the induction hypothesis, each occurrence
+of O(·, D, Ψ) in the right-hand side of (6) satisﬁes the
+lemma. By Lemma 9, O(D , D) can be split into four
+disjoint subsets corresponding to the four terms on
+the right-hand side of (6). We must show that each
+of these terms computes an appropriate sum over an
+appropriate subset of O(D , D). Consider the third
+term of the sum. This term corresponds to the set of
+assignments σ = O(D , D) such that the parent of D
+in the path γ(D , D, σ) is of the form factor(D , D ).
+Now consider a ﬁxed parent P of this form, and let
+O = {σ ∈ O(D , D) : P ∈ γ(D , D, σ)}. We must
+show that
+e−Ψ(σ) = O(P, D, Ψ)Z(D , Ψ)
+
+(8)
+
+σ∈O
+
+By
+
+induction hypothesis, O(P, D, Ψ)
+=
+e−Ψ(σ ) .
+By deﬁnition, Z(D , Ψ) =
+σ ∈O(P,D)
+−Ψ(ρ)
+. Therefore, the equality (8) holds
+ρ∈F (D ) e
+if O = {σ ∨ ρ : σ ∈ O(P, D) and ρ ∈ F (D )}. If
+σ ∈ O, it is easy to see that there are σ ∈ O(P, D)
+and ρ ∈ F (D , D) such that σ = σ ∨ ρ. By Lemma 6,
+ρ ∈ F (D ). Conversely, consider σ ∈ O(P, D)
+and ρ ∈ F (D ). Consider any ρ ∈ F (D ). The
+assignment ρ ∨ ρ is in F (P ). By Lemma 8 we then
+have that σ ∨ ρ ∨ ρ ∈ F (D , D). But this implies that
+σ ∨ ρ ∈ O(D , D). This proves (8) and hence that the
+third term in the deﬁnition of O(D , D, Ψ) has the
+appropriate semantics. The proof of the appropriate
+semantics for the other terms is similar.
+
+F (D) = ∅ and the lemma is vacuously true. If
+D = unit, then ρ = 0 and there is no z with ρ(z) = 1.
+If D = factor(D , D ) then either (ρ ↓ D )(z) = 1 or
+(ρ ↓ D )(z) = 1 and the lemma follows form the induction hypothesis on D or D . Finally, suppose
+D = case(w, D , D ). If w = z then D is of the desired form. Now assume w = z. If ρ(w) = 1 then
+we have ρ[w := 0] ∈ F (D ), (ρ[w := 0])(z) = 1, and
+γ(D , ρ[w := 0]) ⊆ γ(D, ρ). In this case the lemma
+follows from the induction hypothesis. A similar argument holds for ρ(w) = 0.
+Lemma 12 For a given variable z, the set γ(D, ρ)
+contains at most one node of the form case(z, D , D ).
+Proof:The proof is by induction on |D|. The lemma
+is immediate if D is closed. Now suppose D =
+case(w, D , D ). If w = z then D = case(z, D , D )
+and there can be no other node of this form because
+D and D cannot contain z. Now suppose w = z. If
+ρ(w) = 1 then γ(D, ρ) is {D}∪γ(D , ρ) and the lemma
+follows from the induction hypothesis on D . A similar arguments holds if ρ(w) = 0. Finally, suppose D
+is factor(D , D ). In this case the lemma follows from
+the induction hypothesis on D and D and the fact
+that z can occur in at most one of D and D .
+Proof of theorem 2: Let F (z, D) = {ρ ∈ F (D) :
+ρ(z) = 1}. For any ρ ∈ F (z, D), by lemmas 11 and 12,
+there is a unique node C(z, D, ρ) ∈ γ(D, ρ) of the form
+case(z, D1 , D2 ). Let
+O(z, D, D1 , D2 ) =
+{ρ ∈ F (z, D) : C(z, D, ρ) = case(z, D1 , D2 )}
+Then
+
+the
+
+Lemma 11 If ρ ∈ F (D) and ρ(z) = 1 then γ(D, ρ)
+contains a node of the form case(z, D1 , D2 ).
+Proof:The proof is by induction on |D|. If D = empty,
+
+Z(D, Ψ, ∅[z := 1])
+e−Ψ(ρ)
+
+=
+ρ∈F (z,D)
+
+e−Ψ(ρ)
+
+=
+case(z,D1 ,D2 ) D ρ∈O(z,D,D1 ,D2 )
+
+The theorem thus follows if
+e−Ψ(ρ) =
+ρ∈O(z,D,D1 ,D2 )
+
+O(case(z, D1 , D2 ), Ψ)e−Ψ(z) Z(D1 , Ψ)
+This is true if O(z, D, D1 , D2 ) is the set of assignments of the form σ ∨ ∅[z := 1] ∨ ρ with σ ∈
+O(case(z, D1 , D2 ), D) and ρ in F (D1 ), which follows
+by an argument similar to that used for Lemma 3.
+
+

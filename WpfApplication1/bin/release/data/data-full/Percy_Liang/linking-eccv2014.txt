@@ -1,0 +1,1000 @@
+Linking people in videos with “their” names
+using coreference resolution
+Vignesh Ramanathan∗ , Armand Joulin† , Percy Liang† , Li Fei-Fei†
+∗
+
+Department of Electrical Engineering, Stanford University
+†
+Computer Science Department, Stanford University
+{vigneshr, ajoulin, pliang, feifeili}@cs.stanford.edu
+
+Abstract. Natural language descriptions of videos provide a potentially
+rich and vast source of supervision. However, the highly-varied nature of
+language presents a major barrier to its eﬀective use. What is needed
+are models that can reason over uncertainty over both videos and text.
+In this paper, we tackle the core task of person naming: assigning names
+of people in the cast to human tracks in TV videos. Screenplay scripts
+accompanying the video provide some crude supervision about who’s in
+the video. However, even the basic problem of knowing who is mentioned
+in the script is often diﬃcult, since language often refers to people using pronouns (e.g., “he”) and nominals (e.g., “man”) rather than actual
+names (e.g., “Susan”). Resolving the identity of these mentions is the
+task of coreference resolution, which is an active area of research in natural language processing. We develop a joint model for person naming
+and coreference resolution, and in the process, infer a latent alignment
+between tracks and mentions. We evaluate our model on both vision
+and NLP tasks on a new dataset of 19 TV episodes. On both tasks, we
+signiﬁcantly outperform the independent baselines.
+Keywords: person naming, coreference resolution, text-video alignment
+
+1
+
+Introduction
+
+It is predicted that video will account for more than 85% of Internet traﬃc by
+2016 [1]. To search and organize this data eﬀectively, we must develop tools that
+can understand the people, objects, and actions in these videos. One promising
+source of supervision for building such tools is the large amount of natural language text that typically accompanies videos. For example, videos of TV episodes
+have associated screenplay scripts, which contain natural language descriptions
+of the videos (Fig. 1).
+In this paper, we tackle the task of person naming: identifying the name
+(from a ﬁxed list) of each person appearing in a TV video. Since the script
+accompanying a video also mentions these people, we could use the names in the
+text as labels for person naming. But as seen in Fig. 1, the text does not always
+use proper names (e.g., “Leonard”) to refer to people. Nominal expressions (e.g.,
+‘engineer”) and pronouns (e.g., “he”) are also employed, accounting for 32% of
+
+2
+
+Vignesh Ramanathan∗ , Armand Joulin† , Percy Liang† , Li Fei-Fei†
+
+Leonard(
+Howard(
+
+Leonard!looks!at!the!robot,!while!the!only!
+engineer!in!the!room!ﬁxes!it.!He!is!amused.!
+(a)!One!direc>onal!model!
+
+Leonard(
+
+Leonard!looks!at!the!robot,!while!the!only!
+engineer!in!the!room!ﬁxes!it.!He!is!amused.!
+(Leonard)(
+(Howard)(
+(b)!Bidirec>onal!model!
+
+Fig. 1. Name assignment to people in a video can be improved by leveraging richer
+information from the text. (a) A traditional unidirectional approach only transfers
+unambiguous mentions of people (“Leonard”) from the text to the video. (b) Our
+proposed bidirectional approach reasons about both proper mentions and ambiguous
+nominal and pronominal mentions (“engineer”, “he”).
+
+the human mentions in our dataset. A human reading the text can understand
+these mentions using context, but this problem of coreference resolution remains
+a diﬃcult challenge and an active area of research in natural language processing
+[17, 25].
+Pioneering works such as [11, 37, 7, 38, 4, 6] sidestep this challenge by only
+using proper names in scripts, ignoring pronouns and nominals. However, in
+doing so, they fail to fully exploit the information that language can oﬀer. At
+the same time, we found that oﬀ-the-shelf coreference resolution methods that
+operate on language alone are not accurate enough. Hence, what is needed is
+a model that tackles person naming and coreference resolution jointly, allowing
+information to ﬂow bidirectionality between text and video.
+The main contribution of this paper is a new bidirectional model for person
+naming and coreference resolution. To the best of our knowledge, this is the ﬁrst
+attempt that jointly addresses both these tasks. Our model assigns names to
+tracks and mentions, and constructs an explicit alignment between tracks and
+mentions. Additionally, we use temporal constraints on the order in which tracks
+and mentions appear to eﬃciently infer this alignment.
+We created a new dataset of 19 TV episodes along with their complete scripts,
+collected from 10 diﬀerent TV shows. On the vision side, our model outperforms
+unidirectional models [6, 7] in name assignment to human tracks. On the language side, our model outperforms state-of-the-art coreference resolution systems
+[27, 17] for name assignment to mentions in text.
+
+2
+
+Related Work
+
+Track naming using screenplay scripts. In the context of movies or TV
+shows, scripts have been used to provide weak labels for person naming [11, 37,
+
+Linking people in videos with “their” names using coreference resolution
+
+3
+
+7, 38, 4, 6], and action recognition [26, 28, 9, 6]. All these works use the names
+from scripts as weak labels in a multiple instance learning (MIL) setting [40]. A
+similar line of work [32] links person names with faces based on image captions.
+These methods oﬀer only a unidirectional ﬂow of information from language
+to vision, and assume very little ambiguity in the text. In contrast, our model
+propagates information both from text to video (for person naming) and from
+video to text (for coreference resolution).
+Joint vision and language models. Many works have combined NLP and
+computer vision models; we mention the ones most relevant to our setting. Some
+focus on creating textual descriptions for images or videos [8, 24, 30, 31, 41, 12,
+35]. Others propagate image captions to uncaptioned images using visual similarities [41, 3, 14, 33]. Another line of work focuses on learning classiﬁers from
+images with text [5, 15, 21]. Rohrbach et al. [34] introduced semantic relatedness
+between visual attributes and image classes. Recently, Fidler et al. [13] used image descriptions to improve object detection and segmentation. These methods
+assume relatively clean text and focus only on propagating information from
+text to either videos or images. We work in a more realistic setting where text
+is ambiguous, and we show that vision can help resolve these ambiguities.
+Grounding words in image/videos. This is the task of aligning objects or
+segments in an image/video with corresponding words or phrases in the accompanying text. This problem has been handled in diﬀerent scenarios, depending on
+the entity to be grounded: Tellex et al. [39] addressed this challenge in a robotics
+setting, while others have worked on grounding visual attributes in images [36,
+29]. Gupta et al. grounded storylines based on annotated videos [16].
+Coreference resolution. Coreference resolution is a core task in the NLP
+community, and we refer the reader to Kummerfeld et al. [25] for a thorough set
+of references. Hobbs et al. [19] tried to extend the idea of coreference resolution
+for entities and events occurring in video transcripts. Hodosh et al. [20] and more
+recently, Kong et al. [23] have reported improvement in coreference resolution
+of objects mentioned in a text describing a static scene, when provided with the
+image of the scene. Unlike these works, we focus on the coreference resolution of
+humans mentioned in a TV script, where people reappear at multiple time points
+in the video. In our work, we build a discourse-based coreference resolution model
+similar to that of Haghighi and Klein [17]. We also take advantage of properties
+of TV scripts, such as the ﬁxed set of cast names and constraints on the gender
+of the mentions.
+
+3
+
+Problem setup
+
+We are given a set of video-script pairs representing one TV episode. Let P be
+the set of P names appearing in the cast list, which we assume to be known. We
+also include a special “NULL” person in P to represent any person appearing in
+the episode, but not mentioned in the cast list.
+
+Vignesh Ramanathan∗ , Armand Joulin† , Percy Liang† , Li Fei-Fei†
+
+4
+
+t1
+t2
+
+t3
+
+t4
+
+Human
+tracks ( )
+
+Sec. 4.2
+Name assignment to tracks ( )
+Alignment between tracks and mentions ( )
+Name assignment to mentions ( )
+
+Sec. 4.4
+
+Sec. 4.3
+
+Mentions (M)
+m2
+m3
+m4
+m1
+Description
+Roland arrives. He looks foreign. Ian waits as the foreigner rides up
+(d  D)
+
+Fig. 2. The problem setup is illustrated for a sample scene. Our task is to assign a
+person p ∈ P to each human track t (red bounding box in the ﬁgure) and to each
+mention m (highlighted in green) from the text.
+
+On the vision side, let T be a set of T human tracks extracted from the video
+(see Sec. 6 for details). For each track t ∈ T , let yt ∈ P denote the person name
+assigned to track t. We also deﬁne a matrix Y ∈ {0, 1}T ×P , where Ytp = 1 iﬀ
+yt = p.
+On the language side, each script is a sequence of scenes, and each scene is a
+sequence of dialogues D and descriptions E. From the descriptions, we extract a
+set M of M mentions corresponding to people (see Sec. 6 for details). A mention
+is either a proper noun (e.g., “Roland”), pronoun (e.g., “he”) or nominal (e.g.,
+“foreigner”). For each mention m ∈ M, let zm ∈ P denote the person assigned
+to mention m. Deﬁne a matrix Z ∈ {0, 1}M ×P , where Zmp = 1 iﬀ zm = p.
+Each dialogue and description is also crudely aligned to a temporal window
+in the video, using the subtitle-based method from [11]. Our goal is to infer
+the person assignment matrices Y and Z given the crude alignment, as well as
+features of the tracks and mentions (see Fig. 2).
+
+4
+
+Our Model
+
+In this section, we describe our model as illustrated in Fig. 2. First, let us describe
+the variables:
+– Name assignment matrix for tracks Y ∈ {0, 1}T ×P .
+– Name assignment matrix for mentions Z ∈ {0, 1}M ×P .
+– Antecedent matrix R ∈ {0, 1}M ×M where Rmm indicates whether the mention m (e.g., “he”) refers to m (e.g., “Roland”) based on the text (and hence
+refer to the same person). In this case, m is called the antecedent of m.
+
+Linking people in videos with “their” names using coreference resolution
+
+5
+
+– Alignment matrix A ∈ {0, 1}T ×M between tracks and mentions, where Atm
+indicates whether track t is aligned to mention m.
+The ﬁrst two (Y and Z) are the output variables introduced in the previous
+section; the other variables help mediate the relationship between Y and Z.
+We deﬁne a cost function over these variables which decomposes as follows:
+def
+
+C(Y, Z, R, A) = γt · Ctrack (Y ) + γm · Cmention (Z, R) + Calign (A, Y, Z),
+
+(1)
+
+where γt and γm are hyperparameters governing the relative importance of each
+term. The three terms are as follows:
+– Ctrack (Y ) is only based on video (face recognition) features (Sec. 4.2).
+– Cmention (Z, R) is only based on text features, using coreference features to
+inﬂuence R, and thus the name assignment Z (Sec. 4.3).
+– Calign (A, Y, Z) is based on a latent alignment A of the video and which
+imposes a soft constraint on the relationship between Y and Z (Sec. 4.4).
+We minimize a relaxation of the cost function C(Y, Z, R, A); see Sec. 5. Note
+that we are working in the transductive setting, where there is not a separate
+test phase.
+4.1
+
+Regression-based clustering
+
+One of the building blocks of our model is a regression-based clustering method
+[2]. Given n points x1 , . . . , xn ∈ IRd , the task is to assign, for each point xi , a
+binary label vector yi ∈ {0, 1}p so that nearby points tend to receive the same
+label. Deﬁne the matrix X = (x1 , . . . , xn ) ∈ IRn×d of points and Y ∈ {0, 1}n×p
+the labels. The regression-based clustering cost function is as follows:
+Ccluster (Y ; X, λ) = arg
+
+= tr(Y
+
+Y − XW
+
+min
+
+W∈IRd×p
+
+2
+F
+
++λ W
+
+2
+F
+
+(2)
+
+t∈T
+
+(I − X(X X + λI)−1 X ) Y ),
+def
+
+= B(X,λ)
+
+where the second line follows by analytically solving for the optimal weights. (see
+Bach and Harchaoui [2]). Note that if we relax Y ∈ {0, 1}n×p to Y ∈ [0, 1]n×p ,
+then Ccluster (Y ; X, λ) becomes a convex quadratic function of Y , and can be
+minimized eﬃciently. We will use this building block in the next two sections.
+4.2
+
+Name assignment to tracks
+
+In this section, we describe Ctrack (Y ), which is responsible for the name assignment to tracks based on visual features. Many diﬀerent models [7, 6, 26, 28] have
+been proposed to assign names to tracks based on face features. In this work, we
+adopt the recent model from Bojanowski et al. [6], which was shown to achieve
+
+Vignesh Ramanathan∗ , Armand Joulin† , Percy Liang† , Li Fei-Fei†
+
+6
+
+state-of-the-art performance for this task. Speciﬁcally, let Φtrack ∈ IRT ×d be a
+matrix of face features (rows are tracks t ∈ T and columns are features). We set
+Ctrack (Y ) in our cost function (Eq. 1) to be the clustering cost:
+Ccluster (Y ; Φtrack , λtrack )
+
+(face features)
+
+(3)
+
+We also enforce that each track is be associated with exactly one name: Y 1P =
+1T . This hard constraint (and all subsequent constraints) is included in Ctrack (Y )
+by adding a term equal to 0 if the constraint is satisﬁed and ∞ otherwise.
+Additionally, as with standard approaches [7, 6, 26, 28], we include hard constraints based on the crude alignment of the script with the video:
+Dialogue alignment constraint. Each dialogue d ∈ D is associated with a
+subset Pd of speakers, and a subset Td of tracks which overlaps with the dialogue.
+This overlap is obtained from the crude alignment between tracks and dialogues
+[11]. Similar to [6], we add a dialogue alignment constraint enforcing that each
+speaker in Pd should align to at least one track in Td .
+∀ d ∈ D, ∀ p ∈ Pd :
+
+Ytp ≥ 1
+
+(dialogue alignment)
+
+(4)
+
+t∈Td
+
+Scene alignment constraint. Each scene s ∈ S is associated with a subset
+of names Ps mentioned in the scene, and a subset of tracks Ts which overlaps
+with the scene (also from crude alignment [11]). We observe in practice that
+only names in Ps appear in the scene, so we add a scene alignment constraint
+enforcing that a name not mentioned in scene s should not be aligned to a track
+in Ts :
+∀s ∈ S, p ∈ Ps :
+/
+
+Ytp = 0
+
+(scene alignment)
+
+(5)
+
+t∈Ts
+
+Note that this constraint was absent from [6].
+4.3
+
+Name assignment to mentions and coreference resolution
+
+In this section, we describe Cmention (Z, R), which performs name assignment to
+mentions. The nature of name assignment to mentions is notably diﬀerent from
+that of tracks. Proper mentions such as “Roland” are trivial to map to the ﬁxed
+set of cast names based on string match, but nominal (e.g., “foreigner”) and
+pronominal (e.g., “he”) mentions are virtually impossible to assign based on the
+mention alone. Rather, these mentions reference previous antecedent mentions
+(e.g., “Roland” in Fig. 3). The task of determining antecedent links is called
+coreference resolution in NLP [25].1
+To perform coreference resolution, we adapt the discourse model of [17],
+retaining their features, but using our clustering framework (Sec. 4.1).
+1
+
+Our setting diﬀers slightly from classic coreference resolution in that we must resolve
+each mention to a ﬁxed set of names, which is the problem of entity linking [18].
+
+Linking people in videos with “their” names using coreference resolution
+
+7
+
+R41
+R11
+Roland'
+
+n1
+
+#
+
+z1
+
+R33
+
+z2
+
+R21
+
+z3
+
+Roland'
+
+n2
+
+Ian'
+
+n3
+
+#
+
+z4
+
+Roland'
+
+n4
+
+#
+
+#
+
+Roland arrives. He looks foreign. Ian waits as the foreigner rides up
+
+Fig. 3. An example illustrating the mention naming model from Sec. 4.3. The mentions
+in the sentence are highlighted in green. The antecedent variable R and name assignment matrix Z are shown for the correct coreference links. The ﬁnal names assigned
+to the mentions are shown in red.
+
+Coreference resolution. Each pair of mentions (m, m ) is represented by a
+2
+d-dimensional feature vector, and let Φmention ∈ IRM ×d be the corresponding
+feature matrix.2 We apply the clustering framework (Sec. 4.1) to predict the
+2
+antecedent matrix, or more precisely, its vectorized form vec(R) ∈ IRM . We
+ﬁrst include in Cmention (R, Z) (Eq. 1) the clustering cost:
+Ccluster (vec(R); Φmention , λmention )
+
+(coreference features)
+
+(6)
+
+We also impose hard constraints, adding them to Cmention (R, Z). First, each
+mention has at most one antecedent:
+∀m≤M :
+
+Rmm = 1
+
+(one antecedent)
+
+(7)
+
+m ≤m
+
+In addition, we include linguistic constraints to ensure gender consistency and to
+avoid self-association of pronouns (see supplementary material for the details).
+Connection constraint. When m has an antecedent m (Rmm = 1), they
+should be assigned the same name (Zm = Zm ). Note that the converse is not
+necessarily true: two mentions not related via the antecedent relation (Rmm = 0)
+can still have the same name. For example, in Fig. 3, the mentions “Roland”
+and “foreigner” are not linked, but still refer to the same person. This relation
+between Z and R can be enforced through the following constraint:
+∀ m ≤ m, ∀ p ∈ P : |Zmp − Zm p | ≤ 1 − Rmm
+
+(R constrains Z)
+
+(8)
+
+Finally, each mention is assigned exactly one name: Z1P = 1M .
+2
+
+The features are described in [17]. They capture agreement between diﬀerent attributes of a pair of mentions, such as the gender, cardinality, animacy, and position
+in the parse tree.
+
+8
+
+4.4
+
+Vignesh Ramanathan∗ , Armand Joulin† , Percy Liang† , Li Fei-Fei†
+
+Alignment between tracks and mentions
+
+So far, we have deﬁned the cost functions for the name assignment matrices
+for tracks Y and mentions Z, which use video and text information separately.
+Now, we introduce Calign (A, Y, Z), the alignment part of the cost function, which
+connects Y and Z, allowing information to ﬂow between text and video.
+There are three intuitions involving the alignment matrix A: First, a track
+and a mention that are aligned should be assigned the same person. Second, the
+tracks T and mentions M are ordered sequences, and an alignment between them
+should be monotonic. Third, tracks and mentions that occur together based on
+the crude alignment ([11]) are more likely to be aligned. We use these intuitions
+to formulate the alignment cost Calign (A, Y, A), as explained below:
+Monotonicity constraint. The tracks T are ordered by occurrence time in
+the video, and the mentions M are ordered by position in the script. We enforce
+that no alignment edges cross (this assumption is generally but not always true):
+if t2 > t1 and At1 m = 1, then At2 m = 0 for all m < m.
+Mention mapping constraint. Let Me be the set of mentions in a description
+e ∈ E and Te be the set of tracks in the crudely-aligned time window. We enforce
+each mention from Me to be mapped to exactly one track from Te : for each e ∈ E
+and m ∈ Me , t∈Te Atm = 1. Conversely, we allow a track to align to multiple
+mentions. For example, in “John sits on the chair, while he is drinking his coﬀee”,
+a single track might align to both “John” and “he”.
+∀ e ∈ E, m ∈ Me ,
+
+Atm = 1
+
+(mention mapping).
+
+(9)
+
+t∈Te
+
+Connection penalty. If a track t is assigned to person p (Ytp = 1), and track
+t is aligned to mention m (Atm = 1), then mention m should be assigned to
+person p as well (Zmp = 1). To enforce this constraint in a soft way, we add the
+following penalty:
+A Y −Z
+
+2
+F
+
+= −2tr(A Y Z) + constant,
+
+(10)
+
+where the equality leverages the fact that Y and Z are discrete with rows that
+sum to 1 (see supplementary material for details). Note that Calign (A, Y, Z) is
+thus a linear function of A with monotonicity constraints. This special form will
+be important for optimization in Sec. 5.
+
+5
+
+Optimization
+
+Now we turn to optimizing our cost function (Eq. 1). First, the variables Z, Y ,
+R and A are matrices with values in {0, 1}. We relax the domains of all variables
+except A from {0, 1} to [0, 1]. Additionally, to account for noise in the tracks
+and mentions, we add a slack to all inequalities involving Y and Z.
+
+Linking people in videos with “their” names using coreference resolution
+
+9
+
+We solve the relaxed optimization problem using block coordinate descent,
+where we cycle between minimizing Y , (Z, R), and A. Each block is convex given
+the other blocks. For the smaller matrices Z, Y and R (which have on the order
+of 104 elements), we use interior-point methods [6], whose complexity is cubic
+in the number of variables. The alignment matrix A has on the order of 106
+elements, but fortunately, due to the special form of Calign (A, Y, Z), we can use
+an eﬃcient dynamic program similar to dynamic time warping [10] to optimize
+A (see supplementary material for details).
+Initialization Since our cost function is not jointly convex in all the variables,
+initialization is important. We initialize our method with the solution to simpliﬁed optimization problem that excludes any terms involving more than one
+block of variables.
+Rounding The variables Y and Z are ﬁnally rounded to integer matrices, with
+elements in {0, 1}. The rounding is carried out similar to [6], by projecting the
+matrices on the corresponding set of integer matrices. This amounts to taking
+the maximum value along the rows of Y and Z.
+
+6
+
+Experiments
+
+We evaluated our model on the two tasks: (i) name assignment to tracks in
+videos and (ii) name assignment to mentions in the corresponding scripts.
+Dataset. We created a new dataset of TV episode videos along with their
+scripts.3 Previous datasets [6, 7, 38] come with heavily preprocessed scripts, where
+no ambiguities in the text are retained. In contrast, we use the original scripts.
+We randomly chose 19 episodes from 10 diﬀerent TV shows. The complete list
+of the episodes is shown in the supplementary material. Sample video clips from
+the dataset with descriptions are shown in Fig. 4. The dataset is split into a
+development set of 14 episodes and a test set of 5 episodes. Note that there is
+no training set, as we are working in the transductive setting. The number of
+names in the cast lists varies between 9 − 21.
+To evaluate the name assignment task in videos, we manually annotated the
+names of human tracks from 3 episodes of the development set, and all 5 episodes
+of the test set. There are a total of 3329 tracks with ground truth annotations
+in the development set, and 4757 tracks in the test set. To evaluate the name
+assignment to mentions, we annotated the person names of the pronouns and
+nominal mentions in all episodes. To ensure that a mention always refers to a
+person physically in the scene, we retain only the mentions which are the subject
+of a verb. This resulted in a total of 811 mentions in the development set and
+300 mentions in the test set.
+3
+
+The scripts were collected from https://sites.google.com/site/tvwriting/.
+
+10
+
+Vignesh Ramanathan∗ , Armand Joulin† , Percy Liang† , Li Fei-Fei†
+
+We%reveal%LyneAe%holding%Porter%by%his%
+feet,%while%he%clings%to%Preston’s%desk.%
+
+Missy%points%to%the%larger%kid.%The%big%kid%
+walks%oﬀ.%Other%kids%jeer.%
+
+Cary%eyes%the%siblings,%as%Alicia%looks%
+across%the%bullpen%
+
+Fig. 4. Sample video clips from the dataset are shown along with their corresponding
+script segments. The mentions extracted from the script are underlined. The ones
+corresponding to nominal subjects are shown in green. These are the mentions used in
+our full model for person name assignment. The face tracks from the video are shown
+by red bounding boxes.
+
+Implementation details. The tracks were obtained by running an oﬀ-theshelf face detector followed by tracking [22]. We retain all tracks extracted by
+this scheme, unlike previous works which only use a subset of clean tracks with
+visible facial features. We further extracted a set of features between pairs of
+mentions using the Stanford CoreNLP toolbox [27] (see supplementary material).
+We tuned the hyperparameters on the development set, yielding λmention =
+0.0001, λtrack = 0.01, γt = 0.2 and γm = 20.
+Set
+Development
+Test
+Episode ID
+E1
+E2
+E3 MAP E15
+E16
+E17
+E18
+E19 MAP
+Random
+0.266 0.254 0.251 0.257 0.177 0.217 0.294 0.214 0.247 0.229
+Cour [7]
+0.380 0.333 0.393 0.369 0.330 0.327 0.342 0.306 0.337 0.328
+Boj [6]
+0.353 0.434 0.426 0.404 0.285 0.429 0.378 0.383 0.454 0.385
+OurUnidir 0.512 0.560 0.521 0.531 0.340 0.474 0.503 0.399 0.384 0.420
+OurUniCor 0.497 0.572 0.501 0.523 0.388 0.470 0.512 0.424 0.401 0.431
+OurUnif
+0.497 0.552 0.561 0.537 0.345 0.488 0.516 0.410 0.388 0.429
+OurBidir
+0.567 0.665 0.573 0.602 0.358 0.518 0.587 0.454 0.376 0.459
+Table 1. The Average Precision (AP) scores for person name assignment in videos
+is shown for episodes with face annotations in the development and test set. We also
+show the mean AP (MAP) value for the development and test sets. The description of
+the diﬀerent methods are provided in the text.
+
+6.1
+
+Name assignment to tracks in video
+
+We use the Average Precision (AP) metric previously used in [6, 7] to evaluate
+the performance of person naming in videos. We compare our model (denoted
+by OurBidir) to state-of-the-art methods and various baselines:
+1. Random: Randomly picks a name from the set of possible names consistent
+with the crude alignment.
+
+Linking people in videos with “their” names using coreference resolution
+
+11
+
+2. Boj [6]: Similar to the model described in Sec. 4.2 but without the scene
+constraints. We use the publicly available code from the authors.
+3. Cour [7]: Weakly-supervised method for name assignment using a discriminative classiﬁer. We use the publicly available code from the authors.
+4. OurUnidir: Unidirectional model which does not use any coreference resolution, but unlike Boj, it includes the “scene alignment” constraint.
+5. OurUniCor: We ﬁrst obtain the person names corresponding to the mentions in the script by running our coreference model from Sec. 4.3. These are
+then used to specify additional constraints similar to the “dialogue alignment” constraint.
+6. OurUnif: All the tracks appearing in the temporal window corresponding
+to the mention are given equal values in the matrix A.
+7. OurBidir: Our full model which jointly optimizes name assignment to mentions and tracks.
+Tab. 1 shows the results. First, note that even our unidirectional model
+(OurUnidir) performs better than the state-of-the-art methods from [6, 7]. As
+noted in [6], the ridge regression model from Bach et al [2] might be more robust
+to noise. This could explain the performance gain over [7]. The improvement
+of our unidirectional model over [6] is due to our addition of scene based constraints, which reduces the ambiguity in the names that can be assigned to a
+track.
+The improved performance of our bidirectional model compared to OurUnidir
+and OurUniCor, shows the importance of the alignment variable in our formulation. On the other hand, when A is ﬁxed through uniform assignment
+(OurUnif), the model performs worse than our bidirectional model. This shows
+the beneﬁt of inferring the alignment variable in our method.
+In Fig. 5, we show examples where our model makes correct name assignments. Here, our model performs well even when tracks are aligned with pronouns
+and nominals.
+Finally, we conducted an oracle experiment where we ﬁx the alignment between tracks and mentions (A) and mention name assignment (Z) to manuallyannotated ground truth values. The resulting OurBidir obtained a much improved MAP of 0.565 on the test set. We conclude that person naming could be
+improved by inferring a better alignment variable.
+6.2
+
+Name assignment to mentions
+
+Now we focus on the language side. Here, our evaluation metric is accuracy,
+the fraction of mentions that are assigned the correct person name. We compare the performance of our full bidirectional model (OurBidir) with standard
+coreference resolution systems and several baselines:
+1. CoreNLP: This is the coreference resolution model used in the Standord
+CoreNLP toolbox [27].
+
+12
+
+Vignesh Ramanathan∗ , Armand Joulin† , Percy Liang† , Li Fei-Fei†
+
+Hank wags his tongue. Winks at
+Heather. Then he guns it.
+Heather(unidir), Hank(bidir)
+
+(a)
+
+Edouard & MacLeod unfurl the
+canvas, searching for the name.
+He then peers at the canvas.
+Edouard(unidir), MacLeod(bidir)
+
+(d)
+
+Julie looks to see, what her
+mom is staring at
+Susan(unidir), Susan(bidir)
+
+(c)
+
+(b)
+MacLeod
+
+Rowan
+
+Gabriel cues the entry of a young
+actor Rowan. Rose doesn’t notice
+him. He takes her in his arms.
+Gabriel(unidir), Rowan(bidir)
+
+Susan
+
+MacLeod
+
+Hank
+
+Method and Dawson step
+in. MacLeod stares at him.
+He starts to laugh
+Dawson(undir), MacLeod(bidir)
+
+(e)
+
+Beckett
+
+Beckett finds Castle waiting
+with 2 cups... She takes the
+coffee
+Beckett(unidir), Beckett(bidir)
+
+(f)
+
+Fig. 5. Examples where the person name assignment by our bidirectional model is
+correct, both in the video and the text. The alignment is denoted by the blue dotted
+line. The name assignment to the tracks are shown near the bounding box. The name
+assignment to mentions by our unidirectional and bidirectional models are shown in
+the box below the videos. The correct assignment is shown in green, and the wrong
+one in red.
+
+2. Haghighi ([17] modiﬁed): We modify the method from [17] to account for
+the ﬁxed set of cast names in our setting (see supplementary material for
+more details).
+3. OurUnidir: This is the unidirectional model from Sec. 4.3.
+4. OurUnif: Same as OurUnif for name assignment to tracks.
+5. OurBidir: Same as OurBidir for name assignment to tracks.
+The Stanford CoreNLP coreference system uses a ﬁxed set of rules to iteratively group mentions with similar properties. These rules were designed for use
+with well structured news articles which have a higher proportion of nominals
+compared to pronouns. Also, our model performs explicit entity linking by associating every mention to a name from the cast list, unlike standard coreference
+resolution methods. While comparing to CoreNLP, we performed entity linking by assigning each mention in a coreference chain to the head mention of the
+chain, which is usually a proper noun corresponding to one of the cast names.
+These factors contribute to the gain of OurUnidir, which uses constraints speciﬁc to the TV episode setting. The modiﬁed version of Haghighi and Klein’s
+model [17] is a probabilistic variant of OurUnidir. Note that our formulation
+is convex whereas theirs is not.
+
+Linking people in videos with “their” names using coreference resolution
+
+13
+
+Set
+Dev.
+Test
+CoreNLP [27]
+54.99 % 41.00 %
+Haghighi [17] modiﬁed 53.02 % 38.67 %
+OurUnidir
+58.20 % 49.00 %
+OurUnif
+59.56 % 48.33 %
+OurBidir
+60.42 % 56.00 %
+Table 2. The percentage accuracy of mentions associated to the correct person name
+across all episodes in the development and test set is shown. The description of the
+diﬀerent methods in the table are provided in the text.
+
+We also a gain from our bidirectional model over the unidirectional model,
+due to additional visual cues. This is especially true when there text is truly
+ambiguous. In Fig. 5(d), “Rowan” is not the subject of the sentence preceding
+the pronoun “He”. This causes a simple unidirectional model to associate the
+pronoun with a wrong antecedent mention. Our bidirectional model avoids these
+errors by using the name of the tracks mapped to the mentions.
+Finally, we explore the full potential of improving mention name assignment
+from visual cues by ﬁxing the matrices A and Y to their ground truth values.
+This yields an oracle accuracy of 68.98% on the test data, compared to 52.15%
+for OurBidir. Interestingly, the oracle improvement here on the language side
+is signiﬁcantly higher than on the vision side.
+Error analysis. We show sample video clips in Fig. 6, where our bidirectional
+model (OurBidir) fails to predict the correct name for mentions. As seen in
+Fig. 6(a), one typical reason for failure is incorrect name assignments to lowresolution faces; the error then propagates to the mentions. In the second example, the face detector fails to capture the face of the person mentioned in
+the script. Hence, our model maps the pronoun to the only face available in the
+description, which is incorrect.
+Empirical justiﬁcation of our joint optimization. We also show the performance of our full model at each iteration. Fig. 7 plots the MAP for person
+naming and accuracy for coreference resolution on the development set. We observe that performance on both tasks jointly improves over time, showing the
+importance of a bidirection ﬂow of information between text and video.
+
+7
+
+Conclusion
+
+In this work, we tackled the problem of name assignment to people in videos
+based on their scripts. Compared to previous work, we leverage richer information from the script by including ambiguous mentions of people such as pronouns
+and nominals. We presented a bidirectional model to jointly assign names to the
+tracks in the video and the mentions in the text; a latent alignment linked the
+two tasks. We evaluated our method on a new dataset of 19 TV episodes. Our full
+
+Vignesh Ramanathan∗ , Armand Joulin† , Percy Liang† , Li Fei-Fei†
+
+14
+
+Megan
+
+Castle
+
+Lynette
+
+Beckett(unidir), Castle(bidir)
+
+Elaine Tillman, fragile but
+with inner strength. She looks
+to Megan.
+Elaine(unidir), Megan(bidir)
+
+Porter opens his mouth.
+Lynette tries to pop the pill,
+but he shuts it.
+Lynette(unidir), Lynette(bidir)
+
+(a)
+
+(b)
+
+(c)
+
+Beckett turns… She bites her
+lips and shakes her head
+
+MAPloflnamelassignmentltoltracks
+MAPloflnamelassignmentltoltracks
+
+0.6
+0.59
+0.58
+0.57
+0.56
+0.55
+
+Performancelofl
+unidirectionallmodel
+
+0.54
+0.53
+0
+
+1
+
+2
+
+Iteration
+Iteration
+
+3
+
+4
+
+(a) Name assignment to tracks
+
+5
+
+Accuracy of name assignment to mentions
+Accuracy of name assignment to mentions
+
+Fig. 6. Examples of videos are shown, where our full model fails to predict the correct
+names The alignment is shown by the blue dotted line. The name assignment to tracks
+are shown over the bounding box. The wrong name assignments are shown in red. The
+name assignment to mentions by our bidirectional and unidirectional models are shown
+in the box below the videos. The correct name assignment is shown in green, and the
+wrong one in red.
+
+60.5
+60
+59.5
+59
+58.5
+58
+
+Performance of
+unidirectional model
+
+57.5
+57
+56.5
+0
+
+1
+
+2
+
+Iteration
+Iteration
+
+3
+
+4
+
+5
+
+(b) Name assignment to mentions
+
+Fig. 7. (a) Mean average precision (MAP) of person naming of tracks at diﬀerent
+iterations. (b) Accuracy of person naming of mentions at diﬀerent iterations.
+
+model provides a signiﬁcant gain for both vision and language tasks compared
+to models that handle the tasks independently. We plan to extend our bidirectional model to not only share information about the identity of the tracks and
+mentions, but also to link the actions in video with relations in text.
+
+Acknowledgements
+We thank A. Fathi, O. Russakovsky and S. Yeung for helpful comments and feedback. This research is partially supported by Intel, the NFS grant IIS-1115493
+and DARPA-Mind’s Eye grant.
+
+Linking people in videos with “their” names using coreference resolution
+
+15
+
+References
+1. Cisco visual networking index: Global mobile data traﬃc forecast update. Tech.
+rep., Cisco (Feb 2014)
+2. Bach, F., Harchaoui, Z.: Diﬀrac: A discriminative and ﬂexible framework for clustering. In: NIPS (2007)
+3. Barnard, K., Duygulu, P., Forsyth, D., de Freitas, N., Blei, D.M., Jordan, M.I.:
+Matching words and pictures. Journal of Machine Learning Research 3, 1107–1135
+(2003)
+4. B¨uml, M., Tapaswi, M., Stiefelhagen, R.: Semi-supervised Learning with Cona
+straints for Person Identiﬁcation in Multimedia Data. In: IEEE Conference on
+Computer Vision and Pattern Recognition (CVPR) (Jun 2013)
+5. Berg, T.L., Berg, A.C., Edwards, J., Maire, M., White, R., Teh, Y.W., LearnedMiller, E.G., Forsyth, D.A.: Names and faces in the news. In: IEEE Conference on
+Computer Vision and Pattern Recognition (CVPR). vol. 2, pp. 848–854 (2004)
+6. Bojanowski, P., Bach, F., Laptev, I., Ponce, J., Schmid, C., Sivic, J.: Finding actors
+and actions in movies. In: ICCV (2013)
+7. Cour, T., Sapp, B., Jordan, C., Taskar, B.: Learning from ambiguously labeled
+images. In: CVPR (2009)
+8. Das, P., Xu, C., Doell, R.F., Corso, J.J.: A thousand frames in just a few words:
+Lingual description of videos through latent topics and sparse object stitching. In:
+CVPR (2013)
+9. Duchenne, O., Laptev, I., Sivic, J., Bach, F., Ponce, J.: Automatic annotation of
+human actions in video. In: ICCV (2009)
+10. Duda, R.O., Hart, P.E., Stork, D.G.: Pattern classiﬁcation. John Wiley & Sons
+(2012)
+11. Everingham, M., Sivic, J., Zisserman, A.: Hello! my name is... buﬀy automatic
+naming of characters in tv video. In: BMVC (2006)
+12. Farhadi, A., Hejrati, M., Sadeghi, A., Young, P., Rashtchian, C., Hockenmaier, J.,
+Forsyth, D.: Every picture tells a story: generating sentences for images. In: ECCV
+(2010)
+13. Fidler, S., Sharma, A., Urtasun, R.: A sentence is worth a thousand pixels. In:
+CVPR. IEEE (2013)
+14. Guillaumin, M., Mensink, T., Verbeek, J., Schmid, C.: Tagprop: Discriminative
+metric learning in nearest neighbor models for image auto-annotation. In: CVPR
+(2009)
+15. Gupta, A., Davis, L.S.: Beyond nouns: Exploiting prepositions and comparative
+adjectives for learning visual classiﬁers. In: ECCV (2008)
+16. Gupta, A., Srinivasan, P., Shi, J., Davis, L.S.: Understanding videos, constructing plots learning a visually grounded storyline model from annotated videos. In:
+Computer Vision and Pattern Recognition, 2009. CVPR 2009. IEEE Conference
+on. pp. 2012–2019. IEEE (2009)
+17. Haghighi, A., Klein, D.: Coreference resolution in a modular, entity-centered model.
+In: HLT-NAACL (2010)
+18. Han, X., Sun, L., Zhao, J.: Collective entity linking in web text: a graph-based
+method. In: ACM SIGIR conference on Research and development in Information
+Retrieval. pp. 765–774 (2011)
+19. Hobbs, J.R., Mulkar-Mehta, R.: Using abduction for video-text coreference. In:
+Proceedings of BOEMIE 2008 Workshop on Ontology Evolution and Multimedia
+Information Extraction (2008)
+
+16
+
+Vignesh Ramanathan∗ , Armand Joulin† , Percy Liang† , Li Fei-Fei†
+
+20. Hodosh, M., Young, P., Rashtchian, C., Hockenmaier, J.: Cross-caption coreference
+resolution for automatic image understanding. In: Conference on Computational
+Natural Language Learning (2010)
+21. Jie, L., Caputo, B., Ferrari, V.: Whos doing what: Joint modeling of names and
+verbs for simultaneous face and pose annotation. NIPS (2009)
+22. Kalal, Z., Mikolajczyk, K., Matas, J.: Tracking-learning-detection. Pattern Analysis and Machine Intelligence, IEEE Transactions on 34(7), 1409–1422 (2012)
+23. Kong, C., Lin, D., Bansal, M., Urtasun, R., Fidler, S.: What are you talking about?
+text-to-image coreference. In: CVPR (2014)
+24. Kulkarni, G., Premraj, V., Dhar, S., Li, S., Choi, Y., Berg, A.C., Berg, T.L.: Baby
+talk: Understanding and generating simple image descriptions. In: CVPR (2011)
+25. Kummerfeld, J.K., Klein, D.: Error-driven analysis of challenges in coreference
+resolution. In: Proceedings of EMNLP (2013)
+26. Laptev, I., Marszaek, M., Schmid, C., Rozenfeld, B.: Learning realistic human
+actions from movies. In: CVPR (2008)
+27. Lee, H., Peirsman, Y., Chang, A., Chambers, N., Surdeanu, M., Jurafsky, D.: Stanford’s mulit-pass sieve coreference resolution system at the conll-2011 shared task.
+In: CoNLL-2011 Shared Task (2011)
+28. Marszaek, M., Laptev, I., Schmid, C.: Actions in context. In: CVPR (2009)
+29. Matuszek*, C., FitzGerald*, N., Zettlemoyer, L., Bo, L., Fox, D.: A joint model of
+language and perception for grounded attribute learning. In: ICML (2012)
+30. Motwani, T.S., Mooney, R.J.: Improving video activity recognition using object
+recognition and text mining. In: ECAI (2012)
+31. Ordonez, V., Kulkarni, G., Berg, T.L.: Im2text: Describing images using 1 million
+captioned photographs. In: NIPS (2011)
+32. Pham, P., Moens, M.F., Tuytelaars, T.: Linking names and faces: Seeing the problem in diﬀerent ways. In: Proceedings of the 10th European conference on computer
+vision: workshop faces in’real-life’images: detection, alignment, and recognition. pp.
+68–81 (2008)
+33. Ramanathan, V., Liang, P., Fei-Fei, L.: Video event understanding using natural
+language descriptions. In: ICCV (2013)
+34. Rohrbach, M., Stark, M., Szarvas, G., Schiele, B.: What helps where – and why?
+semantic relatedness for knowledge transfer. In: CVPR (2010)
+35. Rohrbach, M., Wei, Q., Titov, I., Thater, S., Pinkal, M., Schiele, B.: Translating
+video content to natural language descriptions. In: ICCV (2013)
+36. Silberer, C., Ferrari, V., Lapata, M.: Models of semantic representation with visual
+attributes. In: ACL (2013)
+37. Sivic, J., Everingham, M., Zisserman, A.: “who are you?” - learning person speciﬁc
+classiﬁers from video. In: CVPR (2009)
+38. Tapaswi, M., B¨uml, M., Stiefelhagen, R.: “Knock! Knock! Who is it?” Probabilisa
+tic Person Identiﬁcation in TV Series. In: IEEE Conference on Computer Vision
+and Pattern Recognition (CVPR) (Jun 2012)
+39. Tellex, S., Kollar, T., Dickerson, S., Walter, M.R., Banerjee, A.G., Teller, S., Roy,
+N.: Understanding natural language commands for robotic navigation and mobile
+manipulation. AAAI (2011)
+40. Vijayanarasimhan, S., Grauman, K.: Keywords to visual categories: Multipleinstance learning forweakly supervised object categorization. In: Computer Vision
+and Pattern Recognition, 2008. CVPR 2008. IEEE Conference on. pp. 1–8. IEEE
+(2008)
+41. Wang, Y., Mori, G.: A discriminative latent model of image region and object tag
+correspondence. In: NIPS (2010)
+
+

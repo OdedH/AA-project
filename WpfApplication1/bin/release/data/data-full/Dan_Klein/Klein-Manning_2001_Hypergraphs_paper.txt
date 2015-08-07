@@ -1,0 +1,1129 @@
+PARSING AND HYPERGRAPHS
+Dan Klein and Christopher D. Manning
+Computer Science Department
+Stanford University
+Stanford, CA 94305-9040
+klein, manning @cs.stanford.edu
+
+Abstract
+While symbolic parsers can be viewed as deduction systems, this view is less natural for probabilistic parsers.
+We present a view of parsing as directed hypergraph analysis which naturally covers both symbolic and probabilistic
+parsing. We illustrate the approach by showing how a dynamic extension of Dijkstra’s algorithm can be used to
+construct a probabilistic chart parser with an Ç´Ò¿ µ time bound for arbitrary PCFGs, while preserving as much of the
+ﬂexibility of symbolic chart parsers as allowed by the inherent ordering of probabilistic dependencies.
+
+1 Introduction
+An inﬂuential view of parsing is as a process of logical deduction, in which a parser is presented as a set of parsing schemata. The grammar rules are the logical axioms, and the question of whether or not a certain category
+can be constructed over a certain span becomes the question of whether that category can be derived over that
+span, treating the initial words as starting assumptions (Pereira and Warren 1983, Shieber et al. 1995, Sikkel and
+Nijholt 1997). But such a viewpoint is less natural when we turn to probabilistic parsers, since probabilities, or,
+generalizing, scores, are not an organic part of logical systems.1 There is also a deep connection between logic,
+in particular propositional satisﬁability, and directed hypergraphs (Gallo et al. 1993). In this paper, we develop
+and exploit the third side of this triangle, directly connecting parsing with directed hypergraph algorithms.
+The advantage of doing this is that scored arcs are a central and well-studied concept of graph theory, and
+we can exploit existing graph algorithms for probabilistic parsing. We illustrate this by developing a concrete
+hypergraph-based parsing algorithm, which does probabilistic Viterbi chart parsing over word lattices. Our
+algorithm offers the same modular ﬂexibility with respect to exploration strategies and grammar encodings as
+a categorical chart parser, in the same cubic time bound, and in an improved space bound.
+
+2 Hypergraphs and Parsing
+First, we introduce directed hypergraphs, and illustrate how general-purpose hypergraph algorithms can be
+applied to parsing problems.
+The basic idea underlying all of this work is rather simple, and is illustrated in ﬁgure 1. There is intuitively
+very little difference between (a) combining subtrees to form a tree, (b) combining hypotheses to form a conclusion, and (c) visiting all tail nodes of a hyperarc before traversing to a head node. We will be building
+hypergraphs which encode a grammar and an input, and whose paths correspond to parses of that input.
+We would like to thank participants at the 2001 Brown Conference on Stochastic and Deterministic Approaches in Vision, Language,
+and Cognition for comments, particularly Mark Johnson. Thanks also to the anonymous reviewers for valuable comments on the paper, and
+in particular for bringing Knuth (1977) to our attention. This paper is based on work supported in part by the National Science Foundation
+under Grant No. IIS-0085896, and by an NSF Graduate Fellowship.
+1 This is not to say that there is no way to incorporate probabilities into a deductive framework, for example by reifying the probabilities.
+
+DT:[0,1]
+NN:[0,1]
+NN:
+DT:
+NP:[0,2]
+
+NP
+
+NN
+
+DT
+
+(a)
+
+DT :[0,1]
+
+×
+
+NP:
+
+NP :[0,2]
+NN :[1,2]
+
+(b)
+
+(c)
+
+Figure 1: Three views of parsing: (a) tree construction, (b) logical deduction, and (c) hypergraph exploration.
+y
+true
+
+y
+w
+
+x
+
+false
+
+true
+
+w
+
+x
+
+z
+
+¡
+
+x, x
+
+y, x
+
+z
+z, y z
+
+w,
+
+¡
+
+w
+
+x, x
+
+z, y z
+
+(a)
+
+false
+
+u
+w, z
+
+u,
+
+w
+
+(b)
+
+Figure 2: Two hypergraphs. Graph (a) is a B-path from true to false, while (b) is not. Also shown are proposiis satisﬁable, while
+is not.
+tional rule sets to which these graphs correspond.
+
+¡
+
+¡
+
+2.1 Directed Hypergraph Basics
+We give some preliminary deﬁnitions about directed hypergraphs, objects like in ﬁgure 2 , weaving in a correspondence to propositional satisﬁability as we go. For a more detailed treatment, see (Gallo et al. 1993).
+Directed hypergraphs are much like standard directed graphs. However, while standard arcs connect a single
+tail node to a single head node, hyperarcs connect a set of tail nodes to a set of head nodes. Often, as in the
+present work, multiplicity is needed only in the tail. When the head contains exactly one node, we call the
+hyperarc a B-arc.
+
+´
+
+µ
+
+where Æ is a set of nodes and is a set of directed
+Deﬁnition 1 A directed hypergraph is a pair Æ
+hyperarcs. A directed hyperarc is a pair Ì À where the tail Ì and head À are subsets of Æ .
+
+´
+
+µ
+
+Deﬁnition 2 A B-arc is a directed hyperarc for which À is a singleton set. A B-graph is a directed hypergraph
+where the hyperarcs are B-arcs.
+It is easy to see the construction which provides the link to satisﬁability. Nodes correspond to propositions,
+ØÑ µ ½
+¡ ¡ ¡ Ò . In
+and directed hyperarcs Ø½
+Ò correspond to rules Ø½ ¡ ¡ ¡ ØÑ
+½
+the case of B-arcs, the corresponding rules are Horn clauses. The construction also requires two special nodes,
+true and false. For the Horn clause case, it turns out that satisﬁability is equivalent to the non-existence of a
+certain kind of path from true to false.
+With the notion of arc generalized, there are multiple kinds of paths. The simplest is the kind inherited from
+standard graphs, in which a path can enter a hyperarc at any tail node and leave from any head node.
+
+´
+
+µ
+
+× Ø is a sequence × Ú¼ ½ Ú½
+Deﬁnition 3 A simple path Ô
+Ò ÚÒ Ø of alternating nodes
+Ò   Ú ¾ Ø Ð ·½ , and (3) ¾
+and hyperarcs where: (1) each hyperarc is distinct, (2) ¾
+Ò Ú ¾
+A node Ø is simply reachable from a node × if a simple path exists from × to Ø.
+
+½
+
+´ µ
+
+¼
+
+½
+
+´
+
+µ
+
+In the more important kind of path, each tail node must be reachable before the arc is traversable.
+
+´
+
+µ
+
+Deﬁnition 4 A B-path È in a B-graph from a node × to a node Ø is a minimal subgraph2 ÆÈ È
+in which: (1) × Ø ¾ ÆÈ , and (2) Ú ¾ ÆÈ   ×
+Ô × Ø, Ô a simple path in È . A node Ø is B-reachable
+from a node × if a B-path exists from × to Ø.
+This ﬁts well with the logical rule interpretation: each hypothesis must be true before a conclusion is implied.
+It is perhaps not surprising, then, that B-paths from true to false are what correspond to non-satisﬁability.
+As an example, the B-graph in ﬁgure 2(a) is a valid B-path from true to false. However, the one in ﬁgure 2(b)
+is not a B-path, for two reasons. First, not all nodes are simply reachable from × (Ý is not). Second, even
+2 An
+
+important point to note is that one cannot choose only part of a hyperarc to include in a subgraph; once the arc is included, all
+nodes in its head and tail must also be included.
+
+if we added a B-arc Ü µ Ý , the graph would not be minimal (the B-arc Þ µ Ù could be removed).
+Correspondingly, there is no satisfying assignment to the rule sets in ﬁgure 2(a), while Ü=true, Ý =false, Þ =true,
+Û=false, Ù=true is a satisfying assignment for ﬁgure 2(b).
+For the remainder of this paper, we will often drop the “B-” when it is clear from context what kind of graph,
+arc, path, or reachability is meant.
+2.2 Symbolic Parsing and Reachability
+We now show how reachability in a certain hypergraph corresponds to parse existence.
+In chart parsing terminology, the core declarative object is the edge, which is a labeled span. For example,
+NP :[0,2] represents an NP spanning position 0 to 2. Parsing requires a grammar and an input. Here, we take
+the input to be a lattice, which is a collection of edges stating which words can occur over which spans. The
+grammar is a set of context-free productions of the form
+½
+Ò . These productions state that edges
+can be combined to form an edge with label , subject to adjacency constraints on the edges’
+with labels
+spans. When a production is instantiated with speciﬁc edges, it is called a traversal. Traversals state a particular
+way an edge can be constructed, for example, that S:[0,8] can be composed of NP:[0,2] and VP:[2,8].
+There is an unfortunate clash between chart parsing and hypergraph terminology. A chart (see ﬁgure 3c) is
+typically seen as an undirected graph with numbers as nodes and edges as arcs. Traversals, which record how
+an edge was constructed, are not part of the graph, but stored in an auxiliary data structure, if at all. However, in
+the present context, the numbers are not represented graphically (their relative structure is self-evident), edges
+are nodes in the hypergraph, and traversals are B-arcs in the hypergraph. For this paper, we use “edge” to refer
+only to labeled spans, and “arc” when we mean a (hyper)graph connection.
+Given a grammar and a lattice Ä, we wish to construct a hypergraph in which node reachability corresponds to edge parsability. This graph, which we call the induced B-graph of and Ä, is given as follows.
+, create a node. For each instantiation of a proFor each instantiation of category in as an edge :
+duction
+½
+Ò in as a traversal :
+½:
+½
+¾: ½
+¾
+Ò : Ò ½ , create a B-arc
+µ : . This much of the construction represents the con½:
+½
+¾: ½
+¾
+Ò : Ò ½
+nectivity of the grammar. To represent the data, create a special source edge ×, and add arcs of the form
+× µ :
+for each word edge :
+and × µ :
+for each category with an empty production.
+Similarly, we deﬁne a mapping which takes parse trees Ì to B-graphs Ì , where the nodes of Ì are
+the edges of Ì (along with ×), and the B-arcs in Ì are the traversals of Ì (along with × arcs to terminals
+in Ì ). For example, ﬁgure 1(c) is the image of ﬁgure 1(a). For any tree Ì , Ì is not only a B-graph, but a
+B-path from × to the root edge of Ì .
+For a given and Ä, this mapping is onto the set of B-paths in the induced graph with source ×: any B-path
+from × is Ì for some tree Ì which can be constructed over Ä using . It is not necessarily one-to-one,
+because of cyclic same-span constructions.3 However, this does not matter for determining parse existence; it
+is enough that the inverse image of a B-path be non-empty.
+The reduction between parse existence and hypergraph reachability is expressed by the following theorem.
+
+´ µ
+
+´ µ
+
+´ µ
+
+´ µ
+
+´ µ
+
+Theorem 1 For a grammar and a lattice Ä, a node in the induced B-graph is B-reachable from × iff a
+parse of the edge exists. Each parse Ì of corresponds to a particular B-path Ì from × to , and for each
+B-path È , there is a unique canonical tree  ½ È in which no edge dominates itself.
+
+´ µ
+
+´ µ
+
+For instance, in ﬁgure 3(b), the NP node is B-reachable, but the PP node is not (because IN:[1,2] is not). Thus,
+over the span [0,2], an NP can be parsed, while a PP cannot.
+Therefore, if we wish to know if some edge can be parsed over Ä, we can construct the induced graph
+and use any B-reachability algorithm to ask whether is reachable from ×. For example, Gallo et al. (1993)
+describe an algorithm which generalizes depth-ﬁrst search, and which runs in time linear in the size of the
+graph. Moreover, since is easy to invert, any B-path produced can be turned into a concrete parse of .
+3 It
+
+will be one-to-one if the grammar contains neither empty nor unary productions; not much is lost if this case is used for intuition.
+
+2.3 Viterbi Parsing and Shortest Paths
+A more complex problem than parse existence is the problem of discovering a best, or Viterbi, parse for an
+edge , where “best” is given by some scoring function over trees. For the present work, we assume that the
+scoring function takes a particular form. Namely, for the proofs to go through, it must be that combining trees
+(1) cannot yield a score better than the best scored component, and (2) replacing a subtree with a lower scoring
+subtree will worsen the score of any containing tree. These assumptions are acheived if each production (and
+category) is associated with an element of a Ë -ordered c-semiring4 (Bistarelli et al. 1997), and a tree’s score
+is the semiring product of its production (and node) scores. In particular, maximizing multiplied production
+probabilities, minimizing the number of tree nodes, and many other scoring functions are of this form.
+In the case of such scoring functions, the same induced graph used for parse existence can be used for ﬁnding
+a best parse. We simply score each arc with the score of the local tree to which it corresponds. The score of
+a B-path5 is then the score of at least one parse which maps to that B-path. Furthermore, the canonical parse
+mentioned in theorem 1 for that B-path is a best parse and has the same score as its B-graph.
+Thus, any algorithm for ﬁnding shortest (or, more generally, best) paths in B-graphs can be used to ﬁnd best
+parses, using the construction and mapping above. For example, Gallo et al. (1993) describe an extension of
+Dijkstra’s algorithm to B-graphs, which runs in time linear in the size of the graph.6
+2.4 Practical Issues
+At this point, one might wonder what is left to be done. We have a reduction which, given a grammar and a
+lattice Ä, allows us to build and score the induced graph. From this graph, we can use reachability algorithms
+to decide parse existence, and we can use shortest-path algorithms to ﬁnd best parses. Furthermore, this view
+can be extended to other problems of parsing. For example, algorithms for summing paths can be adapted to
+calculate inside probabilities (see Klein and Manning (2001a)).
+However, there are two primary issues which remain. First, there is the issue of efﬁciency. Reachability and
+shortest-path algorithms, such as those cited above, generally run in time linear in the size of the induced graph.
+However, the size of the induced graph, while polynomial in the size of the lattice Ä, is exponential in the arity
+of the grammar , having a term of Ä Ö ØÝ´ µ·½ in its size. The implicit binarization of the grammar done by
+chart parsers is responsible for their cubic bounds, and we wish to preserve this bound for our Viterbi parsing.
+Second, one does not, in general, wish to construct the entire induced graph in advance, or even at all. Rather,
+one would like to dynamically create only the portions which are needed, as they are needed. Various factors
+which can affect what regions of the graph are built at what times include:
+
+¯
+¯
+¯
+
+Structural search strategies, such as bottom-up, top-down, left-corner, and so on.
+Lattice scanning strategies, such as scanning the lattice from left to right, or in whatever order it becomes
+available from previous processing.
+Rule encodings. Practical grammars are often encoded in a variety of ways, such as tries or fully minimized
+DFSAs (Klein and Manning 2001b), rather than simply as linear rewrite rules as in theoretical presentations.
+
+Therefore, in section 3, we present a chart parser for arbitrary PCFGs which can be seen as dynamically
+constructing the reachable regions of an induced graph and doing a Dijkstra’s algorithm style shortest-path
+computation over it. This parser preserves the time bounds of categorical chart parsers and allows a variety
+of introduction strategies and rule encodings. We discuss the kinds of subtle errors that can arise in a naive
+implementation and present simple conditions that ensure the correctness of various parsing strategies.
+4 These
+
+¨ª
+
+semirings have been used in work on soft constraint satisfaction, hence the “c-” preﬁx. They are semirings
+¼ ½
+where is idempotent and ½ Ü ½ for all Ü. The order Ë required is that
+. ¼ ½ Ñ Ü
+¼ ½ is an example.
+Ë iff
+5 The score of a node in a B-path is deﬁned recursively as the semiring product of the score of the arc entering that node with the scores
+of the nodes in that arc’s tail. The source has score 1 (the maximum score in the semiring).
+6 The choice of algorithm may impact the permitted generality of the scoring function. The algorithm in (Gallo et al. 1993) actually
+does work for all Ë -ordered c-semiring scoring functions, though their presentation does not state this; one must also note that their score
+addition corresponds to the semiring multiplication. In any case, the algorithm in section 3 is entirely self-contained.
+
+¨
+
+¨
+
+¨
+
+¢
+
+2.5 Relation to Superior Grammars
+Knuth (1977) introduces a formalism of superior grammars, where the terminals are superior functions, which
+calculate a score for a rule as a function of the scores of nonterminals on the righthand side. The formalism
+is closely related to the above hypergraph formalism, and can also be seen as a generalization of PCFGs. He
+also presents a generalization of Dijsktra’s algorithm for the problem of ﬁnding the best cost string in the
+language deﬁned by such a grammar (there is no concept of comparing parses for a single string). Rather
+than constructing B-graphs, we could cast the present work in terms of superior grammars, building a large
+grammar isomorphic to our B-graph, with a non-terminal for each edge and a terminal for each lattice element.
+Knuth’s superiority criterion would then be used in place of the Ë -ordered c-semiring property.7 When the
+superior functions are uniform across productions, superior grammars reduce to c-semiring scored B-graphs.
+The choice of which formalism to base our work on is thus more aesthetic than substantive, but we believe that
+the hypergraph presentation allows easier access to a greater variety of algorithmic tools, and presents a clearer,
+more visually appealing intuition. At any rate, the practical issues described above, and their solutions, which
+form the bulk of this paper, would be unchanged under either framework.
+
+3 Viterbi Parsing Algorithm
+Agenda-based active chart parsing (Kay 1980, Pereira and Shieber 1987) is an attractive presentation of the
+central ideas of tabular methods for CFG parsing. Earley (1970)-style dotted items combine via deduction
+steps (“the fundamental rule”) in an order-independent manner, such that the same basic algorithm supports
+top-down, bottom-up, and left-corner parsing, and the parser deals naturally and correctly with the difﬁcult
+cases of left-recursive rules, empty elements, and unary rules.
+However, while Ç Ò¿ methods for parsing PCFGs are well known (Baker 1979, Jelinek et al. 1992, Stolcke
+1995), a Ç Ò¿ probabilistic parser corresponding to active chart parsing for categorical CFGs, has not yet
+been provided. Producing a probabilistic version of an agenda-driven chart parser is not trivial. A central
+idea of such parsers is that the algorithm is correct and complete regardless of the order in which items on the
+agenda are processed. Achieving this is straightforward for categorical parsers, but problematic for probabilistic
+parsers. For example, consider extending an active edge VP V. NP PP :[1,2] with an NP :[2,5] to form an edge
+VP V NP. PP over [1,5]. In a categorical chart parser (CP), we can assert the parsability of this edge as soon as
+both component edges are built. Any NP edge will do; it need not be a best NP over that span. However, if we
+wish to score edges as we go along, there is a problem. In a Viterbi chart parser, if we later ﬁnd a better way to
+form the NP, we will have to update not only the score of that NP, but also the score of any edge whose current
+score depends on that NP’s score. This can potentially lead to an extremely inefﬁcient upward propagation of
+scores every time a new traversal is explored.8
+Most exhaustive PCFG parsing work has used the bottom-up CKY algorithm (Kasami 1965, Younger 1967)
+with Chomsky Normal Form (CNF) Grammars (Baker 1979, Jelinek et al. 1992) or extended CKY parsers
+that work with Ò-ary branching grammars, but still not with empty constituents (Kupiec 1991, Chappelier and
+Rajman 1998). Such bottom-up parsers straightforwardly avoid the above problem, by always building all edges
+over shorter spans before building edges over longer spans which make use of them. However, such methods
+do not allow top-down grammar ﬁltering, and often do not handle empty elements, cyclic unary productions,
+or Ò-ary rules. Stolcke (1995) presents a top-down parser for arbitrary PCFGs, which incorporates elements of
+
+´ µ
+
+7 This
+
+´ µ
+
+has the theoretical – but not clearly useful – advantage of allowing the score combination function to vary per production.
+(1998) provides an insightful presentation unifying many categorical and probabilistic parsing algorithms in terms of the
+problem’s semiring structure, but he merely notes this problem (p. 172), and on this basis puts probabilistic agenda-based chart parsers
+aside. The agenda-based chart parser of Caraballo and Charniak (1998) (used for determining inside probabilities) suffers from exactly
+this problem: In Appendix A (p. 293), they note that such updates “can be quite expensive in terms of CPU time”, but merely suggest a
+method of thresholding which delays probability propagation until the amount of unpropagated probability mass has become signiﬁcant,
+and suggest that this thresholding allows them to keep the performance of the parser “as Ç ´Ò¿ µ empirically.” We do not present an inside
+probability algorithm here, but the hypergraphical view of parsing can be developed to give an inside parsing algorithm, as discussed in
+(Klein and Manning 2001a).
+8 Goodman
+
+NP
+
+NP
+
+[0,2]
+PP
+
+[0,1]
+
+NP :[0,2]
+NP
+DT
+
+¡¬
+
+DT
+
+¡¬ :[0,1]
+
+¡Æ
+
+¡«
+
+[NN+
+
+NP
+NP
+
+[0,1]
+NP
+
+NP
+PP
+
+DT
+
+IN
+
+[0,1]
+
+NN :[1,2]
+
+¡¬
+
+0
+
+DT ¡«]
+µ NP
+
+1
+DT
+
+NP
+
+¡«:[0,0]
+
+NP
+
+DT:[0,1]
+
+¡«
+
+PP
+
+¡Æ
+
+DT
+
+[0,0]
+
+[0,1]
+
+[0,0]
+
+NN
+
+[1,2]
+
+×
+
+(a)
+
+2
+NN
+
+(b)
+
+Passive Edges
+Active Edges
+Traversals
+
+(c)
+
+Figure 3: Various representations of a parse: (a) a binary tree of chart edges, (b) a path in an induced hypergraph, and (c) a collection of edges and traversals entered into a standard chart.
+the control strategies of Earley’s (1970) parser and Graham et al.’s (1980) parser. Stolcke provides a correct
+and efﬁcient solution for parsing arbitrary PCFGs, avoiding the problem of left-recursive predictions and unary
+rule completions through the use of precomputed matrices giving values for the closure of these operations.
+However, the add-ons for grammars with such rules make the resulting parser rather complex, and again we
+have a method only for a single parsing regimen, rather than a general tabular parsing framework.
+In the current hypergraphical context, we can interpret these effects as follows. A CP is performing a singlesource reachability search. Any path from the source is as good as any other for reachability, and the various
+processing orders all eventually explore the entire region of the graph which is accessible given the rule introduction strategy (and goal). However, once scores are introduced, one cannot simply explore traversals in an
+arbitrary order, just as how, in relaxation-based shortest path algorithms, one cannot relax arcs in an arbitrary
+order. CKY parsers ensure a correct exploration order by exploring an entire tier of the graph before moving
+on to the next. For CNF grammars, all parses of the same string have the same number of productions in them,
+and so this tiering strategy works. However, in general, we will have to follow the insight behind Dijkstra’s
+algorithm: always explore the current best candidate, leaving the others on a queue until later.
+3.1 The Algorithm
+Our algorithm has many of the same data structures of a standard CP. The fundamental data structure is the
+chart, which is composed of numbered vertices placed between words, edges, and traversals (see ﬁgure 3(c)).
+Unlike in the general presentation above, there are two kinds of edges, active and passive. Passive edges are
+identiﬁed by a span and a category, such as NP :[2,5], and represent that there is some parse of that category
+over the span. Active edges are identiﬁed by a span and a grammar state, such as VP V. NP PP :[1,2], and
+indicate that that grammar state is reachable over that span. In the case where grammar rules are encoded
+as lists, this state is simply an Earley-style dotted rule, and to reach it one must have been able to parse the
+sequence of categories to the left of the dot. However, grammar rules can be compacted in various ways,
+and so the label of the active edges for this parser is in general a deterministic ﬁnite state automaton (DFSA)
+state. List rules denote particularly simple, linear DFSAs, whereas trie DFSAs are equivalent to left-factoring
+the grammar. The “fundamental rule” states that new edges are produced by combining active edges with
+compatible passive edges, advancing the active edge. For example, the two edges described above can combine
+to form the active edge VP V NP. PP :[1,5]. This information is recorded in a traversal, which, due to the
+active/passive binarization, is simply an (active edge, passive edge, result edge) triple.9 As each edge can
+potentially be formed by many different traversals, this distinction between an edge and a traversal of an edge
+is crucial to parsing efﬁciently (but often lost in pedagogical presentations: e.g., Gazdar and Mellish (1989)).
+9 The
+
+result edge is primarily to simplify proofs and pseudocode; it need not ever be stored in a traversal’s coded representation.
+
+is discovered
+
+no traversal of explored
+× ÓÖ ´ µ does not change
+
+× ÓÖ
+
+´ µ
+
+¼
+
+is ﬁnished
+
+some traversal explored
+× ÓÖ ´ µ only goes up
+
+× ÓÖ
+
+´ µ
+
+´ µ
+
+an optimal traversal explored
+× ÓÖ ´ µ can never change
+
+× ÓÖ
+
+´ µ
+
+´ µ
+
+Figure 4: The life cycle of an edge
+
+Finished edges generate
+traversals which are inserted
+into the exploration agenda.
+
+Finishing
+Agenda
+of
+Edges
+
+Finished edges
+generate new active
+edges according to
+the parsing strategy..
+
+Exploration
+Agenda
+of
+Traversals
+
+Explored traversals cause edges to
+be discovered and possibly improve
+their score estimates, advancing them
+in the ﬁnishing agenda.
+
+Figure 5: The core loop of the parser
+The core cycle of a CP is to process traversals into edges and to combine new edges with existing edges to
+create new traversals. Edges which are not formed from other edges via traversals (for example, the terminal
+edges in ﬁgure 3(a)) are introduction edges. Passive introduction edges are words from the lattice and are often
+all introduced during initialization. Active introduction edges are the initial states of rules and are introduced in
+accordance with the grammar strategy (top-down, bottom-up, etc.). To hold the traversals or edges which have
+not yet been processed, a CP has a data structure called an agenda, which holds both traversals and introduction
+edges. Items from this agenda can be processed in any order whatsoever, even arbitrarily or randomly, without
+affecting the ﬁnal chart contents.
+In our probabilistic chart parser (PCP), the central data structures are augmented with scores. Grammar
+rules, which were previously encoded as symbolic DFSAs are scored DFSAs, as in Mohri (1997), with a score
+for entering the initial state, a score on each transition, and, for each accepting state, a score for accepting in
+(or × ÓÖ
+Ø at a time Ø), is the best
+that state. Each edge is also scored at all times. This value, × ÓÖ
+. In our algorithm, the estimate will always be conservative:
+estimate to date of that edge’s true best score,
+× ÓÖ
+will always be worse than or equal to
+.
+The full algorithm is shown in pseudocode in ﬁgure 6. It is broadly similar to a standard categorical chart
+parsing algorithm. However, in order to solve the problem of entering edges into the chart before their correct
+score is known, we have a more articulated edge life cycle (shown in ﬁgure 4).10 We crucially distinguish
+edge discovery from edge ﬁnishing. A non-introduction edge is discovered the ﬁrst time we explore a traversal
+which forms that edge (in exploreTraversal). An introduction edge is discovered at a time which depends on our
+parsing strategy (during initialize or another edge’s ﬁnishEdge). Discovery is the point when we know that the
+edge can be parsed. An edge is ﬁnished when it is inserted into the chart and acted upon (in ﬁnishEdge). The
+primary signiﬁcance of an edge’s ﬁnishing time is that, as we will show, our algorithm maintains the Dijkstra’s
+=
+.
+algorithm property that when an edge is ﬁnished, it is correctly scored, i.e., × ÓÖ
+A CP stores all outstanding computation tasks in a single agenda, whether the tasks are unexplored traversals
+or uninserted introduction edges. We have two agendas and stronger typing. To store edges which have been
+discovered but not yet ﬁnished, we have a ﬁnishing agenda. To store traversals which have been generated but
+not explored, we have an exploration agenda.
+The algorithm works as follows. During initialization, all passive introduction edges (one per word in the
+lattice) are discovered, along with any initial active edges (for example, all S .«:[0,0] edges if we are using
+a top-down strategy and S:[0,Ò] is the goal edge).11 Passive introduction edges get their initial scores from the
+lattice, while active introduction edges get their initial scores from the grammar (often all are simply given the
+
+´µ
+
+´µ
+´µ
+
+´µ
+
+´ µ
+
+´µ
+
+10 Note
+
+´µ
+
+that the comments in the ﬁgure apply only to non-introduction edges, but the timeline applies to all edges.
+word introduction strategies are possible, such as scanning the words incrementally in an outer loop from left-to-right whenever
+the ﬁnishing agenda is empty. A sufﬁcient constraint on scanning strategies is presented in section 4.
+11 Other
+
+parse(Lattice sentence, Edge goal)
+initialize(sentence, goal)
+while ﬁnishingAgenda is non-empty
+while explorationAgenda is non-empty
+get a traversal Ø from the explorationAgenda
+exploreTraversal(Ø)
+get a best edge from the ﬁnishingAgenda
+ﬁnishEdge( )
+initialize(Lattice sentence, Edge goal)
+create a new chart and new agendas
+for each word w:[start,end] in the sentence
+discoverEdge(w:[start,end])
+for each vertex Ü in the sentence
+if allow-empties
+discoverEdge(empty:[Ü,Ü])
+doRuleInitialization(goal)
+exploreTraversal(Traversal Ø)
+= Ø.result
+if notYetDiscovered( )
+discoverEdge( )
+relaxEdge( , Ø)
+
+relaxEdge(Edge , Traversal Ø)
+newScore = combineScores(Ø)
+if (newScore is better than .score)
+.score = Ø.score
+.bestTraversal = Ø
+discoverEdge(Edge )
+add to the ﬁnishingAgenda
+
+ﬁnishEdge(Edge )
+add to the chart
+doFundamentalRule( )
+doRuleIntroduction( )
+doFundamentalRule(Edge )
+if is passive
+for all active edges which end at .start
+for active and/or passive result edges Ö
+create the traversal Ø = ( , , Ö)
+add Ø to the explorationAgenda
+if is active
+for all passive edges Ô which start at .end
+for active and/or passive result edges Ö
+create the traversal Ø = ( , Ô, Ö)
+add Ø to the explorationAgenda
+doRuleIntroduction(Edge )
+if top-down and is active
+for all categories that can follow .label
+for all intro active edges at .end with LHS
+if notDiscovered( ) then discoverEdge( )
+if bottom-up and is passive
+for all categories with a RHS beginning with .label
+= :[ .start, .start]
+if notDiscovered( ) then discoverEdge( )
+doRuleInitialization(Edge goal)
+if top-down
+for all intro active edges at goal.start with LHS goal.label
+discoverEdge( )
+
+Figure 6: Pseudocode for our probabilistic chart parser
+maximum score). Introduction edges are correctly scored at discovery and their scores never change afterwards.
+The core loop of the algorithm is shown in ﬁgure 5. If there are any traversals to explore, a traversal Ø is
+removed from the exploration agenda and processed with exploreTraversal. Any removal order is allowed. In
+exploreTraversal, Ø’s result edge is calculated. If is an undiscovered edge, then it becomes discovered (and
+given the minimum score). In any case, ’s score is checked against Ø (relaxEdge). If Ø forms with a better
+score than previously known for , ’s score (and best traversal) is updated.
+If the exploration agenda is empty, the ﬁnishing agenda is checked. If it is non-empty, the edge with the
+best current score estimate is ﬁnished – removed and processed with ﬁnishEdge. This is the point at which the
+fundamental rule is applied (doFundamentalRule) and new active edges are introduced (in accordance with the
+active edge introduction strategy).12
+
+4 Analysis
+We outline the completeness of the algorithm: that it will discover and ﬁnish all edges and traversals which the
+grammar, goal, and words present allow. Then we argue correctness: that every edge which is ﬁnished is, at
+its ﬁnishing time, assigned the correct score. Finally, we give tight worst-case bounds on the time and memory
+usage of the algorithm.
+12 In the application of the fundamental rule, an (active, passive) pair can potentially create two traversals. In categorical DFSA chart
+parsing, edges may be active, passive, or both. However, the passive and active versions of what would have been a single active/passive
+edge in a categorical parser will not in general have the same score, because the passive one is assessed an acceptance cost, and so the
+algorithm introduces separate edges.
+
+4.1 Completeness
+For space reasons, we simply sketch a proof of the reduction of the completeness of our PCP to the known
+completeness of a CP. We state this reduction rather than prove completeness directly in order to stress the
+parallelism between the two parser types. To argue completeness for a variety of word and rule introduction
+strategies, it is important to have a concrete notion of what such strategies are. Constraints on the word introduction strategy are only needed for correctness, and so we defer discussion until then. Let be the set of
+edges, È the set of passive introduction edges (i.e., word edges), and the set of active introduction edges
+(i.e., rule introductions).
+
+¾
+
+which takes an edge
+Deﬁnition 5 An edge-driven rule introduction strategy is a mapping Ê
+of active introduction edges which are to be immediately discovered when is ﬁnished.
+set
+
+to a
+
+The standard top-down and bottom-up strategies are both edge-driven.13
+Theorem 2 For any edge-driven active edge introduction strategy Ê, any DFSA grammar , and any input
+lattice Ä, and goal edge , there exists some agenda selection function Ë for which the sequence of edge
+insertions Á made by a categorical chart parser and the sequence of edge ﬁnishings made by our probabilistic
+chart parser are the same.
+The proof is by simulation. We run the two parsers in parallel, showing by induction over corresponding
+and that every edge in the PCP’s ﬁnishing agenda is backed by some edge
+points in their execution that Á
+or traversal from the CP’s agenda. The selection function is chosen to make the CP process agenda items which
+will cause the insertion of whichever edge the PCP will next select from its ﬁnishing agenda.
+The completeness reduction means that the edges found (i.e., ﬁnished) by both parsers will be the same.
+From the known completeness of a CP under weaker conditions (Kay 1980), this means that the PCP will ﬁnd
+every edge which has a parse allowed by the grammar, words, and goal, not that it will score them correctly.
+4.2 Correctness
+We now show that any edge which is ﬁnished is correctly scored when it is ﬁnished.
+First, we need some terminology about traversal trees. A traversal tree Ì is a binary tree of edge tokens, as in
+ﬁgure 3(a). A leaf in this tree is a token of an introduction edge, either a word (if passive) or a rule introduction
+(if active). A non-leaf Ü is a token of a non-introduction edge and has two children, and Ô, which are tokens of
+Ô Ü . The reason we must make
+an active edge and a passive edge, respectively, forming a traversal token
+a type/token distinction is that a given edge or traversal may appear more than once in a traversal tree. For
+example, consider empty words which may be used several times over the same zero-span, or an introduction
+active edge for a left-recursive rule. We use ØÝÔ Ü to denote the type of an edge token Ü.
+The basic idea is to avoid ﬁnishing incorrectly scored edges by always ﬁnishing the highest-scored edge
+available. This will cause us to work in an inside-outwards fashion when necessary to ensure that score propagation is never needed. The chief difﬁculties therefore occur when what should have been a high-scoring edge
+is unavailable for some reason. A subtle way this can occur is if an introduction edge is discovered too late.
+If this happens, we may have already mistakenly ﬁnished some other edge, assigning it the best score that it
+could have had without that introduction edge’s presence in the grammar or input. Therefore, we need tighter
+constraints on word and rule introduction strategies to prove correctness than those needed for completeness.
+The condition on word introduction is simple.
+
+´
+
+µ
+
+´µ
+
+Deﬁnition 6 The Word Introduction Condition (or “no internal insertion”): Whenever an edge with span Ë
+is ﬁnished at time , all words (passive introduction edges) contained in Ë must have been discovered at .
+13 An example of a non-edge-driven strategy would be if we introduced an arbitrary undiscovered edge from A into an arbitrary zero-span
+whenever the ﬁnishing agenda was empty. It appears very difﬁcult to state a criterion for non-edge-driven strategies which guarantees both
+their completeness and correctness.
+
+This is satisﬁed by any reasonable lattice scanning algorithm and any sentence scanning algorithm whatsoever. The only disallowed strategy is to insert words from a lattice into a span which has already had some
+covering set of words discovered and parsed. It should be fairly clear that this kind of internal-insertion strategy
+will lead to problems.
+Now we supply some theoretical machinery for a condition on rule introductions.
+Deﬁnition 7 A (possibly partial) ordering Ì of nodes (edge tokens) in a traversal tree
+whenever a node Ü dominates a set of children , for any ¾ ,
+Ì Ü.
+
+Ì
+
+allows descent if
+
+Deﬁnition 8 The Rule Introduction Condition (or “no rule blocking”): In any parse Ì of an edge , there is
+some ordering Ì of nodes which allows descent and such that for any active introduction edge ¾ Ì , EITHER
+(1) there is some edge Ü with a token Ü¼ in Ì which does not dominate any token ¼ of and whose ﬁnishing
+will cause the introduction of (i.e., ¾ Ê Ü ) and Ü¼ Ì ¼ , OR
+(2) any parse of will contain either or an edge whose discovery would be simultanous with that of .
+
+´µ
+
+This is wordy, but the key idea is that active introduction edges must “depend” on some other edge in the
+parse in such a way that if an active introduction edge is undiscovered, we can track back to ﬁnd another edge
+earlier in the parse which must also be undiscovered.
+The last constraint we need is one on the scores of the DFSA rules. If a preﬁx of a rule is bad, its continuations
+must be as bad or worse. Otherwise, we may incorrectly delay extending a low scoring preﬁx.
+Deﬁnition 9 The Grammar Scoring Condition (or “no score gain”): The grammar DFSAs are scored by
+assigning an element of a Ë -ordered c-semiring to each initial state, transition, and accepting state. The
+score of a trajectory (sequence of DFSA states) is the semiring product of the scores of the initial state and the
+transitions, along with the accepting cost (for complete trajectories).
+If this is met, then the score of a traversal tree is then simply a product of scores for each introduction edge
+token and traversal token. Therefore, the score of an entire traversal tree is no better than the score of any
+subtree, and monotonically increasing under substitution of a better scored subtree.
+A subtle concrete implication of this condition is that, for example, if grammar productions are going to
+be compressed into a DFSA which transduces rule RHSs to sums of log-probabilities, not only must the logprobabilities of the full productions all be non-positive, but so must each starting cost, transition, and accepting
+cost.14 Otherwise, the scoring of the underlying Ò-ary grammar trees might have the property that adding
+structure reduces the score, but the scoring of the traversal trees will not.
+Now we are ready to state the completeness theorem.
+Theorem 3 Given any DFSA grammar , lattice Ä, and introduction strategies obeying the conditions above,
+.
+any edge which is ﬁnished by the algorithm at some time has the property that × ÓÖ
+
+´
+
+µ
+
+´µ
+
+The proof is by contradiction. Take the ﬁrst edge which is selected from the ﬁnishing agenda and ﬁnished
+.
+with an incorrect score estimate, so at ’s ﬁnishing time , × ÓÖ
+, contrary to our earlier claim that scoring was always conservative (see ﬁgPerhaps × ÓÖ
+ure 4). For to ever be scored incorrectly, must be a non-introduction edge. Its current incorrect score was
+or
+then either set at discovery (when it was initialized to the minimum score, which is not greater than
+Ô . But such a traversal cannot be created until
+anything else, a contradiction) or by relaxing a traversal
+both and Ô are already ﬁnished. By choice of , and Ô were correctly scored at their ﬁnishing. Consider
+the traversal tree Ì formed by taking best parses of and Ô, and joining them under a root token of . After
+Ì .15 But, since Ì is a parse of , Ì
+. Since that relaxation gave
+relaxation, we had × ÓÖ
+the score it still has at , we have × ÓÖ
+, again a contradiction.
+. Since has a parse (by completeness), it has at least one best parse. Choose
+Therefore, × ÓÖ
+. We claim that there is some edge Ü in which,
+one and call it . By virtue of being a best parse,
+at , has been discovered, is correctly scored, yet has not been ﬁnished. Assume such an Ü exists. Since Ü is
+
+´
+
+µ
+
+´
+
+´µ
+
+´
+
+´µ
+
+´
+
+14 The
+15 We
+
+µ
+
+´ µ
+
+´µ
+
+´
+
+µ
+
+´µ
+
+´µ
+
+µ
+
+´ µ
+
+´µ
+
+´ µ
+
+µ
+
+´µ
+
+´µ
+
+ ½ ¼
+
+condition implies this because positive elements are not in the relevant semiring:
+deﬁne the score function for a traversal tree Ì to be the score of that speciﬁc parse.
+
+Ñ Ü ·
+
+ ½ ¼ .
+
+discovered but not ﬁnished at , it was in the ﬁnishing agenda with its current score just before was chosen to
+× ÓÖ
+.
+be ﬁnished. But was chosen from the ﬁnishing agenda, not Ü, so it must be that × ÓÖ Ü
+On the other hand, since Ü is contained in , some best parse of È of Ü is a subtree of . But then by
+È
+Ü . Thus, if we ﬁnd such an edge Ü, then
+“no score gain” it must be that
+Ü × ÓÖ Ü
+× ÓÖ
+, a contradiction.
+The rest of the proof involves showing the existence of such an Ü. Consider the nodes in . Since is
+unﬁnished, there is a non-empty set of unﬁnished nodes, call it Í . We want some Ù ¾ Í which both has no
+unﬁnished children and which is minimal by Ì . Clearly some elements are minimal since Í is non-empty
+and ﬁnite. Call the set of minimal elements Å . For any Ù ¾ Å which has an unﬁnished child, that child must
+also be minimal since Ì allows descent. Therefore, removing all elements from Å which have an unﬁnished
+child leaves a non-empty set. Choose any Ù from this set.
+If Ù dominates two ﬁnished children (call them and Ô), then since is the ﬁrst incorrectly ﬁnished edge,
+ØÝÔ
+and ØÝÔ Ô had their correct scores at their ﬁnishing times. Whenever the later of ØÝÔ
+and ØÝÔ Ô
+was ﬁnished, the traversal Ø
+ØÝÔ
+ØÝÔ Ô ØÝÔ Ù was generated. And before anything else could have
+been ﬁnished, Ø was explored. Thus, ØÝÔ Ù has been discovered and has been relaxed by Ø, say at time ÖØ .
+Therefore, at ÖØ , and therefore still at , × ÓÖ ØÝÔ Ù can be no worse than its score in , which of course
+means its score has been correct since ÖØ , so ØÝÔ Ù is correctly scored at . But recall that ØÝÔ Ù is
+unﬁnished, so we are done.
+If Ù dominates no ﬁnished nodes, then it is a leaf. If ØÝÔ Ù is a passive introduction edge, then by “no internal insertion” ØÝÔ Ù has been discovered. Since passive introduction edges are correctly scored at discovery,
+we are done. If ØÝÔ Ù is an active introduction edge, then we need only show that it has been discovered,
+since these are also correctly scored on discovery. To be sure it has been discovered, we must appeal to “no
+rule blocking.” It is possible that any parse of contains an edge whose discovery would be simultaneous with
+that of ØÝÔ Ù . If so, since there is some ﬁnished parse of , ØÝÔ Ù must be discovered, and we are done.
+If not, then let Ü be an edge from (2) whose ﬁnishing would guarantee ØÝÔ Ù ’s discovery. If Ü is unﬁnished,
+then some instance of Ü is Ì Ù and unﬁnished, contradicting Ù’s minimality. Thus we are done.
+We have now proven the correctness of the algorithm for strategies meeting the given criteria. The traditional
+bottom-up, top-down, and left-corner strategies satisfy the Rule Introduction Condition. We prove this for only
+the top-down strategy here; the other proofs are similar.
+
+´
+
+´µ
+
+´µ
+
+´µ
+
+´
+
+´µ
+
+µ
+
+´µ
+
+´
+
+´
+
+´µ
+
+´ µ ´ µ
+µ ´µ
+
+´µ
+´µ
+´
+
+µ
+
+´
+
+µ
+
+´µ
+
+´µ
+
+´ µµ
+
+´ µµ
+´µ
+
+´µ
+
+´µ
+
+´µ
+
+´µ
+´µ
+
+´µ
+
+´µ
+
+´µ
+
+Theorem 4 The top-down rule introduction strategy satisﬁes the Rule Introduction Condition.
+Order the nodes in Ì by the order in which they would be built in a top-down stack parse of Ì . Since
+no node is completed before its children in such a parse, this allows descent. In a top-down parse, for every
+active introduction token ¼ except for leftmost node in the tree, there is another (active) node Ü¼ which is a
+left sibling of a node dominating ¼ and for which ØÝÔ Ü¼ ’s ﬁnishing will introduce ØÝÔ ¼ . For any active
+introduction edge , let ¼ be its leftmost token in Ì . Because it is leftmost, its Ü¼ will not dominate any token
+of . Therefore, (1) holds unless ¼ is the leftmost node. Assume it is leftmost. Since Ì is a parse of some
+edge either of category or with a label with LHS , has a label with LHS . Thus, if any parse Ë of
+whatsoever is found, its leftmost leaf is a token of some active introduction edge with a label with LHS .
+But then, whenever was discovered, so was , since the top-down introduction strategy always simultaneously
+introduces the initial states of all rules with the same LHS.
+
+´ µ
+
+´ µ
+
+4.3 Asymptotic Bounds and Performance
+We brieﬂy motivate and state the complexity bounds. Let Ò be the number of nodes in the input lattice,
+the number of categories in the grammar, and Ë the number of states in the grammar.
+Ë since each
+¾
+ËÒ
+Ç ËÒ¾ ,
+category’s encoding contains at least one state. The maximum number of edges is Ç
+¿
+and the maximum number of traversals Ì is Ç Ë Ò . Time is dominated by the work per traversal, which
+(with a Fibonacci heap-backed priority queue), so the total time is Ç Ì
+can be made amortized Ç
+
+´½µ
+
+´
+
+µ
+
+´´ · µ µ
+
+´
+
+´ µ
+
+µ
+
+Ç´Ë Ò¿ µ. For memory, there are several Ç´
+
+µ
+
+data structures holding edges. The concern is the exploration
+agenda which holds traversals. But everything on this agenda at any one time resulted from a single call to
+. Therefore, the total memory is Ç
+Ç ËÒ¾ . This is not
+doFundamentalRule, and so its size is also Ç
+necessarily true for a standard CP, which can require Ç Ì space for its agenda.
+We have implemented the parser in Java, and tested it with various rule encodings on parsing of Penn Treebank Wall Street Journal sentences. With efﬁcient rule encodings, sentences of up to 100 words can be parsed
+in 1 Gb of memory. Graphs of runtime performance can be found in (Klein and Manning 2001b).
+
+´ µ
+
+´ µ
+
+´ µ
+
+´
+
+µ
+
+5 Conclusion
+We have pointed out a deep connection between parsing and hypergraphs. Using that connection, we presented
+an agenda-based probabilistic chart parser which naturally handles arbitrary PCFG grammars and works with a
+variety of word and rule introduction strategies, while maintaining the same cubic time bounds as a categorical
+chart parser.
+
+References
+Baker, J. K. 1979. Trainable grammars for speech recognition. In D. H. Klatt and J. J. Wolf (Eds.), Speech Communication
+Papers for the 97th Meeting of the Acoustical Society of America, 547–550.
+Bistarelli, S., U. Montanari, and F. Rossi. 1997. Semiring-based constraint satisfaction and optimization. Journal of the
+ACM 44(2):201–236.
+Caraballo, S. A., and E. Charniak. 1998. New ﬁgures of merit for best-ﬁrst probabilistic chart parsing. Computational
+Linguistics 24:275–298.
+Chappelier, J.-C., and M. Rajman. 1998. A generalized CYK algorithm for parsing stochastic CFG. In First Workshop on
+Tabulation in Parsing and Deduction (TAPD98), 133–137, Paris.
+Earley, J. 1970. An efﬁcient context-free parsing algorithm. Communications of the ACM 6:451–455.
+Gallo, G., G. Longo, S. Pallottino, and S. Nguyen. 1993. Directed hypergraphs and applications. Discrete Applied
+Mathematics 42:177–201.
+Gazdar, G., and C. Mellish. 1989. Natural Language Processing in Prolog. Addison-Wesley.
+Goodman, J. 1998. Parsing inside-out. PhD thesis, Harvard University.
+Graham, S. L., M. A. Harrison, and W. L. Ruzzo. 1980. An improved context-free recognizer. ACM Transactions on
+Programming Languages and Systems 2(3):415–462.
+Jelinek, F., J. D. Lafferty, and R. L. Mercer. 1992. Basic methods of probabilistic context free grammars. In P. Laface
+and R. De Mori (Eds.), Speech Recognition and Understanding: Recent Advances, Trends, and Applications, Vol. 75 of
+Series F: Computer and Systems Sciences. Springer Verlag.
+Kasami, T. 1965. An efﬁcient recognition and syntax analysis algorithm for context-free languages. Technical Report
+AFCRL-65-758, Air Force Cambridge Research Laboratory, Bedford, MA.
+Kay, M. 1980. Algorithm schemata and data structures in syntactic processing. Technical Report CSL-80-12, Xerox PARC,
+Palo Alto, CA, October.
+Klein, D., and C. D. Manning. 2001a. An Ç´Ò¿ µ agenda-based chart parser for arbitrary probabilistic context-free grammars. Technical Report dbpubs/2001-16, Stanford University.
+Klein, D., and C. D. Manning. 2001b. Parsing with treebank grammars: Empirical bounds, theoretical models, and the
+structure of the Penn treebank. In ACL 39.
+Knuth, D. E. 1977. A generalization of Dijkstra’s algorithm. Information Processing Letters 6(1):1–5.
+Kupiec, J. 1991. A trellis-based algorithm for estimating the parameters of a hidden stochastic context-free grammar. In
+Proceedings of the Speech and Natural Language Workshop, 241–246. DARPA.
+Mohri, M. 1997. Finite-state transducers in language and speech processing. Computational Linguistics 23(4).
+Pereira, F., and S. M. Shieber. 1987. Prolog and Natural-Language Analysis. Vol. 10. Stanford, CA: CSLI Publications.
+Pereira, F. C., and D. H. Warren. 1983. Parsing as deduction. In ACL 21, 137–144.
+Shieber, S., Y. Schabes, and F. Pereira. 1995. Principles and implementation of deductive parsing. Journal of Logic
+Programming 24:3–36.
+Sikkel, K., and A. Nijholt. 1997. Parsing of Context-Free languages. In G. Rozenberg and A. Salomaa (Eds.), Handbook
+of Formal Languages, Vol. 2: Linear Modelling: Background and Application, chapter 2, 61–100. Berlin: Springer.
+Stolcke, A. 1995. An efﬁcient probabilistic context-free parsing algorithm that computes preﬁx probabilities. Computational Linguistics 21:165–202.
+Younger, D. H. 1967. Recognition and parsing of context free languages in time Ò¿ . Information and Control 10:189–208.
+
+

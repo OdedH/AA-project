@@ -1,0 +1,786 @@
+Learning Random Walk Models for
+Inducing Word Dependency Distributions
+
+Kristina Toutanova
+Christopher D. Manning
+Andrew Y. Ng
+Computer Science Department, Stanford University, Stanford, CA 94305, USA
+
+Abstract
+Many NLP tasks rely on accurately estimating word dependency probabilities P(w1 |w2 ),
+where the words w1 and w2 have a particular relationship (such as verb-object). Because of the sparseness of counts of such dependencies, smoothing and the ability to use
+multiple sources of knowledge are important
+challenges. For example, if the probability
+P(N |V ) of noun N being the subject of verb
+V is high, and V takes similar objects to V ,
+and V is synonymous to V , then we want
+to conclude that P(N |V ) should also be reasonably high—even when those words did not
+cooccur in the training data.
+To capture these higher order relationships,
+we propose a Markov chain model, whose
+stationary distribution is used to give word
+probability estimates. Unlike the manually
+deﬁned random walks used in some link analysis algorithms, we show how to automatically learn a rich set of parameters for the
+Markov chain’s transition probabilities. We
+apply this model to the task of prepositional
+phrase attachment, obtaining an accuracy of
+87.56%.
+
+1. Introduction
+Word dependency or co-occurrence probabilities are
+needed in many natural language tasks. This includes
+lexicalized parsing, building language models, word
+sense disambiguation, and information retrieval. However, it is diﬃcult to estimate these probabilities because of the extreme sparseness of data for individual words, and even more so for word pairs, triples,
+and so on. For instance, Bikel (2003) shows that the
+parser of Collins (1999) is able to use bi-lexical word
+Appearing in Proceedings of the 21 st International Conference on Machine Learning, Banﬀ, Canada, 2004. Copyright
+2004 by the ﬁrst author.
+
+kristina@cs.stanford.edu
+manning@cs.stanford.edu
+ang@cs.stanford.edu
+
+dependency probabilities1 to guide parsing decisions
+only 1.5% of the time; the rest of the time, it backs
+oﬀ to condition one word on just phrasal and part-ofspeech categories. If a system could be built with reasonably accurate knowledge about dependency probabilities between all words, one would expect the performance gains on many tasks to be substantial.
+Sophisticated back-oﬀ and interpolation methods have
+been developed for language modeling (Goodman,
+2001). Dagan et al. (1999) showed that performance
+on zero-count events can be greatly improved if the
+model includes estimates based on distributional similarity. Other kinds of similarity among words have
+also been used to reduce sparseness. For instance,
+stemming words is a very traditional way of somewhat
+lessening sparseness, and resources like WordNet have
+been used in many natural language models.
+All of these ways of using associations and similarities between words to predict the likelihood of unseen events have their advantages. Symbolic knowledge bases, such as WordNet, have the advantage of
+being based on abundant world knowledge and human intuition, but have the disadvantages of having
+incomplete coverage and being non-probabilistic. Using stemming or lemmatized words has been helpful
+for reducing sparseness in some problems, and slightly
+harmful in others (Hull, 1996).
+Here, we propose a method for combining these information sources that induces a distribution over
+words by learning a Markov chain (random walk)
+model, where the states correspond to words, such
+that its stationary distribution is a good model for
+a speciﬁc word-distribution modeling task. The idea
+of constructing Markov chains whose stationary distributions are informative has been seen in several
+other applications, such as the Google PageRank algorithm (Brin & Page, 1998), some HITS (Kleinberg,
+1998)-like link analysis algorithms (Ng et al., 2001),
+1
+
+Bi-lexical probabilities include two words, one in the
+conditioning context and one in the future, in addition to
+possibly other variables, for example, P (salad|eat, V, V P ).
+
+and for query expansion in IR (Laﬀerty & Zhai, 2001).
+Our work is distinguished from these approaches in
+that rather than using a carefully hand-picked Markov
+chain, we will automatically learn the parameters for
+the random walk. This allows us to construct Markov
+chains with many more parameters, that are much
+richer in structure and of signiﬁcantly greater complexity than seen in other applications. In doing so,
+we can also allow our model to learn to exploit diverse knowledge sources such as WordNet, morphology, and various features of words derived from dependency relations; all of these simply become additional
+“features” made available to the random walk learning
+algorithm. The proposed techniques are general and
+can be applied to other problem domains, such as the
+web, citation, and clickstream data.
+In this paper, we choose deciding the attachment site
+of Prepositional Phrases (PPs) as a touchstone problem, and show how random walk methods can be applied to this problem. PP attachment decisions are a
+central component problem in parsing and one of the
+major sources of ambiguity in practice. For example,
+in the sentence: He broke the window with a hammer,
+the prepositional phrase with a hammer could either
+modify the verb broke, and thus mean that the hammer was the instrument of the breaking event, or it
+could modify the noun window and thus mean that
+the window perhaps had a stained glass rendition of a
+hammer in it. People immediately recognize the more
+plausible meaning using their world knowledge, but
+this knowledge is not readily available to parsers. Previous research has shown that by using statistics of
+lexical co-occurrences, much higher accuracy can be
+achieved in comparison to approaches that only look
+at structure (such as preferring attachment to a verb
+or the closer word, etc.) (Hindle & Rooth, 1993).
+
+2. Preliminaries
+We brieﬂy review Markov chains (MC). For a more
+detailed treatment, see, e.g., (Br´maud, 1999).
+e
+A MC over a set of states S is speciﬁed by an initial
+distribution p0 (S) over S, and a set of state transition probabilities p(St |St−1 ). A Markov chain deﬁnes a distribution over sequences of states, via a generative process in which the initial state S0 is ﬁrst
+sampled from according to p0 , and then states St (for
+t = 1, 2, . . .) are sampled in order according to the
+transition probabilities. The stationary distribution
+of a MC is given by π(s) = limt→∞ P (St = s), if the
+limit exists.
+The MCs used in (Brin & Page, 1998; Ng et al., 2001)
+have the property that on each step, there is a probability γ > 0 of resetting according to the initial state
+distribution p0 . Thus, the state transition probabili-
+
+ties can be written
+p(St |St−1 ) = γp0 (St ) + (1 − γ)p (St |St−1 )
+
+(1)
+
+for some appropriate p . This ensures that the MC has
+a unique stationary distribution (Br´maud, 1999), and
+e
+in practice also prevents the chain from getting stuck
+in small loops (Brin & Page, 1998).
+Given a MC as described above, we can construct
+another MC S0 , S1 , . . . with the initial state S0 distributed according to p0 , and state transitions given
+by the p in Equation (1). It is straightforward to
+show that
+∞
+
+π(s) = γ
+
+t=0
+
+(1 − γ)t P (St = s)
+
+(2)
+
+where π here is the stationary distribution of the original MC S0 , S1 , . . .. Equation 2 can be used to eﬃciently compute π. Also, because terms corresponding
+to large t have very little weight (1 − γ)t , when computing π, this sequence may be truncated after the
+ﬁrst few (on the order 1/γ) terms without incurring
+signiﬁcant error.
+Equation (2) gives a useful alternative view of π. Consider a random process in which the state S0 is initialized according to p0 . On each time step t, with
+probability γ we “stop” the chain and output the current state St ; and with probability 1 − γ, we till take
+a state transition step and sample St+1 according to
+the transition probabilities p (St+1 |St ). This process
+is continued until the chain is stopped and a state is
+output. Because the number of steps T taken in the
+chain until it is stopped is distributed according to a
+geometric distribution with parameter (1 − γ), we can
+see using Equation (2) that the random state output
+by this process will also be distributed according to π.
+For the application considered in this paper, it will
+be useful to consider a generalization of this random
+process. Speciﬁcally, we will construct an MC where,
+once we have decided to stop the MC (which happens
+with probability γ on each step), we will allow the
+state to transition one ﬁnal time according to a new set
+of transition probabilities p (St+1 |St ) (diﬀerent from
+the transition probabilities used in the earlier steps
+of the walk), and ﬁnally output St+1 . Note that if
+p (St+1 |St ) = 1 iﬀ St+1 = St , this reduces to the simpler type of random walk described earlier. In Section
+3 we will see how permitting an extra state-transition
+step at the end allows us to build signiﬁcantly more
+expressive models.
+
+3. Random walks for PP attachment
+3.1. The PP attachment model
+Following most of the literature on Prepositional
+Phrase (PP) attachment (e.g., Collins & Brooks, 1995;
+
+Table 1. The sparsity of the data: the percent of times
+tuples in the test set had appeared in the training set.
+Factor
+Verbal P (p, va)
+P (v|p, va)
+P (n1 |p, va, v)
+P (n2 |p, v, va)
+
+% Non-Zero
+99.8
+64.8
+15.7
+13.8
+
+Stetina & Nagao, 1997; Harabagiu & Pasca, 1999;
+Pantel & Lin, 2000; Brill & Resnik, 1994), we focus on
+the most common conﬁguration that leads to ambiguities: V NP PP. Here, working bottom-up in parsing,
+the goal is to determine if the PP should be attached
+to the verb or to the object noun phrase. Previous
+work has shown the central (but not exclusive) role
+played by the head words of phrases in resolving such
+ambiguities, and we follow common practice in representing the problem using only the head words of
+these constituents and of the NP inside the PP. For
+example, given the tuple:
+(3) v:hang n1 :painting p:with n2 :nail
+we would like to determine if the prepositional phrase
+with nail should modify the verb hang, or the noun
+phrase headed by painting. Here, clearly, with (a) nail
+modiﬁes the verb hang.
+We start by building a generative model for the probability of the sequence of four head words and the attachment site P (V, N1 , P, N2 , Att), where V is a verb,
+P a preposition, and N1 and N2 are the two head
+nouns involved in the attachment problem. The variable Att has as value either va (for verbal attachment)
+or na (nominal/noun attachment). Using a model for
+this joint distribution, we can compute the conditional
+distribution P (Att|V, N1 , P, N2 ) and use that to predict the more likely attachment type.
+The model makes only two context-speciﬁc independence assumptions: that given a verbal attachment,
+the second noun is independent of the ﬁrst noun, and
+that given a nominal attachment, the second noun is
+independent of the verb. More speciﬁcally, the model
+decomposition is as follows:
+P (v, n1 , p, n2 , va) =
+P (p, va)P (v|p, va)P (n1 |p, va, v)P (n2 |p, v, va) (4)
+P (v, n1 , p, n2 , na) =
+P (p, na)P (v|p, na)P (n1 |p, na, v)P (n2 |p, n1 , na) (5)
+Each of the factors above, except for P (p, Att), are
+estimated using random walks.
+To illustrate the degree of data sparsity for this problem, Table 1 shows the percentage of test cases for
+which we had a non-zero relative frequency estimate
+from the training set for each of the factors needed for
+
+Equation 4. As can be seen, for the factors involving two words in addition to the preposition, more
+than 3/4 of the time we have not seen the tuple in the
+training set.
+3.2. Random walks
+We now describe our random walk model for the word
+dependency distributions needed for equations 4–5.
+We illustrate with the case of estimating P (n2 |p, v, va).
+Instantiating the example in (3), this is P (N2 =
+nail |P = with, V = hang, va), the probability that,
+given hang is modiﬁed by a PP whose head is with,
+nail is the head of the noun phrase governed by with.
+This is strictly a tri-lexical dependency, but because
+prepositions can often be regarded as just a marker of
+the semantic role of their object noun phrase, we can
+informally think of this as estimating the probability
+of a particular sort of semantic dependency; here it
+is the likelihood of n2 :nail bearing a with-type dependency to the word v:hang. Thus, given the preposition,
+we can view this as estimating a bi-lexical dependency
+between a verb v and a noun n2 .
+We will estimate this probability using a Markov chain.
+More precisely, we will construct a MC M (whose transition probabilities will depend on p, v, and the fact
+that Att = va) so that its stationary distribution π is
+a good approximation to P (n2 |p, v, va).
+We let the state space S of our random walk be
+W × {0, 1}, where W is the set of all words. Thus,
+a state is a pair consisting of a word and a single “bit”
+taking on a value of 0 or 1. As we will shortly see, the
+extra memory bit allows our walk to “remember” if the
+word in the current state is a head (0) or a dependent
+(1), and will permit us to build richer models.2 For
+P (n2 |p, v, va), v is a head, and n2 is a dependent (and
+the type of the dependency relationship is indicated
+by p). Below we will write (nail, 1) as d nail, both for
+brevity, and to remind us of the extra bit’s meaning.
+The initial distribution p0 of our Markov chain puts
+probability 1 on the state h v (i.e., we always start at
+the state for the head verb, with the bit-value 0).
+Let us ﬁrst walk through some cases using the “hang
+painting with nail” example, with the small random
+walk model shown in ﬁgure 1. For the sake of this
+example, it will be convenient to begin with the case
+of T = 1. We are trying to estimate
+p(N2 = nail |V = hang, P = with, Att = va).
+
+(6)
+
+If, in a training set of disambiguated PP-attachment
+examples, we have seen the event (V = hang, P =
+2
+
+Other examples of Markov chains that can be thought
+of as random walks with an extra memory bit include (Lafferty & Zhai, 2001; Ng et al., 2001).
+
+with, Att = va) before, then clearly one possible estimate for the probability in (6) might be given by
+its empirical distribution. Speciﬁcally, if nail was
+frequently seen in the context of the event (V =
+hang, P = with, Att = va), then we would like to assign a large probability to this event. One way to
+ensure that the random walk frequently visits nail
+in this setting is therefore to have the probability
+of transitioning from the initial state to some other
+state d w, representing a dependent word, be monotonically increasing in the empirical distribution of
+p(N2 = w|V = hang, P = with, Att = va).
+Now, suppose that, because of data sparseness problems, we have not seen “v:hang p:with n2 :nail” in our
+training set, but that we have seen “v:hang p:with
+n2 :nails” several times. Further, our stemmer indicates that nail and nails have the same root form. In
+this setting, we would still like to be able to assign
+a high probability to p(nail |hang, with, va). I.e., we
+want π to give d nail a large probability. Using the state
+transitions described above, we already have a large
+probability of visiting d nails. If our random walk now
+gives a large probability of transitioning from d nails to
+d
+nail, then we would be done. More broadly, we would
+like our random walk to be able to make a transition
+from (w1 , b1 ) to (w2 , b2 ), if w1 and w2 are words with
+the same root form, and b1 = b2 .
+Similarly, if we know that p(rivet|hang, with, va) has
+a large probability, and if some external knowledge source tells us that rivet and nail are semantically closely related, then we should infer that
+p(nail |hang , with, va) should also be fairly large. This
+can be done by using a thesaurus, or a resource like
+WordNet, a large collection of words classiﬁed into a
+set of senses (synsets), which are organized in a hierarchy, and permitting transitions between (w1 , b1 ) and
+(w2 , b2 ) if an external knowledge source tells us that
+w1 and w2 are related, and b1 = b2 .3
+More broadly, we have outlined above several diﬀerent
+“types” of inferences that can be made about what tuples v, p, n2 are likely. These types of inferences often
+exploit external knowledge sources (such as a stemmer,
+or WordNet), and we have shown several examples of
+how they can be encoded into a random walk framework, so that the stationary distribution gives a large
+probability to events that we would like our procedure
+to conclude are likely. Note in particular that if there
+3
+Of course, some of these could lead to incorrect
+inferences—even though hang with nail may be likely, and
+WordNet indicates that nail and nail-polish are semantically related, it is incorrect to infer that hang with nailpolish is therefore likely. However, we will later describe
+how a learning algorithm is used to automatically decide
+the degree to which each of these inferences can be trusted.
+
+nails
+
+hang
+
+nail
+
+fasten
+
+rivet
+
+hook
+
+hooks
+
+Figure 1. A small words state space for learning the distribution Pwith (n2 |v).
+
+are multiple paths to a node, then that “reinforces” a
+particular conclusion. By combining multiple steps of
+these inferences together, in ﬁgure 1, we should be able
+to conclude that if (a) hang with hook, (b) fasten with
+hook and (c) fasten with rivet are likely; that (d) hooks
+and hook have the same root, and if (e) rivet and nail
+are semantically related, then fasten with nail is also
+likely. Speciﬁcally, the sequence of states the random
+a
+walk might visit based on this information is h hang →
+d
+b
+c
+e
+d
+hooks → d hook → h fasten → d rivet → d nail. Thus, by
+considering multiple steps of the random walk, we can
+combine multiple steps of inference together. But the
+model by its nature also captures that long multi-step
+chains do not give much support to their conclusion.
+3.3. Formal model
+We now describe our model formally. Our Markov
+chain’s transition probabilities are built up using a set
+of diﬀerent links, which should be thought of as “basic” transition distributions that correspond to diﬀerent possible inference steps.
+Each link type always leads from states where the
+memory bit takes on some particular value b1 to states
+where the bit takes on a value b2 (not necessarily different from b1 ). The ﬁnal transition distribution will
+then be a mixture of the basic transition distributions,
+where the mixture weights are learned automatically.
+Let the links l1 , . . . , lk be given by transition matrices
+T 1 , . . . , T k . Each matrix T i has rows for states with
+memory bits startBit(i) and its rows are distributions
+over successor states with memory bit endBit(i).
+The probability of transitioning from (w, b) to (w , b )
+
+in the Markov chain is given by:
+P (w , b |w, b) =
+
+λ(w, b, i)T i (w , b |w, b)
+
+i:startBit(i)=b,endBit(i)=b
+
+The parameter λ(w, b, i) is the weight of link li for the
+state (w, b). It can also be viewed as the probability of taking a link of type li given the current state
+(w, b). The probabilities λ(w, b, i) sum to 1 over all
+links li having a starting bit startBit(i) = b. Parameters of this form for all states are estimated automatically from data. Since estimating separate parameters for each word would introduce too much sparsity, we deﬁne equivalence classes of states for which
+we tie the parameters. To avoid constrained optimization, we handled the constraints i λ(w, b, i) =
+1, ∀w, b and λ(w, b, i) ≥ 0 by representing λ(w, b, i) =
+eγ(w,b,i) / i eγ(w,b,i ) . The new model parameters are
+the γ(w, b, i) and they are not constrained.
+As mentioned in Section 2, we also add one more reﬁnement to the model, by further distinguishing between two diﬀerent kinds of links: ones that can be
+followed at any time, and ones that can be taken only
+in a ﬁnal (T -th) step of the walk. We call the latter type ﬁnal links. The intuition here is that (due
+to the usual sparseness in NLP data) we do wish to
+include in our model distributions that back oﬀ from
+conditioning on individual words and that therefore
+can transition to a highly-smoothed model. But, it
+would be undesirable to allow transitions to backedoﬀ distributions throughout the random walk. Specifically, allowing such transitions would cause us to lose
+the intuition of the random walk as exploring close
+neighbors of a word based on some similarity criterion.
+An additional advantage of having a special stopping
+distribution is that we can disable transitions to states
+that don’t have the desired memory bit; for example if
+the random walk is estimating P (N2 |v, p, va), the last
+state has to be a dependent. Thus in a ﬁnal step of the
+walk, the probability of following a link type leading
+to a non-dependent state is ﬁxed to zero.
+Thus we learn two diﬀerent transition distributions of
+the Markov chain — a distribution P nf in (w , b |w, b),
+and a distribution P f in (w , b |w, b). The ﬁnal links
+participate only in P f in , whereas the other links participate in both P f in and P nf in .
+The parameters of the model were ﬁtted to optimize
+the conditional log-likelihood of the correct attachment sites for a development set of samples, disjoint
+from the training and test sets, including quadratic
+regularization. That is, we maximized the objective:
+γs 2
+
+log P (Atti |v i , n1 i , pi , n2 i ) − λ
+i=1,...,N
+
+s=1,...,k
+
+Here i ranges over the sample set, and s ranges over
+the model parameters. We performed the optimization
+using a limited memory quasi-Newton method.
+The number of parameters depends on the scheme for
+deﬁning equivalence classes over states. The parameters correspond to distributions over link types for
+states and stopping probabilities. The stopping probabilities can also depend on the particular Markov
+chain. We experimented with binning the parameters
+based on observed number of times of occurrence of
+words but the simplest model having a single equivalence class performed on average as well as the more
+complex models.
+3.4. Link types for PP attachment
+For modeling P (N2 |p, v, va), we have separate Markov
+chain transition matrices for each preposition p, with
+the link types given below. The initial state distribution places probability 1 on the state h v. The ﬁrst
+eight link types are:
+1. V → N. Transitions from h w1 to d w2 with probability proportional to the empirical probability of
+p(N2 = w2 |V = w1 , p, Att). (L1)
+2. Morphology. Transitions from (w1 , b) to (w2 , b)
+for all words w2 that have the same root form as
+w1 , with probability proportional to the empirical
+count of w2 plus a small smoothing parameter α.
+(L2Nouns, L2Verbs)
+3. WordNet Synsets. Transitions from states
+(w1 , b) to (w2 , b), for all words w2 in the same
+WordNet synonym-set as one of the top three
+most common senses of w1 , with probability proportional to the empirical count of w2 plus a small
+smoothing parameter α. (L3Nouns, L3Verbs)
+4. N → V. Transitions from d w1 to h w2 with probability proportional to the empirical probability of
+p(V = w2 |N2 = w1 , p, Att). (L4)
+5. External corpus. Same as link L1, but the empirical probabilities are measured from an additional set of noisy samples, generated automatically by a statistical parser . (L5)
+6. V → V. Transitions from h w1 to h w2 with probability proportional to their distributional similarity with respect to dependents they take. This is
+deﬁned more precisely in Section 4.
+7. N → N. Analogously to the previous link type,
+these are transitions among nouns with probability proportional to their distributional similarity
+with respect to heads they modify.
+8. V → V. Transitions from h w1 to h w2 with probability proportional to their distributional similarity over noun objects when modiﬁed by p.
+
+We also used the following ﬁnal links to add at the end
+over-smoothed back-oﬀ distributions. These represent
+all levels in a linear back-oﬀ sequence estimated from
+the training corpus, and a single level of back-oﬀ from
+the additional corpus of noisy samples. Note that these
+distributions are the same for every state:
+9-12. Backoﬀ1 through Backoﬀ4 Transitions to
+d
+w2 with probability proportional to P (N2 =
+w2 |P, Att), P (N2 = w2 |Att), P (N2 = w2 |.), and
+uniform respectively. (L9,L10,L11,L12)
+13. Backoﬀ5. Transitions to d w2 with probabilˆ
+ity proportional to P (N2 = w2 |P, Att) estimated
+from the additional noisy corpus. (L13)
+Additionally, we add identity links (self-loops), to
+avoid situations where no link type can be followed.
+
+4. Experiments
+We work with the Penn Treebank Wall Street Journal data (Ratnaparkhi et al., 1994), which consists
+of four-tuples of head words and a speciﬁcation of
+the type of attachment. There are 20,801 samples in
+the training set, 4,039 in the development set, and
+3,097 samples in the test set. This same data has
+been used by several other researchers (Ratnaparkhi
+et al., 1994; Collins & Brooks, 1995; Stetina & Nagao, 1997). The back-oﬀ model of (Collins & Brooks,
+1995) is the best-performing previously published algorithm for the task of classifying samples by only using
+statistics of word occurrences from the training corpus. Better results have been reported on this test
+set by (Stetina & Nagao, 1997) (88.1%) and on other
+datasets by (Harabagiu & Pasca, 1999), but the C&B
+algorithm is the clearest established baseline of good
+performance, since it does not rely on additional processing stages such as word sense disambiguation or
+use of named entity recognizers. Previous studies of
+human performance suggest an upper bound on attachment accuracy, given just the four-tuple of head
+words, of 88.2% (Ratnaparkhi et al., 1994). Therefore
+it is plausible to accept a Bayes error of about 10% for
+this task.
+Our algorithm uses the training set to estimate empirical distributions and the development set to train the
+parameters of the random walk. We report accuracy
+results on the ﬁnal test set.
+In addition to this training data set, we generate additional much noisier training data, using the BLLIP
+corpus. BLLIP is a corpus of 1,796,386 automatically
+parsed English sentences (Charniak, 2000). From the
+parsed sentences, we extracted tuples of four headwords and attachment site for ambiguous verbal or
+noun PP attachments. This made for a total of 567,582
+tuples. We will call this data-set BLLIP-PP. One
+
+can expect this data to be rather noisy, since PP attachment is one of the weakest areas for state of the
+art statistical parsers. We pre-processed the data by
+lower-casing the verbs and prepositions, and by substituting all digits with the X symbol.
+For all models, we ran the Markov chain for at most
+some d time steps (which may depend on the type
+of links used); we call d the maximum degree of the
+Markov chain. (I.e., Equation 2 is truncated after d
+terms, and renormalized to sum to 1.)
+We ﬁrst report the accuracy of the simplest walk of
+maximum degree 1, which is of the same form as the
+familiar linear mixture models. This walk estimates
+the probability P (n2 |p, v, va), using link types L1, L9,
+L10, L11, and L12 as follows:
+ˆ
+P (n2 |p, v, va) = λ0 (p, v, va)P (n2 |p, v, va)
+ˆ
++ λ1 (p, v, va)P (n2 |p, va)
+ˆ
++ λ2 (p, v, va)P (n2 |va)
+1
+ˆ
++ λ3 (p, v, va)P (n2 ) + λ4 (p, v, va)
+V
+Similar walks are constructed for all other factors
+needed for the generative model. Since the maximum
+degree is 1, only transitions according to a ﬁnal distrif in
+bution P f in are taken P (n2 |p, v, va) = Pp,va (n2 |v).
+This is our baseline model and we name it Baseline.
+The accuracy results for the Baseline model are shown
+in table 2. It is worth noting that our simple generative model with linearly interpolated relative frequency estimates (and interpolation parameters ﬁtted
+discriminatively), performs better than the discriminative back-oﬀ C&B algorithm.
+Next we describe the incremental addition of links
+to our model, with discussion of the performance
+achieved. We ﬁx the maximum degree of the walks
+for estimating the uni-lexical dependencies P (v|p, Att)
+to d = 2, and the maximum degree of all other walks,
+estimating bi-lexical dependencies, to d = 3.4
+1. Morphology. Adding a link between verbs
+(L2Verbs) was helpful. This link was added
+to the Markov chains for estimating P (V |p, Att),
+P (N1 |v, p, Att), and P (N2 |v, p, va). The accuracy
+on the test set was 86.08%, as shown in row 6 of
+Table 2. To test the usefulness of including morphology in this way using random walks, rather
+than just stemming the words at a preprocessing
+stage, we ran the Baseline model on a stemmed
+version of the data sets. The accuracy achieved in
+4
+
+For computational reasons, we have only explored
+paths of maximum degree three for models with many features. For smaller models, higher degree walks show an
+advantage. Thoroughly investigating the contribution of
+longer walks is left to future research.
+
+Baselines
+
+Random
+Walks
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+
+Table 2. Summary of results on the ﬁnal test set of 3,097 samples.
+Model
+Link Types
+Degree
+C&B
+C&B + stem verbs
+C&B on BLLIP-PP
+Baseline
+L1,L8,L9,L10,L11
+1,1
+Baseline + stem verbs
+L1,L8,L9,L10,L11
+1,1
+Morph Verbs
++ L2Verbs
+2,3
+Morph Verbs and Nouns
++ L2Nouns
+2,3
+Morphology & Synonyms +L3Verbs,L3Nouns
+2,3
+SimJ Sβ
+Baseline +L2Verbs+L6,L7
+2,3
+Final
+see text
+2,3
+
+P (N2 |p, n1 , na), and P (N1 |p, v, Att), we similarly add links between the heads based on their
+simJSβ with respect to the empirical distribution
+of their dependents in BLLIP-PP, and between
+the dependents proportional to their similarity
+simJSβ of head distributions. The accuracy of
+the resulting model, when these links are added is
+shown in row 9 of Table 2. This model does not
+include the noun morphology and synonym features as the model in row 8. We found that these
+links were no longer helpful after the addition of
+more powerful features.
+
+this way was 85.98% – an improvement over the
+baseline, but the random walk model was able to
+use this information more eﬀectively and achieve
+sightly higher accuracy. Adding noun morphology as well was also helpful as can be seen in row
+7 of the table.
+2. WordNet Synsets. We use WordNet in a simple
+way – for every word, we ﬁnd its top three most
+common senses, and make a link from the word to
+all other words having those senses. We obtained
+accuracy gains from adding the synonym links, as
+can be seen in row 8 of the table.
+3. Similarity based on Jensen-Shannon divergence. We add links between states with
+the same memory bit with transition probabilities proportional to their distributional similarity. For the sake of concreteness, consider a
+random walk for estimating P (N2 |p, v, va). Let
+qv denote the empirical distribution of dependents of the preposition p modifying verb v:
+ˆ
+P (N2 |p, v, va) estimated from the BLLIP-PP corpus. We deﬁne a similarity function between verbs
+simJSβ (v1 , v2 ) = exp(−βJS(qv1 , qv1 )). JS stands
+for Jensen-Shannon divergence between two probability distributions (Rao, 1982) and is deﬁned in
+terms of the KL divergence D as:
+1
+JS(q1 , q2 ) = 2 {D(q1 ||avgq1 ,q2 ) + D(q2 ||avgq1 ,q2 )}
+
+4. Final Model. The major addition to the ﬁnal
+model is link L5, which is relative frequency estimated from BLIP-PP, and the backoﬀ link L13,
+also a relative frequency estimate from BLIP-PP.
+The ﬁnal model includes the links from the Baseline, L5, L13, morphology for verbs, and the previously discussed simJSβ links. In addition, one
+more kind of simJSβ links was added – L8.
+Other algorithms can also make use of additional
+noisy training data. We ran the C&B algorithm
+on the union of the training data and BLIP-PP
+and its accuracy was also improved as shown in
+row 2 of the table. However, the random walk
+model is able to make better use of the additional
+noisy data, as it learns suitable weights for the
+estimates obtained from it.
+
+The same similarity function was used in (Dagan
+et al., 1999; Lee, 1999). We add a link from verbs
+to verbs (link type L6) that has transitions from
+each verb, to its top K closest neighbors in terms
+of the similarity simJSβ .5 The transition probability is the normalized value of the similarity.
+Similarly we add links between nouns based on
+their similarity simJSβ with respect to the empirˆ
+ical distribution P (V |p, n, va) in BLLIP-PP (link
+type L7).
+Up until now we have been discussing the
+P (N2 |p, v, va) dependency distribution.
+For
+the other dependency relations distributions –
+5
+
+In our experiments, β was 50, and K was 25.
+
+Accuracy
+84.18%
+84.50%
+85.53%
+85.86%
+85.98%
+86.08%
+86.18%
+86.53%
+86.44%
+87.56%
+
+Considering the relatively unsuccessful attempts
+in the past to use additional unsupervised data to
+improve lexical estimates for statistical parsers,
+this result is very encouraging, and shows the importance of learning proper weights for additional
+noisy data.6
+The ﬁnal model had an accuracy of 87.56%, which
+is close to the upper bound.
+6
+
+In Charniak (1997), an experiment where 30 million
+words of text were parsed automatically and added as additional training data for a parser estimating lexical dependency probabilities, resulted in a rather small accuracy
+increase – 0.1% precision and recall.
+
+To estimate the signiﬁcance of the diﬀerences between
+classiﬁers, we performed McNemar’s test. Our tests
+were aimed to compare the random walk models to
+other models using similar features, and to estimate
+the contribution of diﬀerent link types.
+The diﬀerence between our Baseline model and C&B
+is signiﬁcant with p-value .9988. The diﬀerence between the random walk model in row 6 using verb morphology and C&B with verb stemming is signiﬁcant
+with p-value .9976. All of the random walk model are
+signiﬁcantly better than C&B at pretty high signiﬁcance levels.
+
+5. Discussion and conclusions
+Random walk models provide a general framework for
+unifying and combining various notions of similaritybased smoothing. A walk of length 1 is just a linear
+interpolation, with interpolation weights typically set
+empirically as we do here (with the diﬀerence that we
+train to maximize conditional rather than joint likelihood). A walk of length 3 following exactly one forward link (like L1), followed by one backward link (like
+L4), and another forward link gives exactly the same
+estimate as co-occurrence smoothing (Essen & Steinbiss, 1992; Lee, 1999). A walk of length 2 using only
+one kind of similarity between head states, and forward
+links, is similar to distributional similarity smoothing
+(Lee, 1999).
+But the random walks framework that we propose is
+much more general. A multitude of link types can be
+deﬁned in it, and they are automatically weighted by
+the learning algorithm. Paths of shorter and longer
+lengths can be followed (though the most highly contributing paths are the shorter ones). The generality of this approach to similarity-based smoothing not
+only gives a high performance prepositional phrase attachment system, but holds the promise of learning
+complex but eﬀective random walk models in other
+domains.
+Acknowledgments. Our thanks to the anonymous
+reviewers for helpful comments and to Jenny Finkel
+for the optimization code. This work was supported
+in part by the ARDA AQUAINT program, and in part
+by the Department of the Interior/DARPA under contract number NBCHD030010.
+
+Brin, S., & Page, L. (1998). The anatomy of a large-scale
+hypertextual Web search engine. WWW7/Computer
+Networks and ISDN Systems, 30, 107–117.
+Charniak, E. (1997). Statistical parsing with a contextfree grammar and word statistics. Proc. 14th National
+Conference on Artiﬁcial Intelligence (pp. 598 – 603).
+Charniak, E. (2000). A maximum-entropy-inspired parser.
+NAACL 1 (pp. 132–139).
+Collins, M. (1999). Head-driven statistical models for natural language parsing. Doctoral dissertation, University
+of Pennsylvania.
+Collins, M., & Brooks, J. (1995). Prepositional attachment
+through a backed-oﬀ model. Proceedings of the Third
+Workshop on Very Large Corpora (pp. 27–38).
+Dagan, I., Lee, L., & Pereira, F. (1999). Similarity-based
+models of cooccurrence probabilities. Machine Learning,
+34, 43–69.
+Essen, U., & Steinbiss, V. (1992). Cooccurrence smoothing
+for stochastic language modeling. ICASSP (pp. 161–
+164).
+Goodman, J. T. (2001). A bit of progress in language
+modeling. MSR Technical Report MSR-TR-2001-72.
+Harabagiu, S., & Pasca, M. (1999). Integrating symbolic
+and statistical methods for prepositional phrase attachment. Proceedings of FLAIRS-99 (pp. 303–307).
+Hindle, D., & Rooth, M. (1993). Structural ambiguity and
+lexical relations. Computational Linguistics, 19, 103–
+120.
+Hull, D. (1996). Stemming algorithms – A case study for
+detailed evaluation. Journal of the American Society for
+Information Science, 47, 70–84.
+Kleinberg, J. (1998). Authoritative sources in a hyperlinked environment. 9th ACM-SIAM Symposium on Discrete Algorithms.
+Laﬀerty, J., & Zhai, C. (2001). Document language models, query models, and risk minimization for information
+retrieval. SIGIR (pp. 111–119).
+Lee, L. (1999). Measures of distributional similarity. 37th
+Annual Meeting of the Association for Computational
+Linguistics (pp. 25–32).
+Ng, A. Y., Zheng, A. X., & Jordan, M. (2001). Link analysis, eigenvectors, and stability. Proceedings of the Seventeenth International Joint Conference on Artiﬁcial Intelligence (IJCAI-01).
+Pantel, P., & Lin, D. (2000). An unsupervised approach
+to prepositional phrase attachment using contextually
+similar words. ACL:00 (pp. 101–108).
+
+References
+
+Rao, R. C. (1982). Diversity: Its measurement, decomposition, aportionment and analysis. The Indian Journal
+of Statistics, 44, 1–22.
+
+Bikel, D. M. (2003). Intricacies of Collins’ parsing model
+(Technical Report TR No. MS-CIS-03-11). University of
+Pennsylvania.
+
+Ratnaparkhi, A., Reynar, J., & Roukos, S. (1994). A maximum entropy model for prepositional phrase attachment. Workshop on Human Language Technology.
+
+Br´maud, P. (1999). Markov chains: Gibbs ﬁelds, monte
+e
+carlo simulation, and queues. Springer-Verlag.
+
+Stetina, J., & Nagao, M. (1997). Corpus based PP attachment ambiguity resolution with a semantic dictionary.
+Proc. 5th Workshop on Very Large Corpora (pp. 66–80).
+
+Brill, E., & Resnik, P. (1994). A rule-based approach to
+prepositional phrase attachment disambiguation. Proceedings of COLING.
+
+

@@ -1,0 +1,1639 @@
+Learning Minimal Abstractions
+Percy Liang
+
+Omer Tripp
+
+Mayur Naik
+
+UC Berkeley
+pliang@cs.berkeley.edu
+
+Tel-Aviv University
+omertrip@post.tau.ac.il
+
+Intel Labs Berkeley
+mayur.naik@intel.com
+
+Abstract
+Static analyses are generally parametrized by an abstraction
+which is chosen from a family of abstractions. We are interested in ﬂexible families of abstractions with many parameters, as these families can allow one to increase precision
+in ways tailored to the client without sacriﬁcing scalability.
+For example, we consider k-limited points-to analyses where
+each call site and allocation site in a program can have a different k value. We then ask a natural question in this paper:
+What is the minimal (coarsest) abstraction in a given family
+which is able to prove a set of client queries? In addressing
+this question, we make the following two contributions: (i)
+we introduce two machine learning algorithms for efﬁciently
+ﬁnding a minimal abstraction; and (ii) for a static race detector backed by a k-limited points-to analysis, we show empirically that minimal abstractions are actually quite coarse: it
+sufﬁces to provide context/object sensitivity to a very small
+fraction (0.4–2.3%) of the sites to yield equally precise results as providing context/object sensitivity uniformly to all
+sites.
+Categories and Subject Descriptors D.2.4 [Software Engineering]: Software/Program Veriﬁcation
+General Terms
+tion
+
+Measurement, Experimentation, Veriﬁca-
+
+Keywords heap abstractions, static analysis, concurrency,
+machine learning, randomization
+
+1.
+
+Introduction
+
+Static analyses typically have parameters that control the
+tradeoff between precision and scalability. For example, in a
+k-CFA-based or k-object-sensitivity-based points-to analysis [10–13, 20, 26], the parameter is the k value, which determines the amount of context sensitivity and object sensitivity. Increasing k yields more precise points-to information,
+
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for proﬁt or commercial advantage and that copies bear this notice and the full citation
+on the ﬁrst page. To copy otherwise, to republish, to post on servers or to redistribute
+to lists, requires prior speciﬁc permission and/or a fee.
+POPL’11, January 26–28, 2011, Austin, Texas, USA.
+Copyright c 2011 ACM 978-1-4503-0490-0/11/01. . . $10.00
+
+but the complexity of the analysis also grows exponentially
+with k. Shape analysis [19] and model checkers based on
+predicate abstraction [3, 5] are parametrized by some number of predicates; these analyses also exhibit this tradeoff.
+In many analyses, these tradeoffs are controlled by a
+small number of parameters, for instance, a single k value.
+Past studies (e.g., client-driven [7] and demand-driven [9]
+approaches) have shown that it is often not necessary to provide context sensitivity to each call site or object sensitivity
+to each allocation site. This motivates working with a larger
+family of abstractions parametrized by a separate k value
+for each site, akin to the parametric framework of Milanova
+et al. [12, 13]. More generally, we represent an abstraction
+as a binary vector (e.g., component j of the vector speciﬁes whether site j should be treated context-sensitively). But
+how much context/object sensitivity is absolutely needed,
+and where is it needed?
+In this paper, we formulate and tackle the following problem: Given a family of abstractions, ﬁnd a minimal (coarsest) abstraction sufﬁcient to prove all the queries provable by
+the ﬁnest abstraction in the family. Studying this problem is
+important for two reasons: (i) a minimal abstraction provides
+insight into which aspects of a program need to be modeled
+precisely for a given client; and (ii) reducing the complexity of the abstraction along some components could enable
+us to increase the complexity of the abstraction along other
+components more than before. For example, keeping the k
+values of most sites at zero enables us to use higher k values
+for a select subset of sites.
+To ﬁnd these minimal abstractions, we introduce two machine learning algorithms. Both treat the static analysis as
+a black box which takes an abstraction (and a set of client
+queries) as input and produces the set of proven queries
+as output. The ﬁrst algorithm, S TAT R EFINE, starts with the
+coarsest abstraction, runs the static analysis on randomly
+chosen abstractions, and from these training examples detects statistical correlations between components of the abstraction and whether a query is proven; components highly
+correlated with proven queries are added (Section 4.1). The
+second algorithm, ACTIVE C OARSEN, starts with the ﬁnest
+abstraction and samples coarser abstractions at random, incrementally reducing the abstraction to a minimal one (Section 4.2).
+
+We also provide a theoretical analysis of our algorithms.
+Let p be the number of components of the abstraction family
+and s be the number of components in the largest minimal
+abstraction. We show that although the number of abstractions considered is exponential in p, we only need O(s log p)
+calls to the static analysis to ﬁnd a minimal abstraction. The
+signiﬁcance of this result is that when a very small abstraction sufﬁces to prove the queries (s
+p), our algorithms
+are much more efﬁcient than a na¨ve approach, which would
+ı
+require O(p) calls. Empirically, we found that minimal abstractions are indeed very small. This is an instance of sparsity, an important property in machine learning and statistics
+[4, 24], that very few components of an unknown vector are
+non-zero.
+Our approach represents a signiﬁcant departure from traditional program analysis, where iterative reﬁnement techniques are the norm [2, 7, 22]. In particular, our methods
+exploit randomness to generate information in the form of
+statistical correlations. Also note that iterative reﬁnement
+is in general not guaranteed to ﬁnd a minimal abstraction,
+whereas our techniques do have this guarantee. We present
+one iterative reﬁnement technique (DATALOG R EFINE in
+Section 3.1) and show that it reﬁnes 18–85% of the components whereas the minimal abstractions found by our approach only reﬁne 0.4–2.3% (Section 6).
+All our empirical results are for a static race detection
+client [14] backed by a k-limited points-to analysis. Pointsto information is used extensively by the race detector to
+determine which statements may be reachable, which statements may access the same memory locations, which statements may access thread-shared memory locations, and
+which statements may happen in parallel. Our points-to
+analysis is both context-sensitive and object-sensitive (see
+Section 5 for details).
+
+2.
+
+Problem Formulation
+
+Let (A, ) be a poset corresponding to a family of abstractions, and let Q be a set of queries that we would like
+to prove. We assume we have access to a static analysis,
+F : A → {0, 1}Q , which maps an abstraction a ∈ A to
+a binary vector F(a) where component q is 0 if query q is
+proven and 1 if it is not.
+We assume that F is monotone with respect to the abstraction family (A, ), that is, if a
+a , then F(a)
+F(a ). In other words, reﬁning an abstraction (increasing a)
+can only enable us to prove more queries (decrease F(a)).
+The focus of this paper is on the following problem:
+Deﬁnition 1 (Minimal Abstraction Problem). Given a family of abstractions A with a unique top element 1 (the most
+precise), output an abstraction a 1 such that
+1. a is correct—that is, F(a) = F(1); and
+2. a is minimal—that is, such that {a
+F(a)} = {a}.
+
+a : F(a ) =
+
+In general, there could be multiple minimal abstractions,
+but we are content with choosing any one of them. Furthermore, we would like to ﬁnd a minimal abstraction efﬁciently,
+i.e., minimizing the number of calls to F.
+2.1
+
+Binary Abstractions
+
+We now specialize to abstractions representable by binary
+vectors, that is, A = {0, 1}J for some index set of components J, where the partial order is component-wise inequality
+(a
+a iff aj ≤ aj for all j ∈ J). The idea is that for an
+abstraction a ∈ A, aj denotes whether component j ∈ J has
+been reﬁned or not. It will also be convenient to treat a ∈ A
+directly as a set of components (namely, {j ∈ J : aj = 1}),
+so that we can use set notation (e.g., a ∪ {j}). We use ∅ and
+J to denote the coarsest and ﬁnest abstractions in the family,
+and we denote the size of abstraction a by |a|.
+Many commonly-used abstraction families are binary. In
+predicate abstraction [3, 5], J is the set of candidate abstraction predicates, and an abstraction a would specify a subset
+of these predicates to include in the analysis. Shape analysis [19] uses predicates on the heap graph, e.g., reachability
+from a variable. Similar to predicate abstraction, aj = 1 if
+predicate j is to be treated as an abstraction predicate.
+2.2
+
+k-limited Abstractions
+
+In this paper, we focus on k-limited abstractions. Let H be
+the set of allocation sites and I be the set of call sites in a
+program. We use S = H ∪ I to denote the set of sites of both
+types. Consider the family of abstractions deﬁned by setting
+a non-negative integer k for each site s ∈ S. In the case of kCFA, this integer speciﬁes that the k most recent elements of
+the call stack should be used to distinguish method calls and
+objects allocated at various sites. We denote this abstraction
+family as AK = {0, 1, . . . , kmax }S , where kmax is the largest
+allowed k value.
+At ﬁrst glance, it may not be evident that the k-limited
+abstraction family AK is a binary abstraction family. However, we can represent AK using binary vectors as follows:
+Let J = S × {1, . . . kmax } be the set of components. We
+map each element a ∈ A = {0, 1}J in the binary abstraction family to a unique element aK ∈ AK in the original
+kmax
+K
+k-limited abstraction family by as = k=1 a(s,k) . Essentially a ∈ A is a unary encoding of the k values of aK ∈ AK .
+Note that multiple binary vectors a map onto the same aK
+(i.e., (1, 1, 0) and (1, 0, 1) both represent k = 2), but this is
+not important. It is crucial, however, that the mapping from
+A to AK respects the partial ordering within each family.
+
+3.
+
+Deterministic Approaches
+
+In this section, we discuss two deterministic approaches
+for ﬁnding small abstractions. Conceptually, there are two
+ways to proceed: start with the coarsest abstraction and reﬁne, or start with the ﬁnest abstraction and coarsen. We
+present two algorithms: DATALOG R EFINE (Section 3.1) and
+
+S CAN C OARSEN (Section 3.2), which operate in these two
+directions.
+3.1
+
+Reﬁnement via Datalog Analysis
+
+We ﬁrst present the DATALOG R EFINE algorithm, which assumes that static analysis F is expressed as a Datalog program P . The basic idea behind the algorithm is as follows:
+run the static analysis with the coarsest abstraction ∅ and
+look at queries which were not proven. DATALOG R EFINE
+then inspects P to ﬁnd all the components of the abstraction
+which could affect the unproven queries and reﬁnes exactly
+these components.
+A Datalog program P consists of (i) a set of relations R
+(e.g., ptsV ∈ R, where ptsV(v, o) denotes whether variable
+v may point to abstract object o); (ii) a set of input tuples I
+(for example, ptsV(v5, o7) ∈ I); and (iii) a set of rules of
+the following form:
+R0 (w0 ) ⇐ R1 (w1 ), . . . , Rm (wm ),
+
+(2)
+
+where P is the set of program points. For each query q, we
+deﬁne F(a)q = 1 if and only if there exists a derivation of
+q. In other words, F(a)q = 0 if and only if q is proven.
+The abstraction a determines the input tuples I. More
+speciﬁcally, let A(t, j) denote whether the value aj of
+component j affects the input tuple t ∈ I. For example,
+A(ptsV(v, o), j) = 1 for any j = (s, k) and abstract object o where o can represent a concrete object allocated at
+allocation site s ∈ H. Given A, let J A denote the components which are involved in a derivation of some (unproven)
+query:
+JA
+
+{j ∈ J : ∃t ∈ I, q ∈ Q, A(t, j) = 1 ∧ t
+
+Ri (ti ) ⇐ R0 (t0 ), R1 (t1 ), . . . , Rm (tm ).
+
+q}, (3)
+
+where t
+q denotes that there exists some derivation
+t1 , . . . , tn where ti = t for some i and tn = q. The key
+point is that a component not in J A cannot eliminate existing
+derivations of q, which would be necessary to prove q. Such
+a component is therefore irrelevant and not reﬁned.
+
+(4)
+
+q for any query q ∈ Q. We also
+Ri (ti ) is true iff Ri (ti )
+add the following rule for each R ∈ R, which aggregates the
+relevant components:
+
+(1)
+
+where for each i = 0, . . . , m, we have a relation Ri ∈ R and
+a tuple of variables wi of the appropriate arity (e.g., when
+R0 = ptsV, w0 = (v, o)).
+Given a Datalog program, we derive new tuples from the
+input tuples I by using the rules. Formally, let a derivation
+be a sequence t1 , . . . , tn of tuples satisfying the following
+two conditions: (i) for each i = 1, . . . , n, either ti is an input
+tuple (ti ∈ I) or there exist indices j1 , . . . , jm all smaller
+than i such that ti ⇐ tj1 , . . . , tjm is an instantiation of a
+rule; and (ii) for each j = 1, . . . , n − 1, tuple tj appears on
+the right-hand side of an instantiation of a rule with some ti
+(i > j) on the left-hand side.
+In this formalism, each query q ∈ Q is a tuple. In race
+detection, the set of queries is
+Q = {race(p1 , p2 ) : p1 , p2 ∈ P},
+
+Computation via a Datalog Program Transformation We
+now deﬁne the DATALOG R EFINE algorithm, which computes and returns J A as the abstraction. DATALOG R EFINE
+works by taking a Datalog program P as input and transforming it into another Datalog program P whose output
+contains J A . Having this general transformation allows us
+to leverage existing Datalog solvers [25] to efﬁciently compute the set of relevant components J A to reﬁne.
+The new program P contains all the rules of P plus
+additional ones. For each Datalog rule of P taking the form
+given in (1), P will contain m rules, one for each i =
+1, . . . , m:
+
+J A (j) ⇐ R (t), A(t, j).
+
+(5)
+
+It can be veriﬁed that J A (j) is true exactly when j ∈ J A ,
+where J A is deﬁned in (3).
+Note that DATALOG R EFINE is correct in that it outputs
+an abstraction a which is guaranteed to prove all the queries
+that 1 can, but a will most likely not be minimal.
+k-limited Abstractions We now describe how we use
+DATALOG R EFINE for k-limited abstractions. Recall that in
+our binary representation of k-limited abstractions (Section 2.2), the components are (s, k), where s ∈ S is
+a site and 0 ≤ k ≤ kmax . We start with the abstraction a0 = 0, corresponding to 0-CFA. We then iterate
+k = 1, . . . , kmax , where at each iteration, we use ak−1 to
+construct the input tuples and call DATALOG R EFINE to produce a set J A . We reﬁne the sites speciﬁed by J A , setting
+ak = ak−1 ∪ {(s, k ) : (s, k) ∈ J A , k = k }. In this way,
+in each iteration we increase the k value of each site by
+at most one. Because we always reﬁne all relevant components, after k iterations, ak is guaranteed to prove the same
+subset of queries as k-CFA. The approach is the same for
+k-object-sensitivity.
+3.2
+
+Coarsening via Scanning
+
+In the previous section, we started with the coarsest abstraction and reﬁned it. We now introduce a simple algorithm,
+S CAN C OARSEN, which does the opposite: it takes the most
+reﬁned abstraction a and coarsens it, preserving correctness
+(Deﬁnition 1) along the way. To simplify presentation, suppose we have one query. We will revisit the issue of multiple
+queries in Section 4.4.
+The idea behind the algorithm is quite simple: for each
+component, try removing it from the abstraction; if the resulting abstraction no longer proves the query, add the component back. The pseudocode of the algorithm is given in
+Figure 1. The algorithm maintains the invariant that aL is a
+
+Coarsening via Scanning
+S CAN C OARSEN(aL , aU ):
+−if aL = aU : return aU
+−choose any component j ∈ aU \aL
+−if F(aU \{j}) = 0: [try coarsening j]
+−−return S CAN C OARSEN(aL , aU \{j}) [don’t need j]
+−else:
+−−return S CAN C OARSEN(aL ∪ {j}, aU ) [need j]
+
+Figure 1: Algorithm that ﬁnds a minimal abstraction.
+U
+
+subset of some minimal abstraction and a is a superset sufﬁcient to prove the query. The algorithm requires |J| calls to
+F, and therefore is only practical when the number of components under consideration is small.
+Theorem 1 (Properties of S CAN C OARSEN). The algorithm
+S CAN C OARSEN(∅, J) returns a minimal abstraction a with
+O(|J|) calls to F.
+Proof. Let a be the returned abstraction. It sufﬁces to show
+that F(a\{j}) = 1 for all j ∈ a (that is, we fail to prove the
+query with removal of any j). Take any j ∈ a. Since j was
+kept, F(aU \{j}) = 1, where aU corresponds to the value
+when j was considered. However, we also have a ⊂ aU , so
+F(a\{j}) = 1 by monotonicity of F.
+
+4.
+
+Machine Learning Approaches
+
+We now present two machine learning algorithms for ﬁnding
+minimal abstractions, which is the main theoretical contribution of this paper. The two algorithms are S TAT R EFINE,
+which reﬁnes an abstraction by iteratively adding components (Section 4.1) and ACTIVE C OARSEN, which coarsens
+an abstraction by removing components (Section 4.2).
+At a high level, these two algorithms parallel their deterministic counterparts, DATALOG R EFINE and S CAN C OARSEN,
+presented in the previous section. However, there are two
+important distinctions worth noting: (i) the machine learning
+algorithms ﬁnd a minimal abstraction much more effectively
+by exploiting sparsity, the property that a minimal abstraction contains a small fraction of the full set of components;
+and (ii) randomization is used to exploit this sparsity.
+For clarity of presentation, we again focus on the case
+where we have a single query; Section 4.4 addresses the
+multiple-query setting.
+4.1
+
+Reﬁnement via Statistical Learning
+
+We call a component j ∈ J dependent if j appears in any
+minimal abstraction. Let D ⊂ J be the set of dependent
+components and let d = |D|. Note that D is the union of all
+minimal abstractions. Deﬁne s to be the size of the largest
+minimal abstraction, observing that s ≤ d. S TAT R EFINE
+identiﬁes dependent components by sampling n independent
+
+Reﬁnement via Statistical Learning
+Parameters:
+−α: reﬁnement probability
+−s: size of largest minimal abstraction
+−n: number of training examples per iteration
+S AMPLE(α, aL , aU ):
+−a ← aL
+−for each component j ∈ aU \aL :
+−−aj ← 1 with probability α
+−return a
+S TAT R EFINE(aL ):
+−if F(aL ) = 0 or |aL | = s: return aL
+−for i = 1, . . . , n: [create training examples]
+−−a(i) ← S AMPLE(α, aL , J)
+−for each j ∈ aL : [compute a score for each component]
+(i)
+−−nj ← |{i : aj = 1, F(a(i) ) = 0}|
+∗
+−j ← argmaxj∈aL nj [choose best component]
+−return S TAT R EFINE(aL ∪ {j ∗ })
+
+Figure 2: Algorithm for ﬁnding a minimal abstraction by iteratively adding dependent components determined via statistical learning.
+random abstractions and running the static analysis F on
+them. The component j associated with the most number
+of proven queries is then added to the abstraction, and we
+iterate. The pseudocode of the algorithm is given in Figure 2.
+While DATALOG R EFINE inspects the Datalog program
+backing F to compute the set of relevant components,
+S TAT R EFINE relies instead on correlations with the output
+of F to ﬁnd dependent components.1 As Theorem 2 will
+show, with high probability, a dependent component can be
+found with n calls to F, where n is only logarithmic in the
+total number of components |J|.
+We must also ensure that n depends only polynomially on
+s and d. The main technical challenge is to set the reﬁnement
+probability α properly to achieve this. To appreciate this
+problem, suppose that s = d, so that F(a) consists of a
+simple conjunction (F(a) = 0 iff aj = 1 for each j in
+the minimal abstraction). If we set α to a constant, then
+1
+it would take an exponential number of examples (( α )s
+in expectation) to even see an example where F(a) = 0.
+Fortunately, the following theorem shows that if α is set
+properly, then we obtain the desired polynomial dependence
+(see Appendix A for the proof):
+Theorem 2 (Properties of S TAT R EFINE). Let d be the number of dependent components in J and s be the size of the
+largest minimal abstraction. Suppose we set the reﬁnement
+d
+probability α = ( d+1 )d and obtain n = Θ(d2 (log |J| +
+1 Note
+
+that dependent components are a subset of relevant components.
+
+Coarsening via Active Learning
+Parameters:
+−α: reﬁnement probability
+−s: size of largest minimal abstraction
+ACTIVE C OARSEN(aU ):
+−if |aU | ≤ s + 1: return S CAN C OARSEN(∅, aU )
+−a ← S AMPLE(α, ∅, aU )
+−if F(a) = 0: [run static analysis]
+−−return ACTIVE C OARSEN(a) [reduced]
+−else:
+−−return ACTIVE C OARSEN(aU ) [try again]
+
+Figure 3: ACTIVE C OARSEN returns a minimal abstraction
+a by iteratively removing a random α-fraction of the components from an upper bound. S AMPLE is deﬁned in Figure 2.
+
+log(s/δ))) training examples from F each iteration. Then
+with probability 1 − δ, S TAT R EFINE(∅) outputs a minimal
+abstraction with O(sd2 (log |J| + log(s/δ))) total calls to F.
+4.2
+
+Coarsening via Active Learning
+
+We now present our second machine learning algorithm,
+ACTIVE C OARSEN. Like S CAN C OARSEN, it starts from the
+ﬁnest abstraction J and tries to remove components from J.
+But instead of doing this one at a time, ACTIVE C OARSEN
+tries to remove a random constant fraction of the components at once. As we shall see, this allows us to hone in on a
+minimal abstraction much more quickly.
+The pseudocode of the algorithm is given in Figure 3. It
+maintains an upper bound aU which is guaranteed to prove
+the query. It repeatedly tries random abstraction a
+aU .
+U
+until a can prove the query (F(a) = 0). Then we set a to a
+and repeat.
+Recall that S CAN C OARSEN, which removes one component at a time, requires an exorbitant O(|J|) calls to the static
+analysis. The key idea behind ACTIVE C OARSEN is to remove a constant fraction of components each iteration. Then
+we would hope to need only O(log1/α |J|) iterations.
+However, the only wrinkle is that it might take a lot of
+trials to sample an a that proves the query (F(a) = 0).
+To appreciate the severity of this problem, suppose F(a) =
+¬(a∗ a) for some unknown set a∗ with |a∗ | = s; that is,
+we prove the query if all the components in a∗ are reﬁned by
+a. Then there is only a αs probability of sampling a random
+abstraction a that proves the query. The expected number
+1
+of trials until we prove the query is thus ( α )s , which has an
+unfortunate exponential dependence on s. On the other hand,
+when we succeed, we reduce the number of components by
+a factor of α. There is therefore a tradeoff here: setting α
+too small results in too many trials per iteration, but setting
+α too large results in too many iterations. Fortunately, the
+
+following theorem shows that we can balance the two to
+yield an efﬁcient algorithm (see Appendix A for the proof):
+Theorem 3 (Properties of ACTIVE C OARSEN). Let s be the
+size of the largest minimal abstraction. If we set the reﬁnement probability α = e−1/s , the expected number of
+calls to the analysis F made by ACTIVE C OARSEN(J) is
+O(s log |J|).
+4.3
+
+Adapting the Reﬁnement Probability
+
+Until now, we have assumed that the size of the largest
+minimal abstraction s is known, and indeed Theorems 2
+and 3 depend crucially on setting α properly in terms of s. In
+practice, s is unknown, so we seek a mechanism for setting
+α without this knowledge.
+The intuition is that setting α properly ensures that
+queries are proven with a probability p(F(a) = 0) bounded
+away from 0 by a constant. Indeed, in S TAT R EFINE, following the prescribed setting of α, we get p(F(a) = 0) =
+d
+( d+1 )d ; in ACTIVE C OARSEN, we have p(F(a) = 0) =
+d
+−1/s s
+(e
+) = e−1 . (Interestingly, ( d+1 )d is lower bounded by
+e−1 and tends exactly to e−1 as d → ∞.)
+The preceding discussion motivates a method that keeps
+p(F(a) = 0)
+e−1
+t, which we call the target probability. We can accomplish this by adapting α as we get new
+examples from F. The adaptive strategy we will derive is
+simple: if F(a) = 0, we decrease α; otherwise, we increase
+α. But by how much?
+To avoid boundary conditions, we parametrize α =
+σ(θ) = (1 + e−θ )−1 , which maps −∞ < θ < ∞ to 0 <
+α < 1. For convenience, let us deﬁne g(θ) = p(F(a) = 0).
+Now consider minimizing the following function:
+O(θ) =
+
+1
+(g(θ) − t)2 .
+2
+
+(6)
+
+Clearly, the optimum value (zero) is obtained by setting θ
+so that g(θ) = t. We can optimize O(θ) by updating its
+gradient:
+θ ←θ−η
+
+dO
+,
+dθ
+
+dO
+dg(θ)
+= (g(θ) − t)
+,
+dθ
+dθ
+
+(7)
+
+where η is the step size. Of course we cannot evaluate g(θ),
+but the key is that we can obtain unbiased samples of g(θ)
+by evaluating F(a) (which we needed to do anyway); specifically, E[1 − F(a)] = g(θ). We can therefore replace the
+gradient with a stochastic gradient, a classic technique with
+a rich theory [18]. We note that dg(θ) > 0, so we absorb it
+dθ
+into the step size η.2 This leaves us with the following rule
+for updating θ given a random a:
+θ ← θ − η(1 − F (a) − t).
+2 Note
+
+(8)
+
+that we have not veriﬁed the step size conditions that guarantee
+convergence. Instead, we simply set η = 0.1 for our experiments, which
+worked well in practice.
+
+4.4
+
+Multiple Queries and Parallelization
+
+So far, we have presented all our algorithms for one query.
+Given multiple queries, we could just solve each query independently, but this is quite wasteful, since the information obtained from answering one query is not used for other
+queries. We therefore adopt a lazy splitting strategy, where
+we initially place all the queries in one group and partition the groups over time as we run either S TAT R EFINE or
+ACTIVE C OARSEN. More speciﬁcally, we maintain a partition of Q into a collection of groups G, where each g ∈ G is
+a subset of Q. We run the algorithm independently for each
+g ∈ G. After each call to F(a), we create two new groups,
+g0 = {q ∈ g : F(a)q = 0} and g1 = {q ∈ g : F(a)q = 1},
+and set G to (G\{g}) ∪ {g0 , g1 }, throwing away empty
+groups. In g0 , we take the F(a) = 0 branch of the algorithm
+and in g1 , we take the F(a) = 1 branch.
+We thus maintain the invariant that for any two queries
+q1 , q2 ∈ g, we have F(a)q1 = F(a)q2 for any a that we have
+run F on for g or any of g’s ancestral groups. Conceptually,
+from the point of view of a ﬁxed q ∈ Q, it is as if we had
+run the algorithm on q alone, but all of the calls to F are
+shared by other queries. When the algorithm terminates, all
+the queries in one group share the same minimal abstraction.
+In Section 6, we will see that the number of groups is much
+smaller than the number of queries.
+Our algorithms have been presented as sequential algorithms, but parallelization is possible. S TAT R EFINE is trivial
+to parallelize because the n training examples are generated
+independently. Parallelizing ACTIVE C OARSEN is slightly
+more intricate because of the sequential dependence of calls
+to F. With one processor, we set α so that the target probability is e−1 . When we have m processors, we set the target
+probability to e−1 /m, so that the expected time until a reduction is approximately the same. The upshot of this is that
+α (monotonically related to t) is now smaller and thus we
+obtain larger reductions.
+4.5
+
+Discussion of Algorithms
+
+Table 1 summarizes the properties of the four algorithms
+we have presented in this paper. One of the key advantages of the learning-based approaches (S TAT R EFINE and
+ACTIVE C OARSEN) is that they have a logarithmic dependence on |J| since they take advantage of sparsity, the property that a minimal abstraction has at most s components.
+Both algorithms sample random abstractions by including each component with probability α, and to avoid an exponential dependence on s, it is important to set the probability α properly—for S TAT R EFINE, so that the proﬁle of an
+irrelevant component is sufﬁciently different from that of a
+relevant component; for ACTIVE C OARSEN, so that the probability of obtaining a successful reduction of the abstraction
+is sufﬁciently large.
+The algorithms are also complementary in several respects: S TAT R EFINE is a Monte Carlo algorithm (the run-
+
+ning time is ﬁxed, but there is some probability that it does
+not ﬁnd a minimal abstraction), whereas ACTIVE C OARSEN
+is a Las Vegas algorithm (the running time is random, but
+we are guaranteed to ﬁnd a minimal abstraction). Note that
+S TAT R EFINE has an extra factor of d2 , because it implicitly tries to reason globally about all possible minimal abstractions which involve d dependent components, whereas
+ACTIVE C OARSEN tries to hone in on one minimal abstraction. In practice, we found ACTIVE C OARSEN to be more
+effective, and thus used it to obtain our empirical results.
+
+5.
+
+Site-varying k-limited Points-to Analysis
+
+We now present the static analysis (F(a) in our general notation) for the abstraction family AK (deﬁned in Section 2.2),
+which allows each allocation and call site to have a separate
+k value. Figure 4 describes the basic analysis. Each node in
+the control-ﬂow graph of each method m ∈ M is associated
+with a simple statement (e.g., v2 = v1 ). We omit statements
+that have no effect on our analysis (e.g., operations on data
+of primitive type). For simplicity, we assume each method
+has a single argument and no return value. Our actual implementation is a straightforward extension of this simpliﬁed
+analysis which handles multiple arguments, return values,
+class initializers, and objects allocated through reﬂection.
+Our analysis uses sequences of call sites (in the case of kCFA) or allocation sites (in the case of k-object-sensitivity)
+to represent method contexts. In either case, abstract objects
+are represented by an allocation site plus the context of the
+containing method in which the object was allocated. Our
+abstraction a maps each site s ∈ S to the maximum length as
+of the context or abstract object to maintain. For example, kCFA (with heap specialization) is represented by ah = k + 1
+for each allocation site h ∈ H and ai = k for each call site
+i ∈ I; k-object-sensitivity is represented by ah = k for each
+allocation site h ∈ H. The abstraction determines the input
+tuples ext(s, c, c ), where prepending s to c and truncating
+at length as yields c . For example, if ah2 = 2 then we have
+ext(h2, [i3, i7], [h2, i3]).
+Our analysis computes the reachable methods (reachM),
+reachable statements (reachP), and points-to sets of local variables (ptsV), each with the associated context; the
+context-insensitive points-to sets of static ﬁelds (ptsG) and
+heap graph (heap); and a context-sensitive call graph (cg).
+We brieﬂy describe the analysis rules in Datalog. Rule
+(1) states that the main method mmain is reachable in a distinguished context []. Rule (2) states that a target method of
+a reachable call site is also reachable. Rule (3) states that every statement in a reachable method is also reachable. Rules
+(4) through (9) implement the transfer function associated
+with each kind of statement. Rules (10a) and (10b) populate the call graph while rules (11a) and (11b) propagate the
+points-to set from the argument of a call site to the formal
+argument of each target method. Rules (10a) and (11a) are
+used in the case of k-CFA whereas rules (10b) and (11b)
+
+Algorithm
+DATALOG R EFINE
+S CAN C OARSEN
+S TAT R EFINE
+ACTIVE C OARSEN
+
+Minimal
+no
+yes
+prob. 1 − δ
+yes
+
+Correct
+yes
+yes
+prob. 1 − δ
+yes
+
+# calls to F
+O(1)
+O(|J|)
+O(sd2 (log |J| + log(s/δ))
+O(s log |J|) [in expectation]
+
+Table 1: Summary showing the two properties of Deﬁnition 1 for the four algorithms we have presented in this paper. Note
+that the two machine learning algorithms have only a logarithmic dependence on |J|, the total number of components, and a
+linear dependence on the size of the largest minimal abstraction s.
+are used in the case of k-object-sensitivity. As dictated by
+k-object-sensitivity, rule (10b) analyzes the target method m
+in a separate context o for each abstract object o to which the
+distinguished this argument of method m points, and rule
+(11b) sets the points-to set of the this argument of method
+m in context o to the singleton {o}.
+Race Detection We use the points-to information computed above to answer datarace queries of the form presented
+in (2), where we include pairs of program points corresponding to heap-accessing statements of the same ﬁeld in which
+at least one statement is a write. We implemented the static
+race detector of [14], which declares a (p1 , p2 ) pair as racing if both statements may be reachable, may access threadescaping data, may point to the same object, and may happen
+in parallel. All four components rely heavily on the contextand object-sensitive points-to analysis.
+
+6.
+
+Experiments
+
+In this section, we apply our algorithms (Sections 3 and 4)
+to the k-limited analysis for race detection (Section 5) to
+answer the main question we started out with: how small
+are minimal abstractions empirically?
+6.1
+
+Setup
+
+Our experiments were performed using IBM J9VM 1.6.0 on
+32-bit Linux machines. All the analyses (the basic k-limited
+analysis, DATALOG R EFINE, and the race detector) were implemented in Chord, an extensible program analysis framework for Java bytecode.3 The machine learning algorithms
+simply use the race detector as a black box.
+The experiments were applied to ﬁve multi-threaded Java
+benchmarks: an implementation of the Traveling Salesman Problem (tsp), a discrete event simulation program
+(elevator), a web crawler (hedc), a website downloading and mirroring tool (weblech), and a text search tool
+(lusearch).
+Table 2 provides the number of classes, number of methods, number of bytecodes of methods, and number of allocation/call sites deemed reachable by 0-CFA in these
+benchmarks. Table 3 shows the number of races (unproven
+queries) reported by the coarsest and ﬁnest abstractions.
+3 http://code.google.com/p/jchord/
+
+# classes
+167
+170
+335
+559
+627
+
+tsp
+elevator
+hedc
+weblech
+
+lusearch
+
+# methods
+635
+637
+1,965
+3,181
+3,798
+
+# bytecodes
+40K
+42K
+153K
+225K
+266K
+
+|H|
+656
+663
+1,580
+2,584
+2,873
+
+|I|
+1,721
+1,893
+7,195
+12,405
+13,928
+
+Table 2: Benchmark characteristics. |H| is the number of
+allocation sites, and |I| is the number of call sites. Together,
+these determine the number of components in the abstraction
+family |J|. For k-CFA, |J| = k(|H| + |I|); for k-objectsensitivity, |J| = (k − 1)|H|.
+a
+∅ (CFA)
+J (CFA)
+diff. (|Q|)
+∅ (OBJ)
+J (OBJ)
+diff. (|Q|)
+
+tsp
+570
+494
+76
+536
+489
+47
+
+elevator
+510
+441
+69
+475
+437
+38
+
+hedc
+21,335
+17,837
+3,498
+17,137
+16,124
+1,013
+
+weblech
+27,941
+8,208
+19,733
+8,063
+5,523
+2,540
+
+lusearch
+37,632
+31,866
+5,766
+31,428
+20,929
+10,499
+
+Table 3: Number of races (unproven queries) reported using the coarsest abstraction ∅ (0-CFA/1-object-sensitivity)
+and the ﬁnest abstraction J (2-CFA/3-object-sensitivity
+for tsp, elevator and 1-CFA/2-object-sensitivity for
+hedc, weblech, lusearch). The difference is the set of
+queries under consideration (those provable by J but not by
+∅).
+
+Their difference is the set of queries Q that we want to prove
+with a minimal abstraction.
+6.2
+
+Results
+
+Table 4 summarizes the basic results for DATALOG R EFINE
+and ACTIVE C OARSEN. While both ﬁnd abstractions which
+prove the same set of queries, ACTIVE C OARSEN obtains
+this precision using an abstraction which is minimal and an
+order of magnitude smaller than the abstraction found by
+DATALOG R EFINE, which is not guaranteed to be minimal
+(and is, in fact, far from minimal in our experiments).
+Algorithms aside, it is noteworthy in itself that very small
+abstractions exist. For example, on tsp, we can get the same
+precision as 2-CFA by essentially using a “0.01-CFA” analysis. Indeed, our static analysis using this minimal abstraction was as fast as using 0-CFA, whereas 2-CFA took significantly longer.
+
+Input relations:
+Domains:
+(method) m
+(local variable) v
+(global variable) g
+(object ﬁeld) f
+(method call site)
+i
+(allocation site) h
+(allocation/call site) s
+(statement) p
+(method context) c
+(abstract object) o
+(abstraction) a
+
+∈
+∈
+∈
+∈
+∈
+∈
+∈
+∈
+∈
+∈
+∈
+
+M = {mmain , ...}
+V
+G
+F
+I
+H
+S=H∪I
+P
+C = k≥0 Sk
+O=H×C
+AK = {0, 1, . . . }S
+
+body
+trgt
+argI
+argM
+ext
+
+⊂
+⊂
+⊂
+⊂
+⊂
+=
+
+M×P
+(method contains statement)
+I×M
+(call site resolves to method)
+I×V
+(call site’s argument variable)
+M×V
+(method’s formal argument variable)
+S × C × C (extend context with site)
+{(s, c, (s, c)[1.. min{as , 1+|c|}]) : s ∈ S, c ∈ C}
+
+Output relations:
+reachM
+reachP
+ptsV
+ptsG
+heap
+cg
+
+⊂
+⊂
+⊂
+⊂
+⊂
+⊂
+
+C×M
+C×P
+C×V×O
+G×O
+O×F×O
+C×I×C×M
+
+(reachable methods)
+(reachable statements)
+(points-to sets of local variables)
+(points-to sets of static ﬁelds)
+(heap graph)
+(call graph)
+
+p ::= v = new h | v2 = v1 | g = v | v = g | v2 .f = v1 | v2 = v1 .f | i(v)
+Rules:
+reachM([], mmain ).
+reachM(c, m)
+⇐ cg(∗, ∗, c, m).
+reachP(c, p)
+⇐ reachM(c, m), body(m, p).
+
+(1)
+(2)
+(3)
+
+ptsV(c, v, o)
+ptsV(c, v2 , o)
+ptsG(g, o)
+ptsV(c, v, o)
+heap(o2 , f, o1 )
+ptsV(c, v2 , o2 )
+
+⇐
+⇐
+⇐
+⇐
+⇐
+⇐
+
+reachP(c, v = new h), ext(h, c, o).
+reachP(c, v2 = v1 ), ptsV(c, v1 , o).
+reachP(c, g = v), ptsV(c, v, o).
+reachP(c, v = g), ptsG(g, o).
+reachP(c, v2 .f = v1 ), ptsV(c, v1 , o1 ), ptsV(c, v2 , o2 ).
+reachP(c, v2 = v1 .f ), ptsV(c, v1 , o1 ), heap(o1 , f, o2 ).
+
+cg(c1 , i, c2 , m)
+cg(c, i, o, m)
+ptsV(c2 , v2 , o)
+ptsV(c, v, c)
+
+⇐
+⇐
+⇐
+⇐
+
+reachP(c1 , i), trgt(i, m), ext(i, c1 , c2 ).
+(10a)
+reachP(c, i), trgt(i, m), argI(i, v), ptsV(c, v, o).
+(10b)
+cg(c1 , i, c2 , m), argI(i, v1 ), argM(m, v2 ), ptsV(c1 , v1 , o). (11a)
+reachM(c, m), argM(m, v).
+(11b)
+
+(4)
+(5)
+(6)
+(7)
+(8)
+(9)
+
+Figure 4: Datalog implementation of our k-limited points-to analysis with call-graph construction. Our abstraction a affects
+the analysis solely through ext, which speciﬁes that when we prepend s to c, we truncate the resulting sequence to length as .
+If we use rules (10a) and (11a), we get k-CFA; if we use (10b) and (11b), we get k-object-sensitivity.
+Query Groups Recall from Section 4.4 that to deal with
+multiple queries, we partition the queries into groups and
+ﬁnd one minimal abstraction for each group. The abstraction
+sizes reported so far are the union of the abstractions over all
+groups. We now take a closer look at the abstractions for
+individual queries in a group.
+First, Table 5 shows that the number of groups is much
+smaller than the number of queries, which means that many
+queries share the same minimal abstraction. This is intuitive
+since many queries depend on the same data and control
+properties of a program.
+Next, Figure 5 shows a histogram of the abstraction sizes
+across queries. Most queries required a tiny abstraction, only
+requiring a handful of sites to be reﬁned. For example, for
+
+object-sensitivity on hedc, over 80% of the queries require
+just a single allocation site to be reﬁned. Even the most
+demanding query requires only 9 of the 1,580 sites to be
+reﬁned. Recall that reﬁning 37 sites sufﬁces to prove all the
+queries (Table 4). For comparison, DATALOG R EFINE reﬁnes
+906 sites.
+
+7.
+
+Related Work
+
+One of the key algorithmic tools that we used to ﬁnd minimal
+abstractions is randomization. Randomization, a powerful
+idea, has been previously applied in program analysis, e.g.,
+in random testing [8] and random interpretation [6].
+
+hedc (cfa)
+
+3000
+2400
+1800
+1200
+600
+
+# queries
+
+# queries
+
+# queries
+
+tsp (cfa)
+
+40
+32
+24
+16
+8
+
+weblech (cfa)
+
+25000
+20000
+15000
+10000
+5000
+
+1 2 3 4 5 6 7 8 9
+
+1 2 3 4 5 6 7 8 9 10 11 12 13 14
+
+|a|
+
+|a|
+
+|a|
+hedc (obj)
+
+900
+720
+540
+360
+180
+
+# queries
+
+tsp (obj)
+
+45
+36
+27
+18
+9
+
+# queries
+
+# queries
+
+1 2 3 4 5 6 7 8
+
+weblech (obj)
+
+1500
+1200
+900
+600
+300
+
+1 2 3 4 5 6 7
+
+1 2 3 4 5 6 7 8 9
+
+1 2 3 4 5 6 7
+
+|a|
+
+|a|
+
+|a|
+
+Figure 5: A histogram showing for each abstraction size |a|, the number of queries that have a minimal abstraction of that size
+(for three of the ﬁve benchmarks). Note that most queries need very small abstractions (some need only one site to be reﬁned).
+
+tsp (CFA)
+tsp (OBJ)
+elevator (CFA)
+elevator (OBJ)
+hedc (CFA)
+hedc (OBJ)
+weblech (CFA)
+weblech (OBJ)
+lusearch (CFA)
+lusearch (OBJ)
+
+|J|
+4,754
+1,312
+5,112
+1,326
+8,775
+1,580
+14,989
+2,584
+16,801
+2,873
+
+DATALOG R EFINE
+3,170 (67%)
+236 (18%)
+3,541 (69%)
+291 (22%)
+7,270 (83%)
+906 (57%)
+12,737 (85%)
+1,768 (68%)
+14,864 (88%)
+2,085 (73%)
+
+Minimal
+27 (0.6%)
+7 (0.5%)
+18 (0.4%)
+6 (0.5%)
+90 (1.0%)
+37 (2.3%)
+157 (1.0%)
+48 (1.9%)
+250 (1.5%)
+56 (1.9%)
+
+Table 4: This table shows our main results. |J| is the number
+of components (the size of the ﬁnest abstraction). The next
+two columns show abstraction sizes (absolute and fraction
+of |J|) for the abstraction found by DATALOG R EFINE and
+a minimal abstraction found by ACTIVE C OARSEN. All abstractions prove the same set of queries. DATALOG R EFINE
+reﬁnes anywhere between 18%–85% of the components,
+while the minimal abstraction is an order of magnitude
+smaller (0.4%–2.3% of the components).
+
+Our approach is perhaps more closely associated with
+machine learning, although there is an important difference
+in our goals. Machine learning, as exempliﬁed by the PAC
+learning model [23], is largely concerned with prediction—
+that is, an algorithm is evaluated on how accurately it can
+learn a function that predicts well on future inputs. We are
+instead concerned with ﬁnding the smallest input on which
+a function evaluates to 0. As a result, many of the results, for
+example on learning monotone DNF formulae [1], are not
+directly applicable, though many of the bounding techniques
+used are similar.
+
+tsp (CFA)
+tsp (OBJ)
+elevator (CFA)
+elevator (OBJ)
+hedc (CFA)
+hedc (OBJ)
+weblech (CFA)
+weblech (OBJ)
+lusearch (CFA)
+lusearch (OBJ)
+
+# groups
+10
+5
+6
+4
+63
+43
+79
+49
+140
+72
+
+min.
+1
+1
+3
+1
+1
+1
+1
+1
+1
+1
+
+mean.
+8
+9
+12
+10
+56
+24
+250
+52
+41
+146
+
+max.
+26
+22
+22
+18
+546
+300
+17,164
+899
+1,346
+5,104
+
+Table 5: Recall that our learning algorithms group the
+queries (Section 4.4) so that all the queries in one group
+share the same minimal abstraction. The minimum, mean,
+and maximum size of a group is reported. In all cases, there
+is large spread of the number of queries in a group.
+
+One of the key properties that our approach exploited was
+sparsity—that only a small subset of the components of the
+abstraction actually matters for proving the desired query.
+This enabled us to use a logarithmic rather than linear number of examples. Sparsity is one of the main themes in machine learning, signal processing, and statistics. For example, in the area of compressed sensing [4], one also needs
+a logarithmic number of linear measurements to recover a
+sparse signal.
+Past research in program analysis, and pointer analysis speciﬁcally, has proposed various ways to reduce the
+cost of the analysis while still providing accurate results.
+Parametrization frameworks provide a mechanism for the
+user to control the tradeoff between cost and precision of the
+analysis. Client-driven approaches are capable of computing
+an exhaustive solution of varying precision while demand-
+
+driven approaches are capable of computing a partial solution of ﬁxed precision. Below we expand upon each of these
+topics in relation to our work.
+Milanova et al. [12, 13] present a parametrized framework for a k-object-sensitive points-to analysis, where each
+local variable can be separately treated context-sensitively or
+context-insensitively, and different k values can be chosen
+for different allocation sites. Instantiations of the framework
+using k=1 and k=2 are evaluated on side-effect analysis, callgraph construction and virtual-call resolution, and are shown
+to be signiﬁcantly more precise than 1-CFA while being
+comparable to 0-CFA in performance, if not better. Lhot´ k
+a
+and Hendren [10, 11] present Paddle, a parametrized framework for BDD-based, k-limited alias analysis. They empirically evaluate various instantiations of Paddle, including
+conventional k-CFA, k-object-sensitivity and k-CFA with
+heap cloning, on the monomorphic-call-site and cast-safety
+clients, as well as using traditional metrics, and show that
+k-object-sensitivity is superior to other approaches both in
+performance and in precision.
+Plevyak and Chien [15] use a reﬁnement-based algorithm
+to determine the concrete types of objects in programs written in the Concurrent Aggregates object-oriented language.
+When imprecision in the analysis causes a type conﬂict,
+the algorithm can improve context sensitivity by performing
+function splitting, and object sensitivity through container
+splitting, which divides object creation sites and thus enables the creation of objects of different types at a single site.
+In a more recent study, Sridharan and Bodik [21] present a
+demand-driven, reﬁnement-based alias analysis for Java, and
+apply it to a cast-safety client. Their algorithm computes an
+overapproximation of the points-to relation, which is successively reﬁned in response to client demand. At each stage of
+reﬁnement, the algorithm simultaneously reﬁnes handling of
+heap accesses and method calls along paths, establishing the
+points-to sets of variables that are relevant for evaluating the
+client’s query.
+Guyer and Lin [7] present a client-driven pointer analysis
+for C that adjusts its precision in response to inaccuracies in
+the client analysis. Their analysis is a two-pass algorithm: In
+the ﬁrst pass, a low-precision pointer analysis is run to detect
+which statements lead to imprecision in the client analysis;
+based on this information, a ﬁne-grained precision policy is
+built for the second pass, which treats these statements with
+greater context and ﬂow sensitivity. This is similar to our
+DATALOG R EFINE in spirit, but DATALOG R EFINE is more
+general.
+In contrast to client-driven analyses, which compute an
+exhaustive solution of varying precision, demand-driven
+approaches compute a partial solution of ﬁxed precision.
+Heintze and Tardieu’s demand-driven alias analysis for C [9]
+performs a provably optimal computation to determine the
+points-to sets of variables queried by the client. Their analysis is applied to call-graph construction in the presence of
+
+function pointers. A more recent alias analysis developed by
+Zheng and Rugina [27] uses a demand-driven algorithm that
+is capable of answering alias queries without constructing
+points-to sets.
+Reps [16, 17] shows how to automatically obtain demanddriven versions of program analyses from their exhaustive
+counterparts by applying the “magic-sets transformation”
+developed in the logic-programming and deductive-database
+communities. The exhaustive analysis is expressed in Datalog, akin to that in our DATALOG R EFINE approach, but
+unlike us, they are interested in answering speciﬁc queries
+of interest in the program being analyzed as opposed to all
+queries. For instance, while we are interested in ﬁnding all
+pairs of points (p1 , p2 ) in a given program that may be involved in a race, they may be interested in ﬁnding all points
+that may be involved in a race with the statement at point
+p42 in the given program. The magic-set transformation
+takes as input a Datalog program which performs the exhaustive analysis along with a set of speciﬁed queries. It
+produces as output the demand-driven version of the analysis, also in Datalog, but which eliminates computation from
+the original analysis that is unnecessary for evaluating the
+speciﬁed queries. In contrast, our transformation takes as
+input a parametrized analysis expressed in Datalog and produces as output another analysis, also in Datalog, whose goal
+is to compute all possible parameters that may affect the output of the original analysis, for instance, all possible sites in
+a given program whose small k values may be responsible
+for a set of races being reported by the original analysis.
+
+8.
+
+Conclusion
+
+We started this study with a basic question: what is the
+minimal abstraction needed to prove a set of queries of
+interest? To answer this question, we developed two machine
+learning algorithms and applied them to ﬁnd minimal k
+values of call/allocation sites for a static race detector. The
+key theme in this work is sparsity, the property that very few
+components of an abstraction are needed to prove a query.
+The ramiﬁcations are two-fold: Theoretically, we show that
+our algorithms are efﬁcient under sparsity; empirically, we
+found that the minimal abstractions are quite small—only
+0.4–2.3% of the sites are needed to prove all the queries of
+interest.
+
+A.
+
+Proofs
+
+Proof of Theorem 2. Note that the algorithm will run for at
+most s iterations, where s is the size of the largest minimal
+abstraction. If we set n so that S TAT R EFINE chooses a dependent component each iteration with probability at least
+1 − δ/s, then the algorithm will succeed with probability at
+least 1 − δ (by a union bound).
+Let us now focus on one iteration. The main idea is that a
+dependent component j is more correlated with proving the
+query (F(a) = 0) than one that is independent. This enables
+
+picking it out with high probability given sufﬁciently large
+n.
+Recall that D is the set of dependent components with
+|D| = d. Fix a dependent component j + ∈ D. Let Bj −
+be the event that nj − > nj + , and B be the event that Bj −
+holds for any independent component j − ∈ J\D. Note that
+if B does not happen, then the algorithm will correctly pick
+a dependent component (possibly j + ). Thus, the main focus
+is on showing that P (B) ≤ δ/s. First, by a union bound, we
+have
+P (Bj − ) ≤ |J| max P (Bj − ).
+
+P (B) ≤
+
+(9)
+
+j−
+
+j−
+
+For each training example a(i) , deﬁne Xi = (1 −
+(i)
+(i)
+F(a(i) ))(aj − − aj + ). Observe that Bj − happens exactly
+n
+1
+1
+when n (nj − − nj + ) = n i=1 Xi > 0. We now bound this
+quantity using Hoeffding’s inequality,4 where the mean is
+E[Xi ] = p(F(a) = 0, aj − = 1) − p(F(a) = 0, aj + = 1),
+and the bounds are a = −1 and b = +1. Setting
+−E[Xi ], we get:
+p(Bj − ) ≤ e−n
+
+2
+
+/2
+
+,
+
+j + ∈ D, j − ∈ D.
+
+=
+
+(10)
+
+Substituting (10) into (9) and rearranging terms, we can
+solve for n:
+δ/s ≤ |J|e−n
+
+2
+
+/2
+
+⇒ n≥
+
+2(log |J| + log(s/δ))
+2
+
+.
+
+(11)
+
+1
+term has an additional factor of α because conditioning
+divides by p(aj + = 1) = α. The second term is unchanged
+because no c ∈ Cj + depends on aj + . Plugging these two
+results back into (12) yields:
+
+= (1 − α)p(F(a; Cj + ) = 0, F(a; C\Cj + ) = 1).
+
+Now we want to lower bound (14) over all possible F
+(equivalently, C), where j + is allowed to depend on C. It
+turns out that the worst possible C is obtained by either
+having d disjoint clauses (C = {{j} : j ∈ D}) or one
+clause (C = {D} if s = d). The intuition is that if C has
+d clauses, there are many opportunities (d − 1 of them) for
+some c ∈ Cj + to activate, making it hard to realize that j +
+is a dependent component; in this case, = (1 − α)α(1 −
+α)d−1 . If C has one clause, then it is very hard (probability
+αd ) to even activate this clause; in this case, = (1 − α)αd .
+Let us focus on the case where C has d clauses. We
+can maximize with respect to α by setting the derivative
+1
+d
+dα = 0 and solving for α. Doing this yields α = d+1 as the
+optimal value. Plugging this value back into the expression
+1
+d
+for , we get that = d+1 ( d+1 )d . The second factor can
+−1
+−2
+be lower bounded by e , so
+= O(d2 ). Combining this
+with (11) completes the proof.
+Proof of Theorem 3. Let T (aU ) be the expected number of
+calls that ACTIVE C OARSEN(aU ) makes to F. The recursive
+computation of this quantity parallels the pseudocode of
+Figure 3:
+T (aU )
+
+Now it remains to lower bound , which intuitively represents the gap (in the amount of correlation with proving the
+query) between a dependent component and an independent
+one. Note that p(aj = 1) = α for any j ∈ J. Also, j − is independent of F(a), so p(F(a) = 0 | aj − = 1) = p(F(a) =
+0). Using these two facts, we have:
+= α(p(F(a) = 0 | aj + = 1) − p(F(a) = 0)).
+
+(12)
+
+Let C be the set of minimal abstractions of F. We can
+think of C as a set of clauses in a DNF formula: F(a; C) =
+¬ c∈C j∈c aj , where we explicitly mark the dependence
+of F on the clauses C. For example, C = {{1, 2}, {3}}
+corresponds to F(a) = ¬[(a1 ∧ a2 ) ∨ a3 ]. Next, let Cj =
+{c ∈ C : j ∈ c} be the clauses containing j. Rewrite
+p(F(a) = 0) as the sum of two parts, one that depends on
+j + and one that does not:
+p(F(a) = 0) = p(F(a; Cj + ) = 0, F(a; C\Cj + ) = 1)+
+p(F(a; C\Cj + ) = 0).
+
+(13)
+
+Computing p(F(a) = 0 | aj + = 1) is similar; the only
+difference due to conditioning on aj + = 1 is that the ﬁrst
+4 Hoeffding’s
+
+inequality: if X1 , . . . , Xn are i.i.d. random variablesowith
+n
+2n 2
+1 P
+a ≤ Xi ≤ b, then p( n n Xi > E[Xi ] + ) ≤ exp − (b−a)2 .
+i=1
+
+(14)
+
+=
+
+(15)
+
+|aU |
+if |aU | ≤ s + 1
+U
+1+E[(1−F(a))T (a)+F(a)T (a )] otherwise,
+
+where a ← S AMPLE(∅, aU ) is a random binary vector. By
+assumption, there exists an abstraction a∗
+aU of size s
+∗
+that proves the query. Deﬁne G(a) = ¬(a
+a), which
+is 0 when all components in a∗ are active under the random
+a. We have p(G(a) = 0) = p(a∗
+a) = αs . Note that
+∗
+G(a) ≥ F(a), as activating a sufﬁces to prove the query.
+We assume T (a) ≤ T (aU ) (T is monotonic), so we get an
+upper bound by replacing F with G and performing some
+algebra:
+T (aU ) ≤ 1 + E[(1 − G(a))T (a) + G(a)T (aU )]
+s
+
+≤ 1 + α E[T (a) | a
+∗
+
+≤ E[T (a) | a
+
+∗
+
+a] + α
+
+s
+
+(16)
+U
+
+a] + (1 − α )T (a ) (17)
+−s
+
+.
+
+(18)
+
+Overloading notation, we write T (n) = max|a|=n T (a) to
+be the maximum over abstractions of size n. Note that |a|
+given a∗
+a is s plus a binomial random variable N with
+expectation α(n − s).
+Using the crude bound T (n) ≤ (1 − αn )T (n − 1) +
+α−s
+n
+α T (n)α−s , we see that T (n) ≤ 1−αn · n; in particular, T (n) is sublinear. Moreover, T (n) is concave for large
+
+enough n, so we can use Jensen’s inequality to swap T and
+E:
+T (n) ≤ T (E[s + N ]) + α−s = T (s + α(n − s)) + α−s .
+(19)
+Solving the recurrence, we obtain:
+T (n) ≤
+
+α−s log n
++ s + 1.
+log α−1
+
+(20)
+
+From (20), we can see the tradeoff between reducing the
+number of iterations (by increasing log α−1 ) versus reducing
+the number of trials (by decreasing α−s ).
+We now set α to minimize the upper bound. Differentiate
+with respect to x = α−1 and set the derivative to zero:
+xs−1
+sxs−1
+−1/s
+.
+log x − log2 x = 0. Solving this equation yields α = e
+Plugging this value back into (20) yields T (n) = es log n +
+s + 1 = O(s log n).
+
+References
+[1] D. Angluin. Queries and concept learning. Machine Learning,
+2(4):319–342, 1988.
+[2] T. Ball and S. Rajamani. The SLAM project: debugging system software via static analysis. In Proceedings of ACM Symp.
+on Principles of Programming Languages (POPL), pages 1–3,
+2002.
+
+[13] A. Milanova, A. Rountev, and B. Ryder. Parameterized object
+sensitivity for points-to analysis for Java. ACM Transactions
+on Software Engineering and Methodology, 14(1):1–41, 2005.
+[14] M. Naik, A. Aiken, and J. Whaley. Effective static race detection for Java. In Proceedings of ACM Conf. on Programming
+Language Design and Implementation (PLDI), pages 308–
+319.
+[15] J. Plevyak and A. Chien. Precise concrete type inference
+for object-oriented languages. In Proceedings of ACM Conf.
+on Object-Oriented Programming, Systems, Languages, and
+Applications, pages 324–340.
+[16] T. W. Reps. Demand interprocedural program analysis using
+logic databases. In Workshop on Programming with Logic
+Databases, pages 163–196, 1993.
+[17] T. W. Reps. Solving demand versions of interprocedural
+analysis problems. In Proceedings of Intl. Conf. on Compiler
+Construction, pages 389–403, 1994.
+[18] H. Robbins and S. Monro. A stochastic approximation
+method. Annals of Mathematical Statistics, 22(3):400–407,
+1951.
+[19] M. Sagiv, T. W. Reps, and R. Wilhelm. Parametric shape analysis via 3-valued logic. ACM Transactions on Programming
+Languages and Systems, 24(3):217–298, 2002.
+[20] O. Shivers. Control-ﬂow analysis in Scheme. In Proceedings
+of ACM Conf. on Programming Language Design and Implementation (PLDI), pages 164–174, 1988.
+
+[3] T. Ball, R. Majumdar, T. Millstein, and S. Rajamani. Automatic predicate abstraction of C programs. In Proceedings
+of ACM Conf. on Programming Language Design and Implementation (PLDI), pages 203–213, 2001.
+
+[21] M. Sridharan and R. Bod´k. Reﬁnement-based contextı
+sensitive points-to analysis for Java. In Proceedings of ACM
+Conf. on Programming Language Design and Implementation, pages 387–400, 2006.
+
+[4] D. Donoho. Compressed sensing. IEEE Trans. on Information
+Theory, 52(4):1289–1306, 2006.
+[5] S. Graf and H. Saidi. Construction of abstract state graphs
+with PVS. pages 72–83, 1997.
+
+[22] M. Sridharan, D. Gopan, L. Shan, and R. Bod´k. Demandı
+driven points-to analysis for Java. In Proceedings of ACM
+Conf. on Object-Oriented Programming, Systems, Languages,
+and Applications, pages 59–76, 2005.
+
+[6] S. Gulwani. Program Analysis using Random Interpretation.
+PhD thesis, UC Berkeley, 2005.
+
+[23] L. Valiant. A theory of the learnable. Communications of the
+ACM, 27(11):1134–1142, 1984.
+
+[7] S. Guyer and C. Lin. Client-driven pointer analysis. In
+Proceedings of Intl. Static Analysis Symposium, pages 214–
+236, 2003.
+
+[24] M. J. Wainwright.
+Sharp thresholds for noisy and
+high-dimensional recovery of sparsity using 1 -constrained
+quadratic programming (lasso). IEEE Transactions on Information Theory, 55:2183–2202, 2009.
+
+[8] D. Hamlet. Random testing. In Encyclopedia of Software
+Engineering, pages 970–978, 1994.
+[9] N. Heintze and O. Tardieu. Demand-driven pointer analysis.
+In Proceedings of ACM Conf. on Programming Language
+Design and Implementation (PLDI), pages 24–34, 2001.
+[10] O. Lhot´ k and L. Hendren. Context-sensitive points-to anala
+ysis: is it worth it? In Proceedings of Intl. Conf. on Compiler
+Construction, pages 47–64, 2006.
+[11] O. Lhot´ k and L. Hendren. Evaluating the beneﬁts of contexta
+sensitive points-to analysis using a BDD-based implementation. ACM Transactions on Software Engineering and
+Methodology, 18(1):1–53, 2008.
+[12] A. Milanova, A. Rountev, and B. Ryder. Parameterized object
+sensitivity for points-to and side-effect analyses for Java. In
+Proceedings of ACM Intl. Symp. on Software Testing and
+Analysis, pages 1–11, 2002.
+
+[25] J. Whaley. Context-Sensitive Pointer Analysis using Binary
+Decision Diagrams. PhD thesis, Stanford University, 2007.
+[26] J. Whaley and M. Lam. Cloning-based context-sensitive
+pointer alias analysis using binary decision diagrams. In Proceedings of ACM Conf. on Programming Language Design
+and Implementation (PLDI), pages 131–144, 2004.
+[27] X. Zheng and R. Rugina. Demand-driven alias analysis for C.
+In Proceedings of ACM Symp. on Principles of Programming
+Languages (POPL), pages 197–208, 1998.
+
+

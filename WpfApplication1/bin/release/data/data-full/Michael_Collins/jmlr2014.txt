@@ -1,0 +1,4527 @@
+Journal of Machine Learning Research 15 (2014) 1-48
+
+Submitted 1/14; Published 6/14
+
+Spectral Learning of Latent-Variable PCFGs: Algorithms
+and Sample Complexity
+Shay B. Cohen
+
+scohen@inf.ed.ac.uk
+
+School of Informatics
+University of Edinburgh
+Edinburgh, EH8 9LE, UK
+
+Karl Stratos
+Michael Collins
+
+stratos@cs.columbia.edu
+mcollins@cs.columbia.edu
+
+Department of Computer Science
+Columbia University
+New York, NY 10027, USA
+
+Dean P. Foster
+
+dean@foster.net
+
+Yahoo! Labs
+New York, NY 10018, USA
+
+Lyle Ungar
+
+ungar@cis.upenn.edu
+
+Department of Computer and Information Science
+University of Pennsylvania
+Philadelphia, PA 19104, USA
+
+Editor: Alexander Clark
+
+Abstract
+We introduce a spectral learning algorithm for latent-variable PCFGs (Matsuzaki et al.,
+2005; Petrov et al., 2006). Under a separability (singular value) condition, we prove that
+the method provides statistically consistent parameter estimates. Our result rests on three
+theorems: the ﬁrst gives a tensor form of the inside-outside algorithm for PCFGs; the
+second shows that the required tensors can be estimated directly from training examples
+where hidden-variable values are missing; the third gives a PAC-style convergence bound
+for the estimation method.
+Keywords: latent-variable PCFGs, spectral learning algorithms
+
+1. Introduction
+Statistical models with hidden or latent variables are of great importance in natural language
+processing, speech, and many other ﬁelds. The EM algorithm is a remarkably successful
+method for parameter estimation within these models: it is simple, it is often relatively
+eﬃcient, and it has well understood formal properties. It does, however, have a major
+limitation: it has no guarantee of ﬁnding the global optimum of the likelihood function.
+From a theoretical perspective, this means that the EM algorithm is not guaranteed to give
+statistically consistent parameter estimates. From a practical perspective, problems with
+local optima can be diﬃcult to deal with.
+c 2014 Shay B. Cohen, Karl Stratos, Michael Collins, Dean P. Foster and Lyle Ungar.
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+Recent work has introduced a polynomial-time learning algorithm for an important case
+of hidden-variable models: hidden Markov models (Hsu et al., 2009). This algorithm uses
+a spectral method: that is, an algorithm based on eigenvector decompositions of linear
+systems, in particular singular value decomposition (SVD). In the general case, learning
+of HMMs is intractable (e.g., see Terwijn, 2002). The spectral method ﬁnesses the problem of intractability by assuming separability conditions. More precisely, the algorithm of
+Hsu et al. (2009) has a sample complexity that is polynomial in 1{σ, where σ is the minimum singular value of an underlying decomposition. The HMM learning algorithm is not
+susceptible to problems with local maxima.
+In this paper we derive a spectral algorithm for learning of latent-variable PCFGs (LPCFGs) (Petrov et al., 2006; Matsuzaki et al., 2005). L-PCFGs have been shown to be
+a very eﬀective model for natural language parsing. Under a condition on singular values
+in the underlying model, our algorithm provides consistent parameter estimates; this is in
+contrast with previous work, which has used the EM algorithm for parameter estimation,
+with the usual problems of local optima.
+The parameter estimation algorithm (see Figure 7) is simple and eﬃcient. The ﬁrst step
+is to take an SVD of the training examples, followed by a projection of the training examples
+down to a low-dimensional space. In a second step, empirical averages are calculated on
+the training examples, followed by standard matrix operations. On test examples, tensorbased variants of the inside-outside algorithm (Figures 4 and 5) can be used to calculate
+probabilities and marginals of interest.
+Our method depends on the following results:
+• Tensor form of the inside-outside algorithm. Section 6.1 shows that the inside-outside
+algorithm for L-PCFGs can be written using tensors and tensor products. Theorem 3
+gives conditions under which the tensor form calculates inside and outside terms
+correctly.
+• Observable representations. Section 7.2 shows that under a singular-value condition,
+there is an observable form for the tensors required by the inside-outside algorithm.
+By an observable form, we follow the terminology of Hsu et al. (2009) in referring to
+quantities that can be estimated directly from data where values for latent variables
+are unobserved. Theorem 6 shows that tensors derived from the observable form
+satisfy the conditions of Theorem 3.
+• Estimating the model. Section 8 gives an algorithm for estimating parameters of the
+observable representation from training data. Theorem 8 gives a sample complexity
+?
+result, showing that the estimates converge to the true distribution at a rate of 1{ M
+where M is the number of training examples.
+The algorithm is strikingly diﬀerent from the EM algorithm for L-PCFGs, both in its
+basic form, and in its consistency guarantees. The techniques developed in this paper are
+quite general, and should be relevant to the development of spectral methods for estimation
+in other models in NLP, for example alignment models for translation, synchronous PCFGs,
+and so on. The tensor form of the inside-outside algorithm gives a new view of basic
+calculations in PCFGs, and may itself lead to new models.
+2
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+In this paper we derive the basic algorithm, and the theory underlying the algorithm.
+In a companion paper (Cohen et al., 2013), we describe experiments using the algorithm to
+learn an L-PCFG for natural language parsing. In these experiments the spectral algorithm
+gives models that are as accurate as the EM algorithm for learning in L-PCFGs. It is
+signiﬁcantly more eﬃcient than the EM algorithm on this problem (9h52m of training time
+vs. 187h12m), because after an SVD operation it requires a single pass over the data,
+whereas EM requires around 20-30 passes before converging to a good solution.
+
+2. Related Work
+The most common approach for statistical learning of models with latent variables is the
+expectation-maximization (EM) algorithm (Dempster et al., 1977). Under mild conditions,
+the EM algorithm is guaranteed to converge to a local maximum of the log-likelihood
+function. This is, however, a relatively weak guarantee; there are in general no guarantees
+of consistency for the EM algorithm, and no guarantees of sample complexity, for example
+within the PAC framework (Valiant, 1984). This has led a number of researchers to consider
+alternatives to the EM algorithm, which do have PAC-style guarantees.
+One focus of this work has been on the problem of learning Gaussian mixture models.
+In early work, Dasgupta (1999) showed that under separation conditions for the underlying
+Gaussians, an algorithm with PAC guarantees can be derived. For more recent work in this
+area, see for example Vempala and Wang (2004), and Moitra and Valiant (2010). These
+algorithms avoid the issues of local maxima posed by the EM algorithm.
+Another focus has been on spectral learning algorithms for hidden Markov models
+(HMMs) and related models. This work forms the basis for the L-PCFG learning algorithms described in this paper. This line of work started with the work of Hsu et al. (2009),
+who developed a spectral learning algorithm for HMMs which recovers an HMM’s parameters, up to a linear transformation, using singular value decomposition and other simple
+matrix operations. The algorithm builds on the idea of observable operator models for
+HMMs due to Jaeger (2000). Following the work of Hsu et al. (2009), spectral learning
+algorithms have been derived for a number of other models, including ﬁnite state transducers (Balle et al., 2011); split-head automaton grammars (Luque et al., 2012); reduced rank
+HMMs in linear dynamical systems (Siddiqi et al., 2010); kernel-based methods for HMMs
+(Song et al., 2010); and tree graphical models (Parikh et al., 2011; Song et al., 2011). There
+are also spectral learning algorithms for learning PCFGs in the unsupervised setting (Bailly
+et al., 2013).
+Foster et al. (2012) describe an alternative algorithm to that of Hsu et al. (2009) for
+learning of HMMs, which makes use of tensors. Our work also makes use of tensors, and
+is closely related to the work of Foster et al. (2012); it is also related to the tensor-based
+approaches for learning of tree graphical models described by Parikh et al. (2011) and Song
+et al. (2011). In related work, Dhillon et al. (2012) describe a tensor-based method for
+dependency parsing.
+Bailly et al. (2010) describe a learning algorithm for weighted (probabilistic) tree automata that is closely related to our own work. Our approach leverages functions φ and
+ψ that map inside and outside trees respectively to feature vectors (see Section 7.2): for
+example, φptq might track the context-free rule at the root of the inside tree t, or features
+3
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+corresponding to larger tree fragments. Cohen et al. (2013) give deﬁnitions of φ and ψ
+used in parsing experiments with L-PCFGs. In the special case where φ and ψ are identity
+functions, specifying the entire inside or outside tree, the learning algorithm of Bailly et al.
+(2010) is the same as our algorithm. However, our work diﬀers from that of Bailly et al.
+(2010) in several important respects. The generalization to allow arbitrary functions φ and
+ψ is important for the success of the learning algorithm, in both a practical and theoretical
+sense. The inside-outside algorithm, derived in Figure 5, is not presented by Bailly et al.
+(2010), and is critical in deriving marginals used in parsing. Perhaps most importantly, the
+analysis of sample complexity, given in Theorem 8 of this paper, is much tighter than the
+sample complexity bound given by Bailly et al. (2010). The sample complexity bound in
+theorem 4 of Bailly et al. (2010) suggests that the number of samples required to obtain
+|ˆptq ´ pptq| ď for some tree t of size N , and for some value , is exponential in N . In
+p
+ř
+contrast, we show that the number of samples required to obtain t |ˆptq ´ pptq| ď where
+p
+the sum is over all trees of size N is polynomial in N . Thus our bound is an improvement
+in a couple of ways: ﬁrst, it applies to a sum over all trees of size N , a set of exponential
+size; second, it is polynomial in N .
+Spectral algorithms are inspired by the method of moments, and there are latent-variable
+learning algorithms that use the method of moments, without necessarily resorting to spectral decompositions. Most relevant to this paper is the work in Cohen and Collins (2014)
+for estimating L-PCFGs, inspired by the work by Arora et al. (2013).
+
+3. Notation
+Given a matrix A or a vector v, we write AJ or v J for the associated transpose. For any
+integer n ě 1, we use rns to denote the set t1, 2, . . . nu.
+We use Rmˆ1 to denote the space of m-dimensional column vectors, and R1ˆm to denote
+the space of m-dimensional row vectors. We use Rm to denote the space of m-dimensional
+vectors, where the vector in question can be either a row or column vector. For any row or
+column vector y P Rm , we use diagpyq to refer to the pm ˆ mq matrix with diagonal elements
+equal to yh for h “ 1 . . . m, and oﬀ-diagonal elements equal to 0. For any statement Γ, we
+use vΓw to refer to the indicator function that is 1 if Γ is true, and 0 if Γ is false. For a
+random variable X, we use ErXs to denote its expected value.
+We will make use of tensors of rank 3:
+Deﬁnition 1 A tensor C P Rpmˆmˆmq is a set of m3 parameters Ci,j,k for i, j, k P rms.
+Given a tensor C, and vectors y 1 P Rm and y 2 P Rm , we deﬁne Cpy 1 , y 2 q to be the mdimensional row vector with components
+ÿ
+1 2
+rCpy 1 , y 2 qsi “
+Ci,j,k yj yk .
+jPrms,kPrms
+
+Hence C can be interpreted as a function C : Rm ˆ Rm Ñ R1ˆm that maps vectors y 1 and
+y 2 to a row vector Cpy 1 , y 2 q P R1ˆm .
+In addition, we deﬁne the tensor Cp1,2q P Rpmˆmˆmq for any tensor C P Rpmˆmˆmq to
+be the function Cp1,2q : Rm ˆ Rm Ñ Rmˆ1 deﬁned as
+ÿ
+1 2
+rCp1,2q py 1 , y 2 qsk “
+Ci,j,k yi yj .
+iPrms,jPrms
+
+4
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+Similarly, for any tensor C we deﬁne Cp1,3q : Rm ˆ Rm Ñ Rmˆ1 as
+ÿ
+1 2
+rCp1,3q py 1 , y 2 qsj “
+Ci,j,k yi yk .
+iPrms,kPrms
+
+Note that Cp1,2q py 1 , y 2 q and Cp1,3q py 1 , y 2 q are both column vectors.
+For vectors x, y, z P Rm , xy J z J is the tensor D P Rmˆmˆm where Di,j,k “ xi yj zk (this
+is analogous to the outer product: rxy J si,j “ xi yj ).
+We use || . . . ||F to refer to the Frobenius norm for matrices or tensors: for a matrix A,
+bř
+bř
+2
+||A||F “
+pAi,j q2 , for a tensor C, ||C||F “
+i,j
+i,j,k pCi,j,k q . For a matrix A we use
+||A||2,o to refer to the operator (spectral) norm, ||A||2,o “ maxx‰0 ||Ax||2 {||x||2 .
+
+4. L-PCFGs
+In this section we describe latent-variable PCFGs (L-PCFGs), as used for example by
+Matsuzaki et al. (2005) and Petrov et al. (2006). We ﬁrst give the basic deﬁnitions for
+L-PCFGs, and then describe the underlying motivation for them.
+4.1 Basic Deﬁnitions
+An L-PCFG is an 8-tuple pN , I, P, m, n, t, q, πq where:
+• N is the set of non-terminal symbols in the grammar. I Ă N is a ﬁnite set of interminals. P Ă N is a ﬁnite set of pre-terminals. We assume that N “ I Y P, and
+I X P “ H. Hence we have partitioned the set of non-terminals into two subsets.
+• rms is the set of possible hidden states.
+• rns is the set of possible words.
+• For all a P I, b P N , c P N , h1 , h2 , h3 P rms, we have a context-free rule aph1 q Ñ
+bph2 q cph3 q.
+• For all a P P, h P rms, x P rns, we have a context-free rule aphq Ñ x.
+• For all a P I, b, c P N , and h1 , h2 , h3 P rms, we have a parameter tpa Ñ b c, h2 , h3 |h1 , aq.
+• For all a P P, x P rns, and h P rms, we have a parameter qpa Ñ x|h, aq.
+• For all a P I and h P rms, we have a parameter πpa, hq which is the probability of
+non-terminal a paired with hidden variable h being at the root of the tree.
+Note that each in-terminal a P I is always the left-hand-side of a binary rule a Ñ b c;
+and each pre-terminal a P P is always the left-hand-side of a rule a Ñ x. Assuming that the
+non-terminals in the grammar can be partitioned this way is relatively benign, and makes
+the estimation problem cleaner.
+For convenience we deﬁne the set of possible “skeletal rules” as R “ ta Ñ b c : a P I, b P
+N , c P N u.
+5
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+r1
+r2
+r3
+r4
+r5
+r6
+r7
+
+S1
+NP2
+
+VP5
+
+D3
+
+N4
+
+V6
+
+P7
+
+the
+
+dog
+
+saw
+
+him
+
+“
+“
+“
+“
+“
+“
+“
+
+S Ñ NP VP
+NP Ñ D N
+D Ñ the
+N Ñ dog
+VP Ñ V P
+V Ñ saw
+P Ñ him
+
+Figure 1: s-tree, and its sequence of rules. (For convenience we have numbered the nodes
+in the tree.)
+
+These deﬁnitions give a PCFG, with rule probabilities
+ppaph1 q Ñ bph2 q cph3 q|aph1 qq “ tpa Ñ b c, h2 , h3 |h1 , aq,
+and
+ppaphq Ñ x|aphqq “ qpa Ñ x|h, aq.
+Remark 2 In the previous paper on this work (Cohen et al., 2012), we considered an LPCFG model where
+ppaph1 q Ñ bph2 q cph3 q|aph1 qq “ ppa Ñ b c|h1 , aq ˆ pph2 |h1 , a Ñ b cq ˆ pph3 |h1 , a Ñ b cq
+In this model the random variables h2 and h3 are assumed to be conditionally independent
+given h1 and a Ñ b c.
+In this paper we consider a model where
+ppaph1 q Ñ bph2 q cph3 q|aph1 qq “ tpa Ñ b c, h2 , h3 , |h1 , aq.
+
+(1)
+
+That is, we do not assume that the random variables h2 and h3 are independent when
+conditioning on h1 and a Ñ b c. This is also the model considered by Matsuzaki et al.
+(2005) and Petrov et al. (2006).
+Note however that the algorithms in this paper are the same as those in Cohen et al.
+(2012): we have simply proved that the algorithms give consistent estimators for the model
+form in Eq. 1.
+As in usual PCFGs, the probability of an entire tree is calculated as the product of its
+rule probabilities. We now give more detail for these calculations.
+An L-PCFG deﬁnes a distribution over parse trees as follows. A skeletal tree (s-tree) is
+a sequence of rules r1 . . . rN where each ri is either of the form a Ñ b c or a Ñ x. The
+rule sequence forms a top-down, left-most derivation under a CFG with skeletal rules. See
+Figure 1 for an example.
+A full tree consists of an s-tree r1 . . . rN , together with values h1 . . . hN . Each hi is the
+value for the hidden variable for the left-hand-side of rule ri . Each hi can take any value in
+rms.
+6
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+Deﬁne ai to be the non-terminal on the left-hand-side of rule ri . For any i P rN s such
+p2q
+that ai P I (i.e., ai is an in-terminal, and rule ri is of the form a Ñ b c) deﬁne hi to be the
+p3q
+hidden variable value associated with the left child of the rule ri , and hi to be the hidden
+variable value associated with the right child. The probability mass function (PMF) over
+full trees is then
+ź
+ź
+p2q p3q
+tpri , hi , hi |hi , ai q ˆ
+ppr1 . . . rN , h1 . . . hN q “ πpa1 , h1 q ˆ
+qpri |hi , ai q.
+(2)
+i:ai PI
+
+i:ai PP
+
+ř
+The PMF over s-trees is ppr1 . . . rN q “ h1 ...hN ppr1 . . . rN , h1 . . . hN q.
+In the remainder of this paper, we make use of a matrix form of parameters of an
+L-PCFG, as follows:
+• For each a Ñ b c P R, we deﬁne T aÑb c P Rmˆmˆm to be the tensor with values
+aÑb c
+Th1 ,h2 ,h3 “ tpa Ñ b c, h2 , h3 |a, h1 q.
+
+• For each a P P, x P rns, we deﬁne qaÑx P R1ˆm to be the row vector with values
+rqaÑx sh “ qpa Ñ x|h, aq
+for h “ 1, 2, . . . m.
+‚ For each a P I, we deﬁne the column vector π a P Rmˆ1 where rπ a sh “ πpa, hq.
+4.2 Application of L-PCFGs to Natural Language Parsing
+L-PCFGs have been shown to be a very useful model for natural language parsing (Matsuzaki et al., 2005; Petrov et al., 2006). In this section we describe the basic approach.
+We assume a training set consisting of sentences paired with parse trees, which are
+similar to the skeletal tree shown in Figure 1. A naive approach to parsing would simply
+read oﬀ a PCFG from the training set: the resulting grammar would have rules such as
+S Ñ NP VP
+NP Ñ D N
+VP Ñ V NP
+D Ñ the
+N Ñ dog
+and so on. Given a test sentence, the most likely parse under the PCFG can be found using
+dynamic programming algorithms.
+Unfortunately, simple “vanilla” PCFGs induced from treebanks such as the Penn treebank (Marcus et al., 1993) typically give very poor parsing performance. A critical issue
+is that the set of non-terminals in the resulting grammar (S, NP, VP, PP, D, N, etc.) is
+often quite small. The resulting PCFG therefore makes very strong independence assumptions, failing to capture important statistical properties of parse trees.
+In response to this issue, a number of PCFG-based models have been developed which
+make use of grammars with reﬁned non-terminals. For example, in lexicalized models
+7
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+(Collins, 1997; Charniak, 1997), non-terminals such as S are replaced with non-terminals
+such as S-sleeps: the non-terminals track some lexical item (in this case sleeps), in addition
+to the syntactic category. For example, the parse tree in Figure 1 would include rules
+
+S-saw
+
+Ñ NP-dog VP-saw
+
+NP-dog
+
+Ñ D-the N-dog
+
+VP-saw
+
+Ñ V-saw P-him
+
+D-the
+
+Ñ the
+
+N-dog
+
+Ñ dog
+
+V-saw
+
+Ñ saw
+
+P-him
+
+Ñ him
+
+In this case the number of non-terminals in the grammar increases dramatically, but
+with appropriate smoothing of parameter estimates lexicalized models perform at much
+higher accuracy than vanilla PCFGs.
+As another example, Johnson describes an approach where non-terminals are reﬁned to
+also include the non-terminal one level up in the tree; for example rules such as
+S Ñ NP VP
+are replaced by rules such as
+S-ROOT Ñ NP-S VP-S
+Here NP-S corresponds to an NP non-terminal whose parent is S; VP-S corresponds to a VP
+whose parent is S; S-ROOT corresponds to an S which is at the root of the tree. This simple
+modiﬁcation leads to signiﬁcant improvements over a vanilla PCFG.
+Klein and Manning (2003) develop this approach further, introducing annotations corresponding to parents and siblings in the tree, together with other information, resulting
+in a parser whose performance is just below the lexicalized models of Collins (1997) and
+Charniak (1997).
+The approaches of Collins (1997), Charniak (1997), Johnson, and Klein and Manning
+(2003) all use hand-constructed rules to enrich the set of non-terminals in the PCFG. A
+natural question is whether reﬁnements to non-terminals can be learned automatically.
+Matsuzaki et al. (2005) and Petrov et al. (2006) addressed this question through the use
+of L-PCFGs in conjunction with the EM algorithm. The basic idea is to allow each nonterminal in the grammar to have m possible latent values. For example, with m “ 8 we
+would replace the non-terminal S with non-terminals S-1, S-2, . . ., S-8, and we would
+replace rules such as
+S Ñ NP VP
+with rules such as
+S-4 Ñ NP-3 VP-2
+The latent values are of course unobserved in the training data (the treebank), but they can
+be treated as latent variables in a PCFG-based model, and the parameters of the model can
+8
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+be estimated using the EM algorithm. More speciﬁcally, given training examples consisting
+piq piq
+piq
+of skeletal trees of the form tpiq “ pr1 , r2 , . . . , rNi q, for i “ 1 . . . M , where Ni is the number
+of rules in the i’th tree, the log-likelihood of the training data is
+M
+ÿ
+i“1
+piq
+
+piq
+
+piq
+
+log ppr1 . . . rNi q “
+
+M
+ÿ
+
+ÿ
+
+log
+
+i“1
+
+piq
+
+piq
+
+ppr1 . . . rNi , h1 . . . hNi q
+
+h1 ...hNi
+
+piq
+
+where ppr1 . . . rNi , h1 . . . hNi q is as deﬁned in Eq. 2. The EM algorithm is guaranteed to
+converge to a local maximum of the log-likelihood function. Once the parameters of the
+L-PCFG have been estimated, the algorithm of Goodman (1996) can be used to parse testdata sentences using the L-PCFG: see Section 4.3 for more details. Matsuzaki et al. (2005)
+and Petrov et al. (2006) show very good performance for these methods.
+4.3 Basic Algorithms for L-PCFGs: Variants of the Inside-Outside Algorithm
+Variants of the inside-outside algorithm (Baker, 1979) can be used for basic calculations in
+L-PCFGs, in particular for calculations that involve marginalization over the values for the
+hidden variables.
+To be more speciﬁc, given an L-PCFG, two calculations are central:
+ř
+1. For a given s-tree r1 . . . rN , calculate ppr1 . . . rN q “ h1 ...hN ppr1 . . . rN , h1 . . . hN q.
+2. For a given input sentence x “ x1 . . . xN , calculate the marginal probabilities
+ÿ
+µpa, i, jq “
+ppτ q
+τ PT pxq:pa,i,jqPτ
+
+for each non-terminal a P N , for each pi, jq such that 1 ď i ď j ď N . Here T pxq
+denotes the set of all possible s-trees for the sentence x, and we write pa, i, jq P τ if
+non-terminal a spans words xi . . . xj in the parse tree τ .
+The marginal probabilities have a number of uses. Perhaps most importantly, for a
+given sentence x “ x1 . . . xN , the parsing algorithm of Goodman (1996) can be used to ﬁnd
+ÿ
+arg max
+µpa, i, jq.
+τ PT pxq
+
+pa,i,jqPτ
+
+This is the parsing algorithm used by Petrov et al. (2006), for ř
+example.1 In addition,
+we
+ř can calculate the probability for an input sentence, ppxq “ τ PT pxq ppτ q, as ppxq “
+aPI µpa, 1, N q.
+Figures 2 and 3 give the conventional (as opposed to tensor) form of inside-outside
+algorithms for these two problems. In the next section we describe the tensor form. The
+algorithm in Figure 2 uses dynamic programming to compute
+ÿ
+ppr1 . . . rN q “
+ppr1 . . . rN , h1 . . . hN q
+h1 ...hN
+
+ř
+1. Note that ﬁnding arg maxτ PT pxq ppτ q, where ppτ q “ h1 ...hN ppτ, h1 . . . hN q, is NP hard, hence the use
+of Goodman’s algorithm. Goodman’s algorithm minimizes a diﬀerent loss function when parsing: it
+minimizes the expected number of spans which are incorrect in the parse tree according to the underlying
+L-PCFG. We use it while restricting the output tree to be valid under the PCFG grammar extracted
+from the treebank. There are variants of Goodman’s algorithm that do not follow this restriction.
+
+9
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+Inputs: s-tree r1 . . . rN , L-PCFG pN , I, P, m, n, t, q, πq, with parameters
+• tpa Ñ b c, h2 , h3 |h1 , aq for all a Ñ b c P R, h1 , h2 , h3 P rms.
+• qpa Ñ x|h, aq for all a P P, x P rns, h P rms
+• πpa, hq for all a P I, h P rms.
+Algorithm: (calculate the bi terms bottom-up in the tree)
+• For all i P rN s such that ai P P, for all h P rms, bi “ qpri |h, ai q
+h
+ř
+• For all i P rN s such that ai P I, for all h P rms, bi “ h2 ,h3 tpri , h2 , h3 |h, ai qbβ2 bγ 3
+h
+h h
+where β is the index of the left child of node i in the tree, and γ is the index of the
+right child.
+Return:
+
+1
+h bh πpa1 , hq
+
+ř
+
+“ ppr1 . . . rN q
+
+Figure 2: The conventional inside-outside algorithm for calculation of ppr1 . . . rN q.
+for a given parse tree r1 . . . rN . The algorithm in Figure 3 uses dynamic programming to
+compute marginal terms.
+
+5. Roadmap
+The next three sections of the paper derive the spectral algorithm for learning of L-PCFGs.
+The structure of these sections is as follows:
+• Section 6 introduces a tensor form of the inside-outside algorithms for L-PCFGs. This
+is analogous to the matrix form for hidden Markov models (see Jaeger 2000, and in
+particular Lemma 1 of Hsu et al. 2009), and is also related to the use of tensors in
+spectral algorithms for directed graphical models (Parikh et al., 2011).
+• Section 7.2 derives an observable form for the tensors required by algorithms of Section 6. The implication of this result is that the required tensors can be estimated
+directly from training data consisting of skeletal trees.
+• Section 8 gives the algorithm for estimation of the tensors from a training sample,
+and gives a PAC-style generalization bound for the approach.
+
+6. Tensor Form of the Inside-Outside Algorithm
+This section ﬁrst gives a tensor form of the inside-outside algorithms for L-PCFGs, then
+give an illustrative example.
+6.1 The Tensor-Form Algorithms
+Recall the two calculations for L-PCFGs introduced in Section 4.3:
+10
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+Inputs: Sentence x1 . . . xN , L-PCFG pN , I, P, m, n, t, q, πq, with parameters
+• tpa Ñ b c, h2 , h3 |h1 , aq for all a Ñ b c P R, h1 , h2 , h3 P rms.
+• qpa Ñ x|h, aq for all a P P, x P rns, h P rms
+• πpa, hq for all a P I, h P rms.
+Data structures:
+• Each αa,i,j P R1ˆm for a P N , 1 ď i ď j ď N is a row vector of inside terms.
+¯
+¯
+• Each β a,i,j P Rmˆ1 for a P N , 1 ď i ď j ď N is a column vector of outside terms.
+• Each µpa, i, jq P R for a P N , 1 ď i ď j ď N is a marginal probability.
+¯
+Algorithm:
+(Inside base case) @a P P, i P rN s, h P rms αh “ qpa Ñ xi |h, aq
+¯ a,i,i
+(Inside recursion) @a P I, 1 ď i ă j ď N, h P rms
+αh “
+¯ a,i,j
+
+j´1
+ÿ
+
+ÿ
+
+ÿ
+
+ÿ
+
+tpa Ñ b c, h2 , h3 |h, aq ˆ αh2 ˆ αh3
+¯ b,i,k ¯ c,k`1,j
+
+k“i aÑb c h2 Prms h3 Prms
+
+¯a,1,n “ πpa, hq
+(Outside base case) @a P I, h P rms βh
+(Outside recursion) @a P N , 1 ď i ď j ď N, h P rms
+i´1
+ÿ
+
+¯a,i,j
+βh “
+
+ÿ
+
+ÿ
+
+ÿ
+
+¯b,k,j ¯ c,k,i´1
+tpb Ñ c a, h3 , h|h2 , bq ˆ βh2 ˆ αh3
+
+k“1 bÑc a h2 Prms h3 Prms
+N
+ÿ
+
+ÿ
+
+ÿ
+
+ÿ
+
+`
+
+¯b,i,k ¯ c,j`1,k
+tpb Ñ a c, h, h3 |h2 , bq ˆ βh2 ˆ αh3
+
+k“j`1 bÑa c h2 Prms h3 Prms
+
+(Marginals) @a P N , 1 ď i ď j ď N,
+¯
+µpa, i, jq “ αa,i,j β a,i,j “
+¯
+¯
+
+ÿ
+
+αh βh
+¯ a,i,j ¯a,i,j
+
+hPrms
+
+Figure 3: The conventional form of the inside-outside algorithm, for calculation of marginal
+terms µpa, i, jq.
+¯
+
+11
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+Inputs: s-tree r1 . . . rN , L-PCFG pN , I, P, m, nq, parameters
+• C aÑb c P Rpmˆmˆmq for all a Ñ b c P R
+• c8 P Rp1ˆmq for all a P P, x P rns
+aÑx
+• c1 P Rpmˆ1q for all a P I.
+a
+Algorithm: (calculate the f i terms bottom-up in the tree)
+• For all i P rN s such that ai P P, f i “ c8
+ri
+• For all i P rN s such that ai P I, f i “ C ri pf β , f γ q where β is the index of the left
+child of node i in the tree, and γ is the index of the right child.
+Return: f 1 c11 “ ppr1 . . . rN q
+a
+Figure 4: The tensor form for calculation of ppr1 . . . rN q.
+1. For a given s-tree r1 . . . rN , calculate ppr1 . . . rN q.
+2. For a given input sentence x “ x1 . . . xN , calculate the marginal probabilities
+ÿ
+µpa, i, jq “
+ppτ q
+τ PT pxq:pa,i,jqPτ
+
+for each non-terminal a P N , for each pi, jq such that 1 ď i ď j ď N , where T pxq
+denotes the set of all possible s-trees for the sentence x, and we write pa, i, jq P τ if
+non-terminal a spans words xi . . . xj in the parse tree τ .
+The tensor form of the inside-outside algorithms for these two problems are shown in
+Figures 4 and 5. Each algorithm takes the following inputs:
+1. A tensor C aÑb c P Rpmˆmˆmq for each rule a Ñ b c.
+2. A vector c8 P Rp1ˆmq for each rule a Ñ x.
+aÑx
+3. A vector c1 P Rpmˆ1q for each a P I.
+a
+The following theorem gives conditions under which the algorithms are correct:
+Theorem 3 Assume that we have an L-PCFG with parameters qaÑx , T aÑb c , π a , and that
+there exist matrices Ga P Rpmˆmq for all a P N such that each Ga is invertible, and such
+that:
+`
+˘
+1. For all rules a Ñ b c, C aÑb c py 1 , y 2 q “ T aÑb c py 1 Gb , y 2 Gc q pGa q´1 .
+2. For all rules a Ñ x, c8 “ qaÑx pGa q´1 .
+aÑx
+3. For all a P I, c1 “ Ga π a .
+a
+12
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+Then: 1) The algorithm in Figure 4 correctly computes ppr1 . . . rN q under the L-PCFG. 2)
+The algorithm in Figure 5 correctly computes the marginals µpa, i, jq under the L-PCFG.
+Proof: see Section A.1. The next section (Section 6.2) gives an example that illustrates
+the basic intuition behind the proof.
+Remark 4 It is easily veriﬁed (see also the example in Section 6.2), that if the inputs to
+the tensor-form algorithms are of the following form (equivalently, the matrices Ga for all
+a are equal to the identity matrix):
+1. For all rules a Ñ b c, C aÑb c py 1 , y 2 q “ T aÑb c py 1 , y 2 q.
+2. For all rules a Ñ x, c8 “ qaÑx .
+aÑx
+3. For all a P I, c1 “ π a .
+a
+then the algorithms in Figures 4 and 5 are identical to the algorithms in Figures 2 and 3
+respectively. More precisely, we have the identities
+i
+bi “ fh
+h
+
+for the quantities in Figures 2 and 4, and
+a,i,j
+αh “ αh
+¯ a,i,j
+a,i,j
+¯a,i,j
+βh “ βh
+
+for the quantities in Figures 3 and 5.
+The theorem shows, however, that it is suﬃcient2 to have parameters that are equal to
+T aÑb c , qaÑx and π a up to linear transforms deﬁned by the matrices Ga for all non-terminals
+a. The linear transformations add an extra degree of freedom that is crucial in what follows
+in this paper: in the next section, on observable representations, we show that it is possible
+to directly estimate values for C aÑb c , c8 and c1 that satisfy the conditions of the theorem,
+aÑx
+a
+but where the matrices Ga are not the identity matrix.
+The key step in the proof of the theorem (see Section A.1) is to show that under the
+assumptions of the theorem we have the identities
+f i “ bi pGa q´1
+for Figures 2 and 4, and
+αa,i,j “ αa,i,j pGa q´1
+¯
+a,i,j
+¯
+β
+“ Ga β a,i,j
+for Figures 3 and 5. Thus the quantities calculated by the tensor-form algorithms are equivalent to the quantities calculated by the conventional algorithms, up to linear transforms.
+The linear transforms and their inverses cancel in useful ways: for example in the output
+from Figure 4 we have
+ÿ a,i,j a,i,j
+¯
+¯ ,
+µpa, i, jq “ αa,i,j β a,i,j “ αa,i,j pGa q´1 Ga β a,i,j “
+¯
+α
+¯
+β
+h
+
+h
+
+h
+
+showing that the marginals calculated by the conventional and tensor-form algorithms are
+identical.
+2. Assuming that the goal is to calculate ppr1 . . . rN q for any skeletal tree, or marginal terms µpa, i, jq.
+
+13
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+Inputs: Sentence x1 . . . xN , L-PCFG pN , I, P, m, nq, parameters C aÑb c P Rpmˆmˆmq
+for all a Ñ b c P R, c8 P Rp1ˆmq for all a P P, x P rns, c1 P Rpmˆ1q for all a P I.
+aÑx
+a
+Data structures:
+• Each αa,i,j P R1ˆm for a P N , 1 ď i ď j ď N is a row vector of inside terms.
+• Each β a,i,j P Rmˆ1 for a P N , 1 ď i ď j ď N is a column vector of outside terms.
+• Each µpa, i, jq P R for a P N , 1 ď i ď j ď N is a marginal probability.
+Algorithm:
+(Inside base case) @a P P, i P rN s, αa,i,i “ c8 i
+aÑx
+(Inside recursion) @a P I, 1 ď i ă j ď N,
+j´1
+ÿ
+
+αa,i,j “
+
+ÿ
+
+C aÑb c pαb,i,k , αc,k`1,j q
+
+k“i aÑb c
+
+(Outside base case) @a P I, β a,1,n “ c1
+a
+(Outside recursion) @a P N , 1 ď i ď j ď N,
+i´1
+ÿ
+
+β a,i,j “
+
+ÿ
+
+bÑc
+Cp1,2q a pβ b,k,j , αc,k,i´1 q
+
+k“1 bÑc a
+N
+ÿ
+
+ÿ
+
+`
+
+bÑa
+Cp1,3q c pβ b,i,k , αc,j`1,k q
+
+k“j`1 bÑa c
+
+(Marginals) @a P N , 1 ď i ď j ď N,
+µpa, i, jq “ αa,i,j β a,i,j “
+
+ÿ
+
+a,i,j a,i,j
+αh βh
+
+hPrms
+
+Figure 5: The tensor form of the inside-outside algorithm, for calculation of marginal terms
+µpa, i, jq.
+
+6.2 An Example
+In the remainder of this section we give an example that illustrates how the algorithm in
+Figure 4 is correct, and gives the basic intuition behind the proof in Section A.1. While we
+concentrate on the algorithm in Figure 4, the intuition behind the algorithm in Figure 5 is
+very similar.
+Consider the skeletal tree in Figure 6. We will demonstrate how the algorithm in
+Figure 4, under the assumptions in the theorem, correctly calculates the probability of
+this tree. In brief, the argument involves the following steps:
+14
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+S1
+NP2
+
+r1
+r2
+r3
+r4
+r5
+
+V5
+
+D3
+
+N4
+
+the
+
+sleeps
+
+dog
+
+“
+“
+“
+“
+“
+
+S Ñ NP V
+NP Ñ D N
+D Ñ the
+N Ñ dog
+V Ñ sleeps
+
+Figure 6: An s-tree, and its sequence of rules. (For convenience we have numbered the
+nodes in the tree.)
+
+1. We ﬁrst show that the algorithm in Figure 4, when run on the tree in Figure 6,
+calculates the probability of the tree as
+1
+8
+8
+C SÑN P V pC N P ÑD N pc8
+DÑthe , cN Ñdog q, cV Ñsleeps qcS .
+
+Note that this expression mirrors the structure of the tree, with c8 terms for the
+aÑx
+leaves, C aÑb c terms for each rule production a Ñ b c in the tree, and a c1 term for
+S
+the root.
+2. We then show that under the assumptions in the theorem, the following identity holds:
+1
+8
+8
+C SÑN P V pC N P ÑD N pc8
+DÑthe , cN Ñdog q, cV Ñsleeps qcS .
+
+“ T SÑN P V pT N P ÑD N pqDÑthe , qN Ñdog q, qV Ñsleeps qπ S
+
+(3)
+
+This follows because the Ga and pGa q´1 terms for the various non-terminals in the
+tree cancel. Note that the expression in Eq. 3 again follows the structure of the tree,
+but with qaÑx terms for the leaves, T aÑb c terms for each rule production a Ñ b c in
+the tree, and a π S term for the root.
+3. Finally, we show that the expression in Eq. 3 implements the conventional dynamicprogramming method for calculation of the tree probability, as described in Eqs. 11–13
+below.
+We now go over these three points in detail. The algorithm in Figure 4 calculates the
+following terms (each f i is an m-dimensional row vector):
+f 3 “ c8
+DÑthe
+f 4 “ c8Ñdog
+N
+f 5 “ c8Ñsleeps
+V
+f 2 “ C N P ÑD N pf 3 , f 4 q
+f 1 “ C SÑN P V pf 2 , f 5 q
+
+15
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+The ﬁnal quantity returned by the algorithm is
+ÿ
+1
+f 1 c1 “
+fh rc1 sh .
+S
+S
+h
+
+Combining the deﬁnitions above, it can be seen that
+8
+8
+1
+f 1 c1 “ C SÑN P V pC N P ÑD N pc8
+S
+DÑthe , cN Ñdog q, cV Ñsleeps qcS ,
+
+demonstrating that point 1 above holds.
+Next, given the assumptions in the theorem, we show point 2, that is, that
+8
+8
+1
+C SÑN P V pC N P ÑD N pc8
+DÑthe , cN Ñdog q, cV Ñsleeps qcS
+
+“ T SÑN P V pT N P ÑD N pqDÑthe , qN Ñdog q, qV Ñsleeps qπ S .
+
+(4)
+
+This follows because the Ga and pGa q´1 terms in the theorem cancel. More speciﬁcally, we
+have
+D ´1
+f 3 “ c8
+DÑthe “ qDÑthe pG q
+
+f
+
+4
+
+“
+
+f
+
+5
+
+“
+
+f2 “ C
+f
+
+1
+
+(5)
+
+c8Ñdog “ qN Ñdog pGN q´1
+N
+c8Ñsleeps “ qV Ñsleeps pGV q´1
+V
+N P ÑD N
+3 4
+N P ÑD N
+
+“ C
+
+pf , f q “ T
+
+SÑN P V
+
+2
+
+5
+
+pf , f q “ T
+
+SÑN P V
+
+(6)
+(7)
+pqDÑthe , qDÑdog qpGN P q´1
+
+pT
+
+N P ÑD N
+
+(8)
+S ´1
+
+pqDÑthe , qN Ñdog q, qV Ñsleeps qpG q
+
+(9)
+
+Eqs. 5, 6, 7 follow by the assumptions in the theorem. Eq. 8 follows because by the assumptions in the theorem
+C N P ÑD N pf 3 , f 4 q “ T N P ÑD N pf 3 GD , f 4 GN qpGN P q´1
+hence
+C N P ÑD N pf 3 , f 4 q “ T N P ÑD N pqDÑthe pGD q´1 GD , qN Ñdog pGN q´1 GN qpGN P q´1
+“ T N P ÑD N pqDÑthe , qN Ñdog qpGN P q´1
+
+Eq. 9 follows in a similar manner.
+It follows by the assumption that c1 “ GS π S that
+S
+8
+8
+1
+C SÑN P V pC N P ÑD N pc8
+DÑthe , cN Ñdog q, cV Ñsleeps qcS
+
+“ T SÑN P V pT N P ÑD N pqDÑthe , qN Ñdog q, qV Ñsleeps qpGS q´1 GS π S
+“ T SÑN P V pT N P ÑD N pqDÑthe , qN Ñdog q, qV Ñsleeps qπ S
+
+(10)
+
+The ﬁnal step (point 3) is to show that the expression in Eq. 10 correctly calculates the
+probability of the example tree. First consider the term T N P ÑD N pqDÑthe , qN Ñdog q—this
+16
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+is an m-dimensional row vector, call this b2 . By the deﬁnition of the tensor T N P ÑD N , we
+have
+“
+‰
+b2 “ T N P ÑD N pqDÑthe , qN Ñdog q h
+h
+ÿ
+“
+tpN P Ñ D N, h2 , h3 |h, N P q ˆ qpD Ñ the|h2 , Dq ˆ qpN Ñ dog|h3 , N q (11)
+h2 ,h3
+
+By a similar calculation, T SÑN P V pT N P ÑD N pqDÑthe , qN Ñdog q, qV Ñsleeps q—call this vector
+b1 —is
+ÿ
+(12)
+b1 “
+tpS Ñ N P V, h2 , h3 |h, Sq ˆ b2 2 ˆ qpV Ñ sleeps|h3 , V q
+h
+h
+h2 ,h3
+
+Finally, the probability of the full tree is calculated as
+ÿ
+S
+b1 πh .
+h
+
+(13)
+
+h
+
+It can be seen that the expression in Eq. 4 implements the calculations in Eqs. 11, 12
+and 13, which are precisely the calculations used in the conventional dynamic programming
+algorithm for calculation of the probability of the tree.
+
+7. Estimating the Tensor Model
+A crucial result is that it is possible to directly estimate parameters C aÑb c , c8 and c1
+aÑx
+a
+that satisfy the conditions in Theorem 3, from a training sample consisting of s-trees (i.e.,
+trees where hidden variables are unobserved). We ﬁrst describe random variables underlying
+the approach, then describe observable representations based on these random variables.
+7.1 Random Variables Underlying the Approach
+Each s-tree with N rules r1 . . . rN has N nodes. We will use the s-tree in Figure 1 as a
+running example.
+Each node has an associated rule: for example, node 2 in the tree in Figure 1 has the
+rule NP Ñ D N. If the rule at a node is of the form a Ñ b c, then there are left and right
+inside trees below the left child and right child of the rule. For example, for node 2 we have
+a left inside tree rooted at node 3, and a right inside tree rooted at node 4 (in this case the
+left and right inside trees both contain only a single rule production, of the form a Ñ x;
+however in the general case they might be arbitrary subtrees).
+In addition, each node has an outside tree. For node 2, the outside tree is
+S
+NP
+
+VP
+V
+
+P
+
+saw him
+The outside tree contains everything in the s-tree r1 . . . rN , excluding the subtree below
+node i.
+Our random variables are deﬁned as follows. First, we select a random internal node,
+from a random tree, as follows:
+17
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+• Sample a full tree r1 . . . rN , h1 . . . hN from the PMF ppr1 . . . rN , h1 . . . hN q.
+• Choose a node i uniformly at random from rN s.
+If the rule ri for the node i is of the form a Ñ b c, we deﬁne random variables as follows:
+• R1 is equal to the rule ri (e.g., NP Ñ D N).
+• T1 is the inside tree rooted at node i. T2 is the inside tree rooted at the left child of
+node i, and T3 is the inside tree rooted at the right child of node i.
+• H1 , H2 , H3 are the hidden variables associated with node i, the left child of node i,
+and the right child of node i respectively.
+• A1 , A2 , A3 are the labels for node i, the left child of node i, and the right child of node
+i respectively. (e.g., A1 “ NP, A2 “ D, A3 “ N.)
+• O is the outside tree at node i.
+• B is equal to 1 if node i is at the root of the tree (i.e., i “ 1), 0 otherwise.
+If the rule ri for the selected node i is of the form a Ñ x, we have random variables
+R1 , T1 , H1 ,
+A1 , O, B as deﬁned above, but H2 , H3 , T2 , T3 , A2 , and A3 are not deﬁned.
+1
+We assume a function ψ that maps outside trees o to feature vectors ψpoq P Rd . For
+example, the feature vector might track the rule directly above the node in question, the
+word following the node in question, and so on. We also assume a function φ that maps
+inside trees t to feature vectors φptq P Rd . As one example, the function φ might be an
+indicator function tracking the rule production at the root of the inside tree. Later we give
+formal criteria for what makes good deﬁnitions of ψpoq and φptq. One requirement is that
+d1 ě m and d ě m.
+In tandem with these deﬁnitions, we assume projection matrices U a P Rpdˆmq and
+a P Rpd1 ˆmq for all a P N . We then deﬁne additional random variables Y , Y , Y , Z
+V
+1 2 3
+as
+Y1 “ pU a1 qJ φpT1 q Z “ pV a1 qJ ψpOq
+Y2 “ pU a2 qJ φpT2 q Y3 “ pU a3 qJ φpT3 q
+where ai is the value of the random variable Ai . Note that Y1 , Y2 , Y3 , Z are all in Rm .
+7.2 Observable Representations
+Given the deﬁnitions in the previous section, our representation is based on the following
+matrix, tensor and vector quantities, deﬁned for all a P N , for all rules of the form a Ñ b c,
+and for all rules of the form a Ñ x respectively:
+Σa “ ErY1 Z J |A1 “ as,
+“
+‰
+DaÑb c “ E vR1 “ a Ñ b cwZY2J Y3J |A1 “ a ,
+“
+‰
+J
+d8
+aÑx “ E vR1 “ a Ñ xwZ |A1 “ a .
+18
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+Assuming access to functions φ and ψ, and projection matrices U a and V a , these quantities
+can be estimated directly from training data consisting of a set of s-trees (see Section 8).
+Our observable representation then consists of:
+C aÑb c py 1 , y 2 q “ DaÑb c py 1 , y 2 qpΣa q´1 ,
+c8
+aÑx
+c1
+a
+
+“
+
+(14)
+
+d8 pΣa q´1 ,
+aÑx
+
+(15)
+
+“ E rvA1 “ awY1 |B “ 1s .
+
+(16)
+
+We next introduce conditions under which these quantities satisfy the conditions in Theorem 3.
+The following deﬁnition will be important:
+1
+
+Deﬁnition 5 For all a P N , we deﬁne the matrices I a P Rpdˆmq and J a P Rpd ˆmq as
+rI a si,h “ Erφi pT1 q | H1 “ h, A1 “ as,
+rJ a si,h “ Erψi pOq | H1 “ h, A1 “ as.
+a
+In addition, for any a P N , we use γ a P Rm to denote the vector with γh “ P pH1 “ h|A1 “
+aq.
+
+The correctness of the representation will rely on the following conditions being satisﬁed
+(these are parallel to conditions 1 and 2 in Hsu et al. (2009)):
+Condition 1 @a P N , the matrices I a and J a are of full rank (i.e., they have rank m).
+a
+For all a P N , for all h P rms, γh ą 0.
+1
+
+Condition 2 @a P N , the matrices U a P Rpdˆmq and V a P Rpd ˆmq are such that the
+matrices Ga “ pU a qJ I a and K a “ pV a qJ J a are invertible.
+We can now state the following theorem:
+Theorem 6 Assume conditions 1 and 2 are satisﬁed. For all a P N , deﬁne Ga “ pU a qJ I a .
+Then under the deﬁnitions in Eqs. 14-16:
+`
+˘
+1. For all rules a Ñ b c, C aÑb c py 1 , y 2 q “ T aÑb c py 1 Gb , y 2 Gc q pGa q´1
+2. For all rules a Ñ x, c8 “ qaÑx pGa q´1 .
+aÑx
+3. For all a P N , c1 “ Ga π a
+a
+Proof: The following identities hold (see Section A.2):
+´
+¯
+DaÑb c py 1 , y 2 q “
+T aÑb c py 1 Gb , y 2 Gc q diagpγ a qpK a qJ
+a
+a J
+d8
+aÑx “ qaÑx diagpγ qpK q
+
+Σ
+
+a
+
+c1
+a
+
+a
+
+a
+
+a J
+
+“ G diagpγ qpK q
+a a
+
+“ G π
+
+(17)
+(18)
+(19)
+(20)
+
+19
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+Under conditions 1 and 2, Σa is invertible, and pΣa q´1 “ ppK a qJ q´1 pdiagpγ a qq´1 pGa q´1 .
+The identities in the theorem follow immediately.
+This theorem leads directly to the spectral learning algorithm, which we describe in the
+next section. We give a sketch of the approach here. Assume that we have a training set
+consisting of skeletal trees (no latent variables are observed) generated from some underlying L-PCFG. Assume in addition that we have deﬁnitions of φ, ψ, U a and V a such that
+conditions 1 and 2 are satisﬁed for the L-PCFG. Then it is straightforward to use the training examples to derive i.i.d. samples from the joint distribution over the random variables
+pA1 , R1 , Y1 , Y2 , Y3 , Z, Bq used in the deﬁnitions in Eqs. 14–16. These samples can be used
+ˆ
+to estimate the quantities in Eqs. 14–16; the estimated quantities C aÑb c , c8 and c1 can
+ˆaÑx
+ˆa
+then be used as inputs to the algorithms in Figures 4 and 5. By standard arguments, the
+ˆ
+estimates C aÑb c , c8 and c1 will converge to the values in Eqs. 14–16.
+ˆaÑx
+ˆa
+The following lemma justiﬁes the use of an SVD calculation as one method for ﬁnding
+values for U a and V a that satisfy condition 2, assuming that condition 1 holds:
+Lemma 7 Assume that condition 1 holds, and for all a P N deﬁne
+Ωa “ ErφpT1 q pψpOqqJ |A1 “ as
+
+(21)
+
+Then if U a is a matrix of the m left singular vectors of Ωa corresponding to non-zero singular
+values, and V a is a matrix of the m right singular vectors of Ωa corresponding to non-zero
+singular values, then condition 2 is satisﬁed.
+Proof sketch: It can be shown that Ωa “ I a diagpγ a qpJ a qJ . The remainder is similar to
+the proof of lemma 2 in Hsu et al. (2009).
+The matrices Ωa can be estimated directly from a training set consisting of s-trees,
+assuming that we have access to the functions φ and ψ. Similar arguments to those of Hsu
+et al. (2009) can be used to show that with a suﬃcient number of samples, the resulting
+estimates of U a and V a satisfy condition 2 with high probability.
+
+8. Deriving Empirical Estimates
+Figure 7 shows an algorithm that derives estimates of the quantities in Eqs. 14, 15, and
+16. As input, the algorithm takes a sequence of tuples prpi,1q , tpi,1q , tpi,2q , tpi,3q , opiq , bpiq q for
+i P rM s.
+These tuples can be derived from a training set consisting of s-trees τ1 . . . τM as follows:
+‚ @i P rM s, choose a single node ji uniformly at random from the nodes in τi . Deﬁne
+rpi,1q to be the rule at node ji . tpi,1q is the inside tree rooted at node ji . If rpi,1q is of the form
+a Ñ b c, then tpi,2q is the inside tree under the left child of node ji , and tpi,3q is the inside
+tree under the right child of node ji . If rpi,1q is of the form a Ñ x, then tpi,2q “ tpi,3q “ NULL.
+opiq is the outside tree at node ji . bpiq is 1 if node ji is at the root of the tree, 0 otherwise.
+Under this process, assuming that the s-trees τ1 . . . τM are i.i.d. draws from the distribution ppτ q over s-trees under an L-PCFG, the tuples prpi,1q , tpi,1q , tpi,2q , tpi,3q , opiq , bpiq q are i.i.d.
+draws from the joint distribution over the random variables R1 , T1 , T2 , T3 , O, B deﬁned in
+the previous section.
+The algorithm ﬁrst computes estimates of the projection matrices U a and V a : following
+Lemma 7, this is done by ﬁrst deriving estimates of Ωa , and then taking SVDs of each Ωa .
+20
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+The matrices are then used to project inside and outside trees tpi,1q , tpi,2q , tpi,3q , opiq down to
+m-dimensional vectors y pi,1q , y pi,2q , y pi,3q , z piq ; these vectors are used to derive the estimates
+of C aÑb c , c8 , and c1 . For example, the quantities
+aÑx
+a
+“
+‰
+DaÑb c “ E vR1 “ a Ñ b cwZY2J Y3J |A1 “ a
+“
+‰
+J
+d8
+aÑx “ E vR1 “ a Ñ xwZ |A1 “ a
+can be estimated as
+ˆ
+DaÑb c “ δa ˆ
+
+M
+ÿ
+
+vrpi,1q “ a Ñ b cwz piq py pi,2q qJ py pi,3q qJ
+
+i“1
+
+ˆ
+d8 “ δa ˆ
+aÑx
+
+M
+ÿ
+
+vrpi,1q “ a Ñ xwpz piq qJ
+
+i“1
+
+where δa “ 1{
+
+řM
+
+i“1 vai
+
+“ aw, and we can then set
+ˆ
+ˆ
+ˆ
+C aÑb c py 1 , y 2 q “ DaÑb c py 1 , y 2 qpΣa q´1
+ˆ
+ˆ
+c8 “ d8 pΣa q´1 .
+ˆaÑx
+aÑx
+
+We now state a PAC-style theorem for the learning algorithm. First, we give the following assumptions and deﬁnitions:
+• We have an L-PCFG pN , I, P, m, n, t, q, πq. The samples used in Figures 7 and 8 are
+i.i.d. samples from the L-PCFG (for simplicity of analysis we assume that the two
+algorithms use independent sets of M samples each: see above for how to draw i.i.d.
+samples from the L-PCFG).
+1
+
+• We have functions φptq P Rd and ψpoq P Rd that map inside and outside trees respectively to feature vectors. We will assume without loss of generality that for all inside
+trees ||φptq||2 ď 1, and for all outside trees ||ψpoq||2 ď 1.
+• See Section 7.2 for a deﬁnition of the random variables
+pR1 , T1 , T2 , T3 , A1 , A2 , A3 , H1 , H2 , H3 , O, Bq,
+and the joint distribution over them.
+• For all a P N deﬁne
+Ωa “ ErφpT1 qpψpOqqJ |A1 “ as
+and deﬁne I a P Rdˆm to be the matrix with entries
+rI a si,h “ Erφi pT1 q|A1 “ a, H1 “ hs
+• Deﬁne
+σ “ min σm pΩa q
+a
+
+and
+ξ “ min σm pI a q
+a
+
+where σm pAq is the m’th largest singular value of the matrix A.
+21
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+• Deﬁne
+γ“
+
+min
+a,b,cPN ,h1 ,h2 ,h3 Prms
+
+tpa Ñ b c, h2 , h3 |a, h1 q
+
+• Deﬁne T pa, N q to be the set of of all skeletal trees with N binary rules (hence 2N ` 1
+rules in total), with non-terminal a at the root of the tree.
+The following theorem gives a bound on the sample complexity of the algorithm:
+Theorem 8 There exist constants C1 , C2 , C3 , C4 , C5 such that the following holds. Pick
+any ą 0, any value for δ such that 0 ă δ ă 1, and any integer N such that N ě 1.
+ˆ
+Deﬁne L “ log 2|Nδ|`1 . Assume that the parameters C aÑb c , c8 and c1 are output from
+ˆaÑx
+ˆa
+the algorithm in Figure 7, with values for Na , Ma and R such that
+@a P I, Na ě
+@a P I, Ma ě
+
+C1 LN 2 m2
+γ 2 2ξ4σ4
+
+@a P P, Na ě
+
+C3 LN 2 m2
+γ 2 2ξ4σ2
+
+C2 LN 2 m2 n
+2σ4
+
+@a P P, Ma ě
+
+C4 LN 2 m2
+2σ2
+
+C5 LN 2 m3
+2σ2
+It follows that with probability at least 1 ´ δ, for all a P N ,
+ÿ
+|ˆptq ´ pptq| ď
+p
+Rě
+
+tPT pa,N q
+
+ˆ
+, where pptq is the output from the algorithm in Figure 4 with parameters C aÑb c , c8 and
+ˆ
+ˆaÑx
+1 , and pptq is the probability of the skeletal tree under the L-PCFG.
+ca
+ˆ
+See Appendix B for a proof.
+The method described of selecting a single tuple prpi,1q , tpi,1q , tpi,2q , tpi,3q , opiq , bpiq q for each
+s-tree ensures that the samples are i.i.d., and simpliﬁes the analysis underlying Theorem 8.
+In practice, an implementation should use all nodes in all trees in training data; by RaoBlackwellization we know such an algorithm would be better than the one presented, but
+the analysis of how much better would be challenging (Bickel and Doksum, 2006; section
+3.4.2). It would almost certainly lead to a faster rate of convergence of p to p.
+ˆ
+
+9. Discussion
+There are several applications of the method. The most obvious is parsing with L-PCFGs
+(Cohen et al., 2013).3 The approach should be applicable in other cases where EM has
+traditionally been used, for example in semi-supervised learning. Latent-variable HMMs
+for sequence labeling can be derived as special case of our approach, by converting tagged
+sequences to right-branching skeletal trees (Stratos et al., 2013).
+3. Parameters can be estimated using the algorithm in Figure 7; for a test sentence x1 . . . xN we can ﬁrst
+use the algorithm in Figure 5 to calculate marginals µpa, i, jq, then use the algorithm of Goodman (1996)
+ř
+to ﬁnd arg maxτ PT pxq pa,i,jqPτ µpa, i, jq.
+
+22
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+Inputs: Training examples prpi,1q , tpi,1q , tpi,2q , tpi,3q , opiq , bpiq q for i P t1 . . . M u, where rpi,1q
+is a context free rule; tpi,1q , tpi,2q and tpi,3q are inside trees; opiq is an outside tree; and
+bpiq “ 1 if the rule is at the root of tree, 0 otherwise. A function φ that maps inside trees
+t to feature-vectors φptq P Rd . A function ψ that maps outside trees o to feature-vectors
+1
+ψpoq P Rd .
+ř
+ř
+Deﬁnitions: For each a P N , deﬁne Na “ M vai “ aw. Deﬁne R “ M vbpiq “ 1w.
+i“1
+i“1
+(These deﬁnitions will be used in Theorem 8.)
+Algorithm:
+Deﬁne ai to be the non-terminal on the left-hand side of rule rpi,1q . If rpi,1q is of the
+form a Ñ b c, deﬁne bi to be the non-terminal for the left-child of rpi,1q , and ci to be the
+non-terminal for the right-child.
+(Step 0: Singular Value Decompositions)
+1
+ˆ
+ˆ
+• Use the algorithm in Figure 8 to calculate matrices U a P Rpdˆmq , V a P Rpd ˆmq and
+ˆ
+Σa P Rpmˆmq for each a P N .
+
+(Step 1: Projection)
+ˆ
+• For all i P rM s, compute y pi,1q “ pU ai qJ φptpi,1q q.
+ˆ
+• For all i P rM s such that rpi,1q is of the form a Ñ b c, compute y pi,2q “ pU bi qJ φptpi,2q q
+pi,3q “ pU ci qJ φptpi,3q q.
+ˆ
+and y
+ˆ
+• For all i P rM s, compute z piq “ pV ai qJ ψpopiq q.
+(Step 2: Calculate Correlations)
+• For each a P N , deﬁne δa “ 1{
+
+řM
+
+i“1 vai
+
+“ aw.
+
+• For each rule a Ñ b c, compute
+ˆ
+DaÑb c “ δa ˆ
+
+M
+ÿ
+
+vrpi,1q “ a Ñ b cwz piq py pi,2q qJ py pi,3q qJ .
+
+i“1
+
+ř
+ˆ
+• For each rule a Ñ x, compute d8 “ δa ˆ M vrpi,1q “ a Ñ xwpz piq qJ .
+aÑx
+i“1
+(Step 3: Compute Final Parameters)
+ˆ
+ˆ
+ˆ
+• For all a Ñ b c, C aÑb c py 1 , y 2 q “ DaÑb c py 1 , y 2 qpΣa q´1 .
+ˆ
+ˆ
+• For all a Ñ x, c8 “ d8 pΣa q´1 .
+ˆaÑx
+aÑx
+• For all a P I, c1 “
+ˆa
+
+řM
+
+and
+
+“a
+bpiq “1wy pi,1q
+i“1 vaiř
+M
+piq “1w
+i“1 vb
+
+.
+
+Figure 7: The spectral learning algorithm.
+23
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+Inputs: Identical to algorithm in Figure 7.ř
+Deﬁnition: For each a P N , deﬁne Ma “ M vai “ aw (this deﬁnition will be used in
+i“1
+Theorem 8).
+Algorithm:
+1
+ˆ
+‚ For each a P N , compute Ωa P Rpdˆd q as
+řM
+ˆ
+Ωa “
+
+i“1 vai
+
+“ awφptpi,1q qpψpopiq qqJ
+řM
+i“1 vai “ aw
+
+ˆ
+and calculate a singular value decomposition of Ωa .
+ˆ a P Rmˆd to be a matrix of the left singular vectors of Ωa
+ˆ
+‚ For each a P N , deﬁne U
+ˆ a P Rmˆd1 to be a matrix of
+corresponding to the m largest singular values. Deﬁne V
+ˆ
+the right singular vectors of Ωa corresponding to the m largest singular values. Deﬁne
+ˆ a “ pU a qJ Ωa V a .
+ˆ
+ˆ ˆ
+Σ
+Figure 8: Singular value decompositions.
+
+In terms of eﬃciency, the ﬁrst step of the algorithm in Figure 7 requires an SVD calculation: modern methods for calculating SVDs are very eﬃcient (e.g., see Dhillon et al.,
+2011 and Tropp et al., 2009). The remaining steps of the algorithm require manipulation
+of tensors or vectors, and require OpM m3 q time.
+The sample complexity of the method depends on the minimum singular values of Ωa ;
+these singular values are a measure of how well correlated ψ and φ are with the unobserved
+hidden variable H1 . Experimental work is required to ﬁnd a good choice of values for ψ
+and φ for parsing.
+For simplicity we have considered the case where each non-terminal has the same number, m, of possible hidden values. It is simple to generalize the algorithms to the case where
+the number of hidden values varies depending on the non-terminal; this is important in
+applications such as parsing.
+
+Acknowledgements
+The authors gratefully acknowledge the support of the Defense Advanced Research Projects
+Agency (DARPA) Machine Reading Program under Air Force Research Laboratory (AFRL)
+prime contract no. FA8750-09-C-0181. Any opinions, ﬁndings, and conclusions or recommendations expressed in this material are those of the author(s) and do not necessarily
+reﬂect the view of DARPA, AFRL, or the US government. Shay Cohen was supported
+by the National Science Foundation under Grant #1136996 to the Computing Research
+Association for the CIFellows Project. Dean Foster was supported by National Science
+Foundation grant 1106743. This work also used the Extreme Science and Engineering Discovery Environment (XSEDE), which is supported by National Science Foundation grant
+number OCI-1053575.
+24
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+Appendix A. Proofs of Theorems 1 and 2
+This section gives proofs of Theorems 3 and 6.
+A.1 Proof of Theorem 3
+The key idea behind the proof of Theorem 3 is to show that the algorithms in Figures 4 and 5
+compute the same quantities as the conventional version of the inside outside algorithms,
+as shown in Figures 2 and 3.
+First, the following lemma leads directly to the correctness of the algorithm in Figure 4:
+Lemma 9 Assume that conditions 1-3 of Theorem 3 are satisﬁed, and that the input to the
+algorithm in Figure 4 is an s-tree r1 . . . rN . Deﬁne ai for i P rN s to be the non-terminal
+on the left-hand-side of rule ri . For all i P rN s, deﬁne the row vector bi P Rp1ˆmq to be
+the vector computed by the conventional inside-outside algorithm, as shown in Figure 2,
+on the s-tree r1 . . . rN . Deﬁne f i P Rp1ˆmq to be the vector computed by the tensor-based
+inside-outside algorithm, as shown in Figure 4, on the s-tree r1 . . . rN .
+Then for all i P rN s, f i “ bi pGpai q q´1 . It follows immediately that
+ÿ
+f 1 c11 “ b1 pGpa1 q q´1 Ga1 πa1 “ b1 πa1 “
+b1 πpa, hq.
+a
+h
+h
+
+Hence the output from the algorithms in Figures 2 and 4 is the same, and it follows that
+the tensor-based algorithm in Figure 4 is correct.
+This lemma shows a direct link between the vectors f i calculated in the algorithm, and
+the terms bi , which are terms calculated by the conventional inside algorithm: each f i is a
+h
+linear transformation (through Gai ) of the corresponding vector bi .
+Proof: The proof is by induction.
+First consider the base case. For any leaf—i.e., for any i such that ai P P—we have
+bi “ qpri |h, ai q, and it is easily veriﬁed that f i “ bi pGpai q q´1 .
+h
+The inductive case is as follows. For all i P rN s such that ai P I, by the deﬁnition in
+the algorithm,
+f i “ C ri pf β , f γ q
+´
+¯
+T ri pf β Gaβ , f γ Gaγ q pGai q´1
+“
+Assuming by induction that f β “ bβ pGpaβ q q´1 and f γ “ bγ pGpaγ q q´1 , this simpliﬁes to
+´
+¯
+f i “ T ri pbβ , bγ q pGai q´1 .
+(22)
+By the deﬁnition of the tensor T ri ,
+”
+ı
+T ri pbβ , bγ q “
+h
+
+ÿ
+
+tpri , h2 , h3 |ai , hqbβ2 bγ 3
+h h
+
+h2 Prms,h3 Prms
+
+But by deﬁnition (see the algorithm in Figure 2),
+ÿ
+bi “
+tpri , h2 , h3 |ai , hqbβ2 bγ 3 ,
+h
+h h
+h2 Prms,h3 Prms
+
+25
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+hence bi “ T ri pbβ , bγ q and the inductive case follows immediately from Eq. 22.
+Next, we give a similar lemma, which implies the correctness of the algorithm in Figure 5:
+Lemma 10 Assume that conditions 1-3 of Theorem 3 are satisﬁed, and that the input to
+the algorithm in Figure 5 is a sentence x1 . . . xN . For any a P N , for any 1 ď i ď j ď N ,
+¯
+deﬁne αa,i,j P Rp1ˆmq , β a,i,j P Rpmˆ1q and µpa, i, jq P R to be the quantities computed
+¯
+¯
+by the conventional inside-outside algorithm in Figure 3 on the input x1 . . . xN . Deﬁne
+αa,i,j P Rp1ˆmq , β a,i,j P Rpmˆ1q and µpa, i, jq P R to be the quantities computed by the
+algorithm in Figure 3.
+¯
+Then for all i P rN s, αa,i,j “ αa,i,j pGa q´1 and β a,i,j “ Ga β a,i,j . It follows that for all
+¯
+pa, i, jq,
+¯
+¯
+µpa, i, jq “ αa,i,j β a,i,j “ αa,i,j pGa q´1 Ga β a,i,j “ αa,i,j β a,i,j “ µpa, i, jq.
+¯
+¯
+¯
+Hence the outputs from the algorithms in Figures 3 and 5 are the same, and it follows that
+the tensor-based algorithm in Figure 5 is correct.
+¯
+Thus the vectors αa,i,j and β a,i,j are linearly related to the vectors αa,i,j and β a,i,j , which
+¯
+are the inside and outside terms calculated by the conventional form of the inside-outside
+algorithm.
+Proof: The proof is by induction, and is similar to the proof of Lemma 9.
+First, we prove that the inside terms satisfy the relation αa,i,j “ αa,i,j pGa q´1 .
+¯
+The base case of the induction is as follows. By deﬁnition, for any a P P, i P rN s, h P rms,
+we have αh “ qpa Ñ xi |h, aq. We also have for any a P P, i P rN s, αa,i,i “ c8 i “
+¯ a,i,i
+aÑx
+qaÑxi pGa q´1 . It follows directly that αa,i,i “ αa,i,i pGa q´1 for any a P P, i P rN s.
+¯
+The inductive case is as follows. By deﬁnition, we have @a P I, 1 ď i ă j ď N, h P rms
+αh “
+¯ a,i,j
+
+j´1 ÿ
+ÿ
+
+ÿ
+
+ÿ
+
+tpa Ñ b c, h2 , h3 |h, aq ˆ αh2 ˆ αh3
+¯ b,i,k ¯ c,k`1,j .
+
+k“i b,c h2 Prms h3 Prms
+
+We also have @a P I, 1 ď i ă j ď N,
+α
+
+a,i,j
+
+j´1 ÿ
+ÿ
+
+“
+
+C aÑb c pαb,i,k , αc,k`1,j q
+
+(23)
+
+k“i b,c
+j´1 ÿ ´
+ÿ
+
+¯
+T aÑb c pαb,i,k Gb , αc,k`1,j Gc q pGa q´1
+
+“
+
+(24)
+
+k“i b,c
+j´1 ÿ ´
+ÿ
+
+¯
+T aÑb c p¯ b,i,k , αc,k`1,j pGa q´1
+α
+¯
+
+“
+k“i b,c
+a,i,j
+
+“ α
+¯
+
+pGa q´1 .
+
+(25)
+(26)
+
+Eq. 23 follows by the deﬁnitions in algorithm 5. Eq. 24 follows by the assumption in the
+theorem that
+´
+¯
+C aÑb c py 1 , y 2 q “ T aÑb c py 1 Gb , y 2 Gc q pGa q´1
+26
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+Eq. 25 follows because by the inductive hypothesis,
+αb,i,k “ αb,i,k pGb q´1
+¯
+and
+αc,k`1,j “ αc,k`1,j pGc q´1 .
+¯
+Eq. 26 follows because
+”
+ı
+ÿ
+T aÑb c p¯ b,i,k , αc,k`1,j q “
+α
+¯
+tpa Ñ b c, h2 , h3 |h, aq¯ h2 αh3
+αb,i,k ¯ c,k`1,j
+h
+
+hence
+
+j´1 ÿ
+ÿ
+
+h2 ,h3
+
+T aÑb c p¯ b,i,k , αc,k`1,j q “ αa,i,j .
+α
+¯
+¯
+
+k“i b,c
+
+¯
+We now turn the outside terms, proving that β a,i,j “ Ga β a,i,j . The proof is again by
+induction.
+The base case is as follows. By the deﬁnitions in the algorithms, for all a P I, β a,1,n “
+¯a,1,n “ πpa, hq. It follows directly that for all a P I,
+c1 “ Ga π a , and for all a P I, h P rms, βh
+a
+¯
+β a,1,n “ Ga β a,1,n .
+The inductive case is as follows. By the deﬁnitions in the algorithms, we have @a P
+N , 1 ď i ď j ď N, h P rms
+1,a,i,j
+2,a,i,j
+¯a,i,j
+β h “ γh
+` γh
+where
+1,a,i,j
+γh
+“
+
+i´1
+ÿ
+
+ÿ
+
+ÿ
+
+ÿ
+
+¯b,k,j ¯ c,k,i´1
+tpb Ñ c a, h3 , h|h2 , bq ˆ βh2 ˆ αh3
+
+k“1 bÑc a h2 Prms h3 Prms
+2,a,i,j
+“
+γh
+
+N
+ÿ
+
+ÿ
+
+ÿ
+
+ÿ
+
+¯b,i,k ¯ c,j`1,k
+tpb Ñ a c, h, h3 |h2 , bq ˆ βh2 ˆ αh3
+
+k“j`1 bÑa c h2 Prms h3 Prms
+
+and @a P N , 1 ď i ď j ď N,
+β a,i,j “
+
+i´1
+ÿ
+
+ÿ
+
+bÑc
+Cp1,2q a pβ b,k,j , αc,k,i´1 q `
+
+k“1 bÑc a
+
+N
+ÿ
+
+ÿ
+
+bÑa
+Cp1,3q c pβ b,i,k , αc,j`1,k q.
+
+k“j`1 bÑa c
+
+Critical identities are
+i´1
+ÿ
+
+ÿ
+
+k“1 bÑc a
+N
+ÿ ÿ
+
+bÑc
+Cp1,2q a pβ b,k,j , αc,k,i´1 q “ Ga γ 1,a,i,j
+
+(27)
+
+bÑa
+Cp1,3q c pβ b,i,k , αc,j`1,k q “ Ga γ 2,a,i,j
+
+(28)
+
+k“j`1 bÑa c
+
+¯
+from which β a,i,j “ Ga β a,i,j follows immediately.
+The identities in Eq. 27 and 28 are proved through straightforward algebraic manipulation, based on the following properties:
+27
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+¯
+¯
+• By the inductive hypothesis, β b,k,j “ Gb β b,k,j and β b,i,k “ Gb β b,i,k .
+• By correctness of the inside terms, as shown earlier in this proof, it holds that
+αc,k,i´1 “ αc,k,i´1 pGc q´1 and αc,j`1,k “ αc,j`1,k pGc q´1 .
+¯
+¯
+• By the assumptions in the theorem,
+´
+¯
+C aÑb c py 1 , y 2 q “ T aÑb c py 1 Gb , y 2 Gc q pGa q´1 .
+It follows (see Lemma 11) that
+´
+¯
+bÑc
+bÑc
+Cp1,2q a pβ b,k,j , αc,k,i´1 q “ Ga Tp1,2q a ppGb q´1 β b,k,j , αc,k,i´1 Gc q
+¯
+´
+bÑc
+¯
+¯
+“ Ga Tp1,2q a pβ b,k,j , αc,k,i´1 q
+and
+´
+¯
+bÑa
+bÑa
+¯
+Cp1,3q c pβ b,i,k , αc,j`1,k q “ Ga Tp1,3q c pβ b,i,k , αc,j`1,k q
+¯
+
+Finally, we give the following Lemma, as used above:
+Lemma 11 Assume we have tensors C P Rmˆmˆm and T P Rmˆmˆm such that for any
+y2, y3,
+`
+˘
+Cpy 2 , y 3 q “ T py 2 A, y 3 Bq D
+where A, B, D are matrices in Rmˆm . Then for any y 1 , y 2 ,
+`
+˘
+Cp1,2q py 1 , y 2 q “ B Tp1,2q pDy 1 , y 2 Aq
+
+(29)
+
+and for any y 1 , y 3 ,
+`
+˘
+Cp1,3q py 1 , y 3 q “ A Tp1,3q pDy 1 , y 3 Bq .
+
+(30)
+
+Proof: Consider ﬁrst Eq. 29. We will prove the following statement:
+`
+˘
+@y 1 , y 2 , y 3 , y 3 Cp1,2q py 1 , y 2 q “ y 3 B Tp1,2q pDy 1 , y 2 Aq
+This statement is equivalent to Eq. 29.
+`
+˘
+First, for all y 1 , y 2 , y 3 , by the assumption that Cpy 2 , y 3 q “ T py 2 A, y 3 Bq D,
+Cpy 2 , y 3 qy 1 “ T py 2 A, y 3 BqDy 1
+hence
+ÿ
+
+1 2 3
+Ci,j,k yi yj yk “
+
+i,j,k
+
+ÿ
+i,j,k
+
+where z 1 “ Dy 1 , z 2 “ y 2 A, z 3 “ y 3 B.
+28
+
+1 2 3
+Ti,j,k zi zj zk
+
+(31)
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+In addition, it is easily veriﬁed that
+y 3 Cp1,2q py 1 , y 2 q “
+
+ÿ
+
+1 2 3
+Ci,j,k yi yj yk
+
+(32)
+
+1 2 3
+Ti,j,k zi zj zk
+
+(33)
+
+i,j,k
+
+`
+˘
+y 3 B Tp1,2q pDy 1 , y 2 Aq “
+
+ÿ
+i,j,k
+
+where again z 1 “ Dy 1 , z 2 “ y 2 A, z 3 “ y 3 B. Combining Eqs. 31, 32, and 33 gives
+`
+˘
+y 3 Cp1,2q py 1 , y 2 q “ y 3 B Tp1,2q pDy 1 , y 2 Aq ,
+thus proving the identity in Eq. 29.
+The proof of the identity in Eq. 30 is similar, and is omitted for brevity.
+A.2 Proof of the Identity in Eq. 17
+We now prove the identity in Eq. 17, repeated here:
+´
+¯
+DaÑb c py 1 , y 2 q “ T aÑb c py 1 Gb , y 2 Gc q diagpγ a qpK a qJ .
+Recall that
+“
+‰
+DaÑb c “ E vR1 “ a Ñ b cwZY2J Y3J |A1 “ a ,
+or equivalently
+aÑb
+Di,j,k c “ E rvR1 “ a Ñ b cwZi Y2,j Y3,k |A1 “ as .
+
+Using the chain rule, and marginalizing over hidden variables, we have
+aÑb
+Di,j,k c “ E rvR1 “ a Ñ b cwZi Y2,j Y3,k |A1 “ as
+ÿ
+“
+ppa Ñ b c, h1 , h2 , h3 |aqE rZi Y2,j Y3,k |R1 “ a Ñ b c, h1 , h2 , h3 s .
+h1 ,h2 ,h3 Prms
+
+By deﬁnition, we have
+a
+ppa Ñ b c, h1 , h2 , h3 |aq “ γh1 ˆ tpa Ñ b c, h2 , h3 |h1 , aq
+
+In addition, under the independence assumptions in the L-PCFG, and using the deﬁnitions
+of K a and Ga , we have
+E rZi Y2,j Y3,k |R1 “ a Ñ b c, h1 , h2 , h3 s
+“ E rZi |A1 “ a, H1 “ h1 s ˆ E rY2,j |A2 “ b, H2 “ h2 s ˆ E rY3,k |A3 “ c, H3 “ h3 s
+a
+“ Ki,h1 ˆ Gb 2 ˆ Gc 3 .
+j,h
+k,h
+
+Putting this all together gives
+ÿ
+aÑb
+a
+a
+Di,j,k c “
+γh1 ˆ tpa Ñ b c, h2 , h3 |h1 , aq ˆ Ki,h1 ˆ Gb 2 ˆ Gc 3
+j,h
+k,h
+h1 ,h2 ,h3 Prms
+
+ÿ
+“
+h1 Prms
+
+a
+a
+γh1 ˆ Ki,h1 ˆ
+
+ÿ
+
+tpa Ñ b c, h2 , h3 |h1 , aq ˆ Gb 2 ˆ Gc 3 .
+j,h
+k,h
+
+h2 ,h3 Prms
+
+29
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+By the deﬁnition of tensors,
+rDaÑb c py 1 , y 2 qsi
+ÿ
+aÑb
+1 2
+“
+Di,j,k c yj yk
+j,k
+
+ÿ
+“
+
+a
+a
+γh1 ˆ Ki,h1 ˆ
+
+“
+
+tpa Ñ b c, h2 , h3 |h1 , aq ˆ
+
+˜
+ÿ
+
+a
+a
+γh1 ˆ Ki,h1
+
+¸
+1
+yj Gb 2
+j,h
+
+”
+ı
+ˆ T aÑb c py 1 Gb , y 2 Gc q
+
+h1
+
+h1 Prms
+
+ˆ
+
+h1
+
+.
+
+h2 ,h3
+
+h2
+
+2
+
+h2
+
+“
+
+y 2 Gc
+
+‰
+h3
+
+y G
+
+“ tpa Ñ b c, h2 , h3 |h1 , aq
+ÿ
+1
+“
+yj Gb 2
+j,h
+j
+
+ÿ
+
+‰
+c
+h3
+
+“
+
+2
+yk Gc 3 .
+k,h
+
+k
+
+Finally, the required identity
+´
+¯
+DaÑb c py 1 , y 2 q “ T aÑb c py 1 Gb , y 2 Gc q diagpγ a qpK a qJ
+follows immediately from Eq. 34.
+A.3 Proof of the Identity in Eq. 18
+We now prove the identity in Eq. 18, repeated below:
+d8 “ qaÑx diagpγ a qpK a qJ .
+aÑx
+Recall that by deﬁnition
+“
+‰
+d8 “ E vR1 “ a Ñ xwZ J |A1 “ a ,
+aÑx
+or equivalently
+rd8 si “ E rvR1 “ a Ñ xwZi |A1 “ as .
+aÑx
+Marginalizing over hidden variables, we have
+rd8 si “ E rvR1 “ a Ñ xwZi |A1 “ as
+aÑx
+ÿ
+“
+ppa Ñ x, h|aqErZi |H1 “ h, R1 “ a Ñ xs.
+h
+
+30
+
+2
+yk Gc 3
+k,h
+
+(34)
+
+and we have
+
+“
+
+¸
+
+k
+
+The last line follows because by the deﬁnition of tensors,
+ı
+”
+ı
+”
+ÿ
+aÑb c
+T aÑb c py 1 Gb , y 2 Gc q
+“
+Th1 ,h2 ,h3 y 1 Gb
+
+aÑb c
+Th ,h ,h
+” 1 2 3
+ı
+y 1 Gb
+
+˜
+ÿ
+
+j
+
+h2 ,h3 Prms
+
+h1 Prms
+
+ÿ
+
+ÿ
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+By deﬁnition, we have
+a
+a
+ppa Ñ x, h|aq “ γh qpa Ñ x|h, aq “ γh rqaÑx sh .
+
+In addition, by the independence assumptions in the L-PCFG, and the deﬁnition of K a ,
+a
+ErZi |H1 “ h, R1 “ a Ñ xs “ ErZi |H1 “ h, A1 “ as “ Ki,h .
+
+Putting this all together gives
+rd8 si “
+aÑx
+
+ÿ
+
+a
+a
+γh rqaÑx sh Ki,h
+
+h
+
+from which the required identity
+d8 “ qaÑx diagpγ a qpK a qJ
+aÑx
+follows immediately.
+A.4 Proof of the Identity in Eq. 19
+We now prove the identity in Eq. 19, repeated below:
+Σa “ Ga diagpγ a qpK a qJ
+Recall that by deﬁnition
+Σa “ ErY1 Z J |A1 “ as
+or equivalently
+rΣa si,j “ ErY1,i Zj |A1 “ as
+Marginalizing over hidden variables, we have
+rΣa si,j
+
+“ ErY1,i Zj |A1 “ as
+ÿ
+“
+pph|aqErY1,i Zj |H1 “ h, A1 “ as
+h
+
+By deﬁnition, we have
+a
+γh “ pph|aq
+
+In addition, under the independence assumptions in the L-PCFG, and using the deﬁnitions
+of K a and Ga , we have
+ErY1,i Zj |H1 “ h, A1 “ as “ ErY1,i |H1 “ h, A1 “ as ˆ ErZj |H1 “ h, A1 “ as
+a
+“ Ga Kj,h
+i,h
+
+Putting all this together gives
+rΣa si,j “
+
+ÿ
+
+a
+a
+γh Ga Kj,h
+i,h
+
+h
+
+from which the required identity
+Σa “ Ga diagpγ a qpK a qJ
+follows immediately.
+31
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+A.5 Proof of the Identity in Eq. 20
+We now prove the identity in Eq. 19, repeated below:
+c1 “ Ga π a .
+a
+Recall that by deﬁnition
+c1 “ E rvA1 “ awY1 |B “ 1s ,
+a
+or equivalently
+rc1 si “ E rvA1 “ awY1,i |B “ 1s .
+a
+Marginalizing over hidden variables, we have
+rc1 si “ E rvA1 “ awY1,i |B “ 1s
+a
+ÿ
+“
+P pA1 “ a, H1 “ h|B “ 1qE rY1,i |A1 “ a, H1 “ h, B “ 1s .
+h
+
+By deﬁnition we have
+P pA1 “ a, H1 “ h|B “ 1q “ πpa, hq
+By the independence assumptions in the PCFG, and the deﬁnition of Ga , we have
+E rY1,i |A1 “ a, H1 “ h, B “ 1s “ E rY1,i |A1 “ a, H1 “ hs
+“ Ga .
+i,h
+Putting this together gives
+rc1 si “
+a
+
+ÿ
+
+πpa, hqGa
+i,h
+
+h
+
+from which the required identity
+c1 “ Ga π a
+a
+follows.
+
+Appendix B. Proof of Theorem 8
+In this section we give a proof of Theorem 8. The proof relies on three lemmas:
+ˆ
+• In Section B.1 we give a lemma showing that if estimates C aÑb c , caÑx and c1 are
+ˆ
+ˆa
+close (up to linear transforms) to the parameters of an L-PCFG, then the distribution
+deﬁned by the parameters is close (in l1 -norm) to the distribution under the L-PCFG.
+ˆ
+ˆ ˆ
+• In Section B.2 we give a lemma showing that if the estimates Ωa , DaÑb c , d8 and
+aÑx
+1 are close to the underlying values being estimated, the estimates C aÑb c , c
+ˆ
+ca
+ˆ
+ˆaÑx and
+c1 are close (up to linear transforms) to the parameters of the underlying L-PCFG.
+ˆa
+• In Section B.3 we give a lemma relating the number of samples in the estimation
+ˆ
+ˆ ˆ
+algorithm to the errors in estimating Ωa , DaÑb c , d8 and c1 .
+ˆa
+aÑx
+The proof of the theorem is then given in Section B.4.
+32
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+B.1 A Bound on How Errors Propagate
+ˆ
+In this section we show that if estimated tensors and vectors C aÑb c , c8 and c1 are
+ˆaÑx
+ˆa
+aÑb c , q 8 , and π a of an L-PCFG, then
+suﬃciently close to the underlying parameters T
+aÑx
+the distribution under the estimated parameters will be close to the distribution under the
+L-PCFG. Section B.1.1 gives assumptions and deﬁnitions; Lemma 12 then gives the main
+lemma; the remainder of the section gives proofs.
+B.1.1 Assumptions and Definitions
+We make the following assumptions:
+• Assume we have an L-PCFG with parameters T aÑb c P Rmˆmˆm , qaÑx P Rm , π a P Rm .
+Assume in addition that we have an invertible matrix Ga P Rmˆm for each a P N .
+For convenience deﬁne H a “ pGa q´1 for all a P N .
+ˆ
+• We assume that we have parameters C aÑb c P Rmˆmˆm , c8 P R1ˆm and c1 P Rmˆ1
+ˆaÑx
+ˆa
+that satisfy the following conditions:
+– There exists some constant ∆ ą 0 such that for all rules a Ñ b c, for all y 1 , y 2 P
+Rm ,
+ˆ
+||C aÑb c py 1 H b , y 2 H c qGa ´ T aÑb c py 1 , y 2 q||8 ď ∆||y 1 ||2 ||y 2 ||2 .
+– There exists some constant δ ą 0 such that for all a P P, for all h P rms,
+ÿ
+8
+|rˆ8 Ga sh ´ rqaÑx sh | ď δ.
+caÑx
+x
+
+– There exists some constant κ ą 0 such that for all a,
+||pGa q´1 c1 ´ π a ||1 ď κ.
+ˆa
+We give the following deﬁnitions:
+• For any skeletal tree t “ r1 . . . rN , deﬁne bi ptq to be the quantities computed by the
+8
+algorithm in Figure 4 with t together with the parameters T aÑb c , qaÑx , π a as input.
+ˆi ptq to be the quantities computed by the algorithm in Figure 4 with t together
+Deﬁne f
+ˆ
+with the parameters C aÑb c , c8 , c1 as input. Deﬁne
+ˆaÑx ˆa
+ξptq “ b1 ptq,
+and
+ˆ
+ξptq “ f 1 ptqGa1 .
+where as before a1 is the non-terminal on the left-hand-side of rule r1 . Deﬁne pptq to
+ˆ
+be the value returned by the algorithm in Figure 4 with t together with the parameters
+ˆ
+C aÑb c , c8 , c1 as input. Deﬁne pptq to be the value returned by the algorithm in
+ˆaÑx ˆa
+8
+Figure 4 with t together with the parameters T aÑb c , qaÑx , π a as input.
+• Deﬁne T pa, N q to be the set of of all skeletal trees with N binary rules (hence 2N ` 1
+rules in total), with non-terminal a at the root of the tree.
+33
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+• Deﬁne
+ÿ
+
+Zpa, h, N q “
+
+rξptqsh ,
+
+tPT pa,N q
+
+ÿ
+
+Dpa, h, N q “
+
+ˆ
+|rξptqsh ´ rξptqsh |,
+
+tPT pa,N q
+
+F pa, h, N q “
+
+Dpa, h, N q
+.
+Zpa, h, N q
+
+• Deﬁne
+γ“
+
+min
+a,b,cPN ,h1 ,h2 ,h3 Prms
+
+tpa Ñ b c, h2 , h3 |a, h1 q.
+
+• For any a Ñ b c deﬁne the tensor
+ˆ
+ˆ
+T aÑb c py 1 , y 2 q “ C aÑb c py 1 H b , y 2 H c qGa .
+B.1.2 The Main Lemma
+Lemma 12 Given the assumptions in Section B.1.1, for any a, N ,
+¸
+˜
+˙
+ˆ
+ÿ
+∆ N ´1
+N
+p1 ` δq ´ 1 .
+|ˆptq ´ pptq| ď m p1 ` κq 1 `
+p
+γ
+
+(35)
+
+tPT pa,N q
+
+Proof: By deﬁnition we have
+ˇ
+ˇ
+ˇÿ
+ˇ
+ÿ
+ˇ
+aˇ
+ˆ
+|ˆptq ´ pptq| “
+p
+ˆa
+ˇ rξptqsh rpGa q´1 c1 sh ´ rξptqsh πh ˇ
+ˇ
+ˇ
+h
+tPT pa,N q
+tPT pa,N q h
+ˇ
+ˇ
+ÿ ˇ
+ˇ
+ˆ
+“
+ˆa
+ˇξptq ¨ rpGa q´1 c1 s ´ ξptq ¨ π a ˇ .
+ÿ
+
+ÿ
+
+tPT pa,N q
+
+Deﬁne e “ rpGa q´1 c1 s ´ π a . Then by the triangle inequality,
+ˆa
+ˇ
+ˇ
+ˇˆ
+ˇ
+ˆ
+ˆ
+ξptq ¨ rpGa q´1 c1 s ´ ξptq ¨ π a ˇ ď |ξptq ¨ π a ´ ξptq ¨ π a | ` |ξptq ¨ e ´ ξptq ¨ e| ` |ξptq ¨ e|
+ˆa
+ˇ
+We bound each of the three terms as follows:
+ˆ
+ˆ
+ˆ
+|ξptq ¨ π a ´ ξptq ¨ π a | ď ||ξptq ´ ξptq||8 ||π a ||1 ď ||ξptq ´ ξptq||8 ď
+
+ˇ
+ÿˇ
+ˇ ˆ
+ˇ
+ˇrξptqsh ´ rξptqsh |ˇ
+h
+
+ˆ
+ˆ
+ˆ
+|ξptq ¨ e ´ ξptq ¨ e| ď ||ξptq ´ ξptq||8 ||e||1 ď κ||ξptq ´ ξptq||8 ď κ
+
+ˇ
+ÿˇ
+ˇ ˆ
+ˇ
+ˇrξptqsh ´ rξptqsh |ˇ
+h
+
+|ξptq ¨ e| ď ||ξptq||8 ||e||1 ď κ||ξptq||8 ď κ
+
+ÿ
+h
+
+34
+
+rξptqsh .
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+Combining the above gives
+ÿ
+
+ÿ
+
+|ˆptq ´ pptq| ď p1 ` κq
+p
+
+ˇ
+ÿˇ
+ˇ ˆ
+ˇ
+ˇrξptqsh ´ rξptqsh |ˇ ` κ
+
+tPT pa,N q h
+
+tPT pa,N q
+
+ÿ
+
+ÿ
+rξptqsh
+
+tPT pa,N q h
+
+¸
+˙
+∆ N
+p1 ` δqN `1 ´ 1 ` mκ
+ď mp1 ` κq
+1`
+γ
+˜
+¸
+ˆ
+˙
+∆ N
+“ m p1 ` κq 1 `
+p1 ` δqN `1 ´ 1
+γ
+˜ˆ
+
+ř
+ř
+where the second inequality follows because tPT pa,N q h rξptqsh ď m, and because Lemma 13
+gives
+˜ˆ
+¸
+˙
+ˇ
+ÿ ÿˇ
+∆ N
+ˇ ˆ
+ˇ
+1`
+p1 ` δqN `1 ´ 1 .
+ˇrξptqsh ´ rξptqsh |ˇ ď m
+γ
+h
+tPT pa,N q
+
+We now give a crucial lemma used in the previous proof:
+Lemma 13 Given the assumptions in Section B.1.1, for any a, h, N ,
+¸
+˜ˆ
+˙
+ˇ
+ÿ ˇ
+∆ N
+ˇ ˆ
+ˇ
+N `1
+Dpa, h, N q “
+p1 ` δq
+´1 .
+1`
+ˇrξptqsh ´ rξptqsh ˇ ď Zpa, h, N q
+γ
+tPT pa,N q
+
+Proof: A key identity is the following, which holds for any N ě 1 (recall that F pa, h, N q “
+Dpa, h, N q{Zpa, h, N q):
+
+F pa, h, N q
+N ´1 ÿ ÿ
+ÿ
+ď ´1 `
+gpa, b, c, k, h1 , h2 qp1 ` F pb, h1 , kqqp1 ` F pc, h2 , N ´ k ´ 1qq
+k“0 b,c h1 ,h2
+N ´1 ÿ ÿ
+ÿ
+Y pN q
+`∆
+hpb, c, k, h1 , h2 qp1 ` F pb, h1 , kqqp1 ` F pc, h2 , N ´ k ´ 1qq,
+Zpa, h, N q k“0 b,c h ,h
+1
+
+2
+
+(36)
+where
+gpa, b, c, k, h1 , h2 q “ tpa Ñ b c, h1 , h2 |a, hq
+Y pN q “
+
+N ´1 ÿ
+ÿ
+
+ÿ
+
+Zpb, h1 , kqZpc, h2 , N ´ k ´ 1q
+Zpa, h, N q
+
+Zpb, h1 , kqZpc, h2 , N ´ k ´ 1q
+
+k“0 b,c h1 ,h2
+
+hpb, c, k, h1 , h2 q “
+
+Zpb, h1 , kqZpc, h2 , N ´ k ´ 1q
+.
+Y pN q
+35
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+The proof of Eq. 36 is in Section B.1.3. Note that we have
+N ´1 ÿ
+ÿ
+
+ÿ
+
+gpa, b, c, k, h1 , h2 q “
+
+k“0 b,c h1 ,h2
+
+N ´1 ÿ
+ÿ
+
+ÿ
+
+hpb, c, k, h1 , h2 q “ 1.
+
+k“0 b,c h1 ,h2
+
+The rest of the proof follows through induction. For the base case, for N “ 0 we have
+¸
+˜ˆ
+˙
+∆ N
+p1 ` δqN `1 ´ 1 “ δZpa, h, N q “ δ
+Zpa, h, N q
+1`
+γ
+where the last equality follows because Zpa, h, 0q “ 1 for any a, h. For N “ 0 we also have
+ˇ ÿ
+ÿ ˇ
+ˇ ˆ
+ˇ
+8
+|rˆ8 Ga sh ´ rqaÑx sh | ď δ.
+caÑx
+ˇrξptqsh ´ rξptqsh ˇ “
+x
+
+tPT pa,N q
+
+The base case follows immediately.
+For the recursive case, by the inductive hypothesis we have
+ˆ
+1 ` F pb, h1 , kq ď
+
+∆
+1`
+γ
+
+˙k
+p1 ` δqk`1
+
+and
+ˆ
+1 ` F pc, h2 , N ´ k ´ 1q ď
+
+∆
+1`
+γ
+
+˙N ´k´1
+p1 ` δqN ´k .
+
+It follows from Eq. 36 that
+˙ˆ
+˙
+∆ N ´1
+Y pN q
+1`
+p1 ` δqN `1
+Zpa, h, N q
+γ
+ˆ
+˙
+∆ N
+ď ´1 ` 1 `
+p1 ` δqN `1
+γ
+
+ˆ
+F pa, h, N q ď ´1 ` 1 ` ∆
+
+where the second inequality follows because
+řN ´1 ř ř
+Y pN q
+1
+k“0
+b,c
+h1 ,h2 Zpb, h1 , kqZpc, h2 , N ´ k ´ 1q
+“ řN ´1 ř ř
+ď .
+Zpa, h, N q
+γ
+k“0
+b,c
+h1 ,h2 tpa Ñ b c, h1 , h2 |a, hqZpb, h1 , kqZpc, h2 , N ´ k ´ 1q
+This completes the proof.
+B.1.3 Proof of Eq. 36
+Any tree t P T pa, N q where N ě 1 can be decomposed into the following: 1) A choice b, c,
+implying the rule a Ñ b c is at the root; 2) A choice of 0 ď k ď N ´1, implying that the tree
+dominated by b is of size k, the tree dominated by c is of size N ´ 1 ´ k; 3) A choice of trees
+aÑb
+t1 P T pb, kq and t2 P T pc, N ´ 1 ´ kq. The resulting tree has ξh ptq “ Th c pξpt1 q, ξpt2 qq.
+36
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+ˆ
+Deﬁne dptq “ ξptq ´ ξptq. We then have the following:
+
+ÿ
+
+ˆ
+|ξh ptq ´ ξh ptq|
+
+tPT pa,N q
+N ´1 ÿ
+ÿ
+
+ÿ
+
+ÿ
+
+“
+
+aÑb
+ˆ
+ˆaÑb ˆ
+|Th c pξpt1 q, ξpt2 qq ´ Th c pξpt1 q, ξpt2 qq|
+
+k“0 b,c t1 PT pb,kq t2 PT pc,N ´1´kq
+
+ď ∆
+
+N ´1 ÿ
+ÿ
+
+ÿ
+
+ÿ
+p||ξpt1 q||2 ` ||dpt1 q||2 qp||ξpt2 q||2 ` ||dpt2 q||2 q
+
+k“0 b,c t1 PT pb,kq t2 PT pc,N ´1´kq
+N ´1 ÿ
+ÿ
+
+ÿ
+
+ÿ
+
+`
+
+aÑb
+|Th c pξpt1 q, dpt2 qq|
+
+k“0 b,c t1 PT pb,kq t2 PT pc,N ´1´kq
+N ´1 ÿ
+ÿ
+
+ÿ
+
+ÿ
+
+`
+
+aÑb
+|Th c pdpt1 q, ξpt2 qq|
+
+k“0 b,c t1 PT pb,kq t2 PT pc,N ´1´kq
+N ´1 ÿ
+ÿ
+
+ÿ
+
+ÿ
+
+`
+
+aÑb
+|Th c pdpt1 q, dpt2 qq|.
+
+(37)
+
+k“0 b,c t1 PT pb,kq t2 PT pc,N ´1´kq
+
+The inequality follows because by Lemma 14,
+
+aÑb
+ˆ
+ˆaÑb ˆ
+|Th c pξpt1 q, ξpt2 qq ´ Th c pξpt1 q, ξpt2 qq|
+
+ď ∆p||ξpt1 q||2 ` ||dpt1 q||2 qp||ξpt2 q||2 ` ||dpt2 q||2 q
+aÑb
+aÑb
+aÑb
+`|Th c pξpt1 q, dpt2 qq| ` |Th c pdpt1 q, ξpt2 qq| ` |Th c pdpt1 q, dpt2 qq|.
+
+We ﬁrst derive an upper bound on the last three terms of Eq. 37. Note that we have
+the identity
+
+Zpa, h, N q
+N ´1 ÿ ÿ
+ÿ
+“
+
+tpa Ñ b c, h1 , h2 |a, hq
+
+k“0 b,c h1 ,h2
+N ´1 ÿ
+ÿ
+
+ÿ
+
+“
+
+ÿ
+t1 PT pb,kq
+
+ξh1 pt1 q
+
+ÿ
+
+ξh2 pt2 q
+
+t2 PT pc,N ´1´kq
+
+tpa Ñ b c, h1 , h2 |a, hqZpb, h1 , kqZpc, h2 , N ´ k ´ 1q.
+
+k“0 b,c h1 ,h2
+
+37
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+It follows that
+
+N ´1 ÿ
+ÿ
+
+ÿ
+
+ÿ
+
+`
+
+aÑb
+aÑb
+|Th c pξpt1 q, dpt2 qq| ` |Th c pdpt1 q, ξpt2 qq|
+
+k“0 b,c t1 PT pb,kq t2 PT pc,N ´1´kq
+aÑb
+`|Th c pdpt1 q, dpt2 qq|
+N ´1 ÿ
+ÿ
+
+ÿ
+
+k“0 b,c h1 ,h2
+N ´1 ÿ
+ÿ
+
+ÿ
+
+tpa Ñ b c, h1 , h2 |a, hq
+
+“
+
+ÿ
+
+tpa Ñ b c, h1 , h2 |a, hq
+
+k“0 b,c h1 ,h2
+N ´1 ÿ
+ÿ
+
+ÿ
+
+|dpt2 qh2 |
+t2 PT pc,N ´1´kq
+
+ÿ
+
+ÿ
+|dpt1 qh1 |
+
+t1 PT pb,kq
+
+tpa Ñ b c, h1 , h2 |a, hq
+
+`
+
+ÿ
+
+ξpt1 qh1
+
+t1 PT pb,kq
+
+`
+
+˘
+
+k“0 b,c h1 ,h2
+
+ξpt2 qh2
+
+t2 PT pc,N ´1´kq
+
+ÿ
+
+ÿ
+|dpt1 qh1 |
+
+t1 PT pb,kq
+
+|dpt2 qh2 |
+t2 PT pc,N ´1´kq
+
+˜
+
+N ´1 ÿ
+ÿ
+
+ÿ
+
+tpa Ñ b c, h1 , h2 |a, hq
+
+“
+k“0 b,c h1 ,h2
+
+ˆ
+ÿ
+
+ÿ
+
+ˆ
+
+˙˙
+pξpt1 qh1 ` |dpt1 qh1 |qpξpt2 qh2 ` |dpt2 qh2 |q
+´ Zpa, h, N q
+
+t1 PT pb,kq t2 PT pc,N ´1´kq
+
+˜
+
+N ´1 ÿ
+ÿ
+
+ÿ
+
+tpa Ñ b c, h1 , h2 |a, hqpZpb, h1 , kq`
+
+“
+k“0 b,c h1 ,h2
+
+˙
+Dpb, h1 , kqqpZpc, h2 , N ´ k ´ 1q ` Dpc, h2 , N ´ k ´ 1qq ´ Zpa, h, N q
+˜
+
+N ´1 ÿ
+ÿ
+
+ÿ
+
+tpa Ñ b c, h1 , h2 |a, hqZpb, h1 , kqZpc, h2 , N ´ k ´ 1q
+
+“
+k“0 b,c h1 ,h2
+
+˙
+Dpc, h2 , N ´ k ´ 1q
+Dpb, h1 , kq
+qp1 `
+´ Zpa, h, N q
+ˆp1 `
+Zpb, h1 , kq
+Zpc, h2 , N ´ k ´ 1q
+˜
+¸
+N ´1 ÿ ÿ
+ÿ
+“ Zpa, h, N q
+gpa, b, c, k, h1 , h2 qp1 ` F pb, h1 , kqqp1 ` F pc, h2 , N ´ k ´ 1qq
+k“0 b,c h1 ,h2
+
+´Zpa, h, N q
+
+where gpa, b, c, k, h1 , h2 q “
+
+(38)
+
+tpaÑb c,h1 ,h2 |a,hqZpb,h1 ,kqZpc,h2 ,N ´k´1q
+.
+Zpa,h,nq
+
+38
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+We next derive a bound on the ﬁrst term as follows:
+∆
+
+N ´1 ÿ
+ÿ
+
+ÿ
+
+ÿ
+p||ξpt1 q||2 ` ||dpt1 q||2 qp||ξpt2 q||2 ` ||dpt2 q||2 q
+
+k“0 b,c t1 PT pb,kq t2 PT pc,N ´1´kq
+
+ď ∆
+
+N ´1 ÿ
+ÿ
+
+ÿ
+
+ÿ
+p||ξpt1 q||1 ` ||dpt1 q||1 qp||ξpt2 q||1 ` ||dpt2 q||1 q
+
+k“0 b,c t1 PT pb,kq t2 PT pc,N ´1´kq
+
+“ ∆
+
+N ´1 ÿ
+ÿ
+
+ÿ
+
+pZpb, h1 , kq ` Dpb, h1 , kqqpZpc, h2 , N ´ k ´ 1q ` Dpc, h2 , N ´ k ´ 1qq
+
+k“0 b,c h1 ,h2
+
+“ ∆
+
+N ´1 ÿ
+ÿ
+
+ÿ
+
+Zpb, h1 , kqZpc, h2 , N ´ k ´ 1qp1 ` F pb, h1 , kqqp1 ` F pc, h2 , N ´ k ´ 1qq
+
+k“0 b,c h1 ,h2
+
+“ ∆Y pN q
+
+N ´1 ÿ
+ÿ
+
+ÿ
+
+hpk, b, c, h1 , h2 qp1 ` F pb, h1 , kqqp1 ` F pc, h2 , N ´ k ´ 1qq
+
+(39)
+
+k“0 b,c h1 ,h2
+
+where
+hpk, b, c, h1 , h2 q “
+
+Zpb, h1 , kqZpc, h2 , N ´ k ´ 1q
+Y pN q
+
+ř
+ř ř
+and Y pN q “ N ´1 b,c h1 ,h2 Zpb, h1 , kqZpc, h2 , N ´ k ´ 1q.
+k“0
+Combining Eqs. 37, 38 and 39 gives the inequality in Eq. 36, repeated below:
+F pa, h, N q
+ď ´1
+N ´1 ÿ ÿ
+ÿ
+`
+gpa, b, c, k, h1 , h2 qp1 ` F pb, h1 , kqqp1 ` F pc, h2 , N ´ k ´ 1qq
+k“0 b,c h1 ,h2
+N ´1 ÿ ÿ
+ÿ
+Y pN q
+hpb, c, k, h1 , h2 qp1 ` F pb, h1 , kqqp1 ` F pc, h2 , N ´ k ´ 1qq.
+`∆
+Zpa, h, N q k“0 b,c h ,h
+1
+
+2
+
+The following lemma was used in the previous proof:
+ˆ
+Lemma 14 Assume we have tensors T and T and that there is some constant ∆ such that
+1 , y 2 P Rm ,
+for any y
+ˆ
+||T py 1 , y 2 q ´ T py 1 , y 2 q||8 ď ∆||y 1 ||2 ||y 2 ||2
+Then for any y 1 , y 2 , y 1 , y 2 , for any h, it follows that
+ˆ ˆ
+ˆ y ˆ
+|Th pˆ1 , y 2 q ´ Th py 1 , y 2 q| ď ∆p||y 1 ||2 ` ||d1 ||2 qp||y 2 ||2 ` ||d2 ||2 q
+`|Th py 1 , d2 q| ` |Th pd1 , d2 q| ` |Th pd1 , y 2 q|
+where d1 “ y 1 ´ y 1 , and d2 “ y 2 ´ y 2 .
+ˆ
+ˆ
+39
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+Proof: Deﬁne
+ˆ
+g py 1 q “ Th py 1 , y 2 q,
+ˆ
+ˆ
+gpy 1 q “ Th py 1 , y 2 q.
+Deﬁne d1 “ pˆ1 ´ y 1 q, d2 “ pˆ2 ´ y 2 q. For any v P Rm ,
+y
+y
+ˆ
+|ˆpvq ´ gpvq| “ |Th pv, y 2 q ´ Th pv, y 2 q|
+g
+ˆ
+ˆh pv, y 2 q ´ Th pv, y 2 q| ` |Th pv, d2 q ´ Th pv, d2 q| ` |Th pv, d2 q|.
+ˆ
+ď |T
+
+We can then derive the following bound:
+ˆ y ˆ
+|Th pˆ1 , y 2 q ´ Th py 1 , y 2 q| “ |ˆpˆ1 q ´ gpy 1 q|
+g y
+ď |ˆpy 1 q ´ gpy 1 q| ` |ˆpd1 q ´ gpd1 q| ` |gpd1 q|
+g
+g
+1 2
+1 2
+ˆ
+ˆ
+ď |Th py , y q ´ Th py , y q| ` |Th py 1 , d2 q ´ Th py 1 , d2 q| ` |Th py 1 , d2 q|
+ˆ
+ˆ
+`|Th pd1 , y 2 q ´ Th pd1 , y 2 q| ` |Th pd1 , d2 q ´ Th pd1 , d2 q| ` |Th pd1 , d2 q|
+`|Th pd1 , y 2 q|
+ď ∆p||y 1 ||2 ` ||d1 ||2 qp||y 2 ||2 ` ||d2 ||2 q
+`|Th py 1 , d2 q| ` |Th pd1 , d2 q| ` |Th pd1 , y 2 q|.
+
+B.2 Relating ∆, δ, κ to Estimation Errors
+We now give a lemma that relates estimation errors in the algorithm to the values for ∆, δ
+and κ as deﬁned in the previous section.
+ˆ
+ˆ
+ˆ ˆ
+Throughout this section, in addition to the estimates DaÑb c , d8 , Σa , C aÑb c , c8 ,
+ˆaÑx
+aÑx
+1 computed by the algorithm in Figure 7, we deﬁne quantities
+ca
+ˆ
+Σa “ ErY1 Z J |A1 “ as
+“
+‰
+DaÑb c “ E vR1 “ a Ñ b cwZY2J Y3J |A1 “ a
+“
+‰
+J
+d8
+aÑx “ E vR1 “ a Ñ xwZ |A1 “ a
+C aÑb c py 1 , y 2 q “ DaÑb c py 1 , y 2 qpΣa q´1
+8
+a ´1
+c8
+aÑx “ daÑx pΣ q
+
+c1 “ E rvA1 “ awY1 |B “ 1s
+a
+where
+ˆ
+ˆ
+Y1 “ pU a1 qJ φpT1 q Z “ pV a1 qJ ψpOq
+ˆ
+ˆ
+Y2 “ pU a2 qJ φpT2 q Y3 “ pU a3 qJ φpT3 q.
+Note that these deﬁnitions are identical to those given in Section 7.2, with the additional
+ˆ
+detail that the projection matrices used to deﬁne random variables Y1 , Y2 , Y3 , Z are U a and
+ˆ a , that is, the projection matrices estimated in the ﬁrst step of the algorithm in Figure 7.
+V
+The lemma is as follows:
+40
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+Lemma 15 Assume that under a run of the algorithm in Figure 7 there are constants
+1, 2,
+Ω Ω D , d , π such that
+ˆ
+||Ωa ´ Ωa ||F ď 1
+Ω
+ˆ a ´ Ωa ||F ď 2
+||Ω
+Ω
+ˆ
+||DaÑb c ´ DaÑb c ||F ď D
+cÿ
+ˆ
+||d8 ´ d8 ||2 ď d
+aÑx
+aÑx 2
+
+@a P P,
+@a P I,
+@a Ñ b c,
+@a P P,
+
+x
+1
+||ˆa ´ c1 ||2
+c
+a
+
+@a,
+
+pΩa q
+
+Assume in addition that 1 ď minaPP σm 3
+Ω
+ˆ
+Ga “ pU a qJ I a and H a “ pGa q´1 . Then:
+
+π.
+
+ď
+
+and
+
+2
+Ω
+
+ď minaPI
+
+σm pΩa q
+.
+3
+
+For all a deﬁne
+
+• For all a, Ga is invertible.
+• For all y 1 , y 2 P Rm , for all rules of the form a Ñ b c
+ˆ
+||C aÑb c py 1 H b , y 2 H c qGa ´ C aÑb c py 1 H b , y 2 H c qGa ||8 ď ∆||y 1 ||2 ||y 2 ||2
+where
+1
+16
+∆“
+3 σm pI b qσm pI c q
+
+2
+Ω
+
+ˆ
+
+˙
+
+σm pΩa q2
+
+`
+
+D
+
+3σm pΩa q
+
+.
+
+• For all a P P, for all h P rms,
+ÿ
+|rˆ8 Ga sh ´ rc8 Ga sh | ď δ
+caÑx
+aÑx
+x
+
+where
+
+ˆ
+δ“4
+
+1
+Ω
+
+?
+
+n
+`
+a q2
+σm pΩ
+3σm pΩa q
+
+˙
+
+d
+
+.
+
+• For all a,
+||pGa q´1 c1 ´ pGa q´1 c1 ||1 ď κ
+ˆa
+a
+where
+
+?
+m
+2
+κ“ ?
+3 σm pΩa q
+
+π.
+
+B.2.1 Proof of Lemma 15
+We ﬁrst prove three necessary lemmas, then give a proof of Lemma 15.
+ˆ
+Lemma 16 Assume we have vectors and matrices d P R1ˆm , Σ P Rmˆm , d P R1ˆm ,
+mˆm , U P Rdˆm , I P Rdˆm . We assume that Σ, Σ, and pU J Iq are invertible.
+ˆ
+ˆ
+ΣPR
+In addition, deﬁne
+c “ dΣ´1
+ˆˆ
+c “ dΣ´1
+ˆ
+Ga “ U J I.
+We assume:
+41
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+• For h “ 1 . . . m, ||Ih ||2 ď 1, where Ih is the h’th column of I a .
+• ||U ||2,o ď 1 where ||U ||2,o is the spectral norm of the matrix U .
+ˆ
+• ||Σ ´ Σ||2,o ď
+
+1
+
+It follows that
+a
+
+a
+
+||ˆG ´ cG ||8
+c
+
+?
+ˆ
+ˆ
+1` 5
+||d ´ d||2
+1 ||d||2
+.
+ď
+`
+ˆ
+2 mintσm pΣq, σm pΣqu2
+σm pΣq
+
+Proof:
+||ˆGa ´ cGa ||8
+c
+“ ||pˆ ´ cqU J I||8
+c
+(By deﬁnition Ga “ U J I)
+ď ||pˆ ´ cqU J ||2
+c
+(By ||Ih ||2 ď 1)
+ď ||ˆ ´ c||2
+c
+(By ||U ||2,o ď 1)
+ˆˆ
+“ ||dΣ´1 ´ dΣ´1 ||2
+(By deﬁnitions of c, c)
+ˆ
+´1
+´1
+ˆˆ
+ˆ
+ď ||dpΣ ´ Σ q||2 ` ||pd ´ dqΣ´1 ||2
+(By triangle inequality)
+ˆ ˆ
+ˆ
+ď ||d||2 ||Σ´1 ´ Σ´1 ||2,o ` ||d ´ d||2 ||Σ´1 ||2,o
+(By deﬁnition of ||.||2,o )
+?
+ˆ
+||d ´ d||2
+1
+ˆ 21 ` 5
+ď ||d||
+`
+ˆ
+2 mintσm pΣq, σm pΣqu2
+σm pΣq
+(By Lemma 23 of Hsu et al. 2009, and ||Σ´1 ||2,o “ 1{σm pΣq)
+
+Lemma 17 Assume we have vectors c, c P Rmˆ1 , and we have a matrix Ga P Rmˆm that
+ˆ
+is invertible. It follows that
+?
+m||ˆ ´ c||2
+c
+a ´1
+a ´1
+||pG q c ´ pG q c||1 ď
+ˆ
+.
+σm pGa q
+Proof:
+a ´1
+
+||pG q
+
+a ´1
+
+c ´ pG q
+ˆ
+
+?
+c||1 ď m||pGa q´1 c ´ pGa q´1 c||2 ď
+ˆ
+
+The ﬁrst inequality follows because ||.||1 ď
+||pGa q´1 ||2,o “ 1{σm pGa q.
+
+?
+
+m||ˆ ´ c||2
+c
+.
+σm pGa q
+
+?
+m||.||2 . The second inequality follows because
+
+42
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+ˆ
+Lemma 18 Assume we have matrices and tensors D P Rmˆmˆm , Σ P Rmˆm , D P Rmˆmˆm ,
+mˆm , U P Rdˆm , I P Rdˆm , Gb P Rmˆm , Gc P Rmˆm . We assume that Σ, Σ, Gb , Gc ,
+ˆ
+ˆ
+ΣPR
+J I are invertible.
+and U
+In addition deﬁne
+Cpy 1 , y 2 q “ Dpy 1 , y 2 qΣ´1
+ˆ
+ˆ
+ˆ
+Cpy 1 , y 2 q “ Dpy 1 , y 2 qΣ´1
+Ga “ U J I
+H b “ pGb q´1
+H c “ pGc q´1
+We assume:
+• For h “ 1 . . . m, ||Ih ||2 ď 1, where Ih is the h’th column of I a .
+• ||U ||2,o ď 1
+ˆ
+• ||Σ ´ Σ||2,o ď
+
+1
+
+It follows that for any y 1 , y 2 P Rm ,
+ˆ
+||Cpy 1 H b , y 2 H c qGa ´ Cpy 1 H b , y 2 H c qGa ||8
+¸
+˜
+?
+ˆ
+ˆ
+||D ´ D||F
+1` 5
+||y 1 ||2 ||y 2 ||2
+1 ||D||F
+ˆ
+`
+.
+ď
+ˆ
+2
+σm pΣq
+σm pGb qσm pGc q
+mintσm pΣq, σm pΣqu2
+Proof:
+ˆ
+||Cpy 1 H b , y 2 H c qGa ´ Cpy 1 H b , y 2 H c qGa ||8
+?
+ˆ
+||Dpy 1 H b , y 2 H c q ´ Dpy 1 H b , y 2 H c q||2
+1
+ˆ 1 H b , y 2 H c q||2 1 ` 5
+ď ||Dpy
+`
+ˆ
+2 mintσm pΣq, σm pΣqu2
+σm pΣq
+1 H b , y 2 H c q, d “ Dpy 1 H b , y 2 H c q.)
+ˆ ˆ
+(By Lemma 16, using d “ Dpy
+˜
+¸
+?
+ˆ
+1` 5
+||D ´ D||F
+1
+ˆ
+ď ||y 1 H b ||2 ||y 2 H c ||2 ||D||F
+`
+ˆ
+2 mintσm pΣq, σm pΣqu2
+σm pΣq
+(By ||Dpv 1 , v 2 q||2 ď ||D||F ||v 1 ||2 ||v 2 ||2 for any tensor D, vectors v 1 , v 2 .)
+˜
+¸
+?
+ˆ
+||y 1 ||2 ||y 2 ||2
+1` 5
+||D ´ D||F
+1
+ˆ
+ď
+||D||F
+`
+ˆ
+2 mintσm pΣq, σm pΣqu2
+σm pΣq
+σm pGb qσm pGc q
+(By H b “ pGb q´1 hence ||H b ||2,o “ 1{σm pGb q. Similar for H c .)
+Proof of Lemma 15: By Lemma 9 of Hsu et al. (2009), assuming that
+gives for all a
+2
+ˆ
+σm pΣa q ě σm pΩa q
+3
+?
+3
+σm pΣa q ě
+σm pΩa q
+2
+43
+
+Ω
+
+ď mina
+
+σm pΩa q
+3
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+?
+
+3
+σm pI a q
+2
+The condition that σm pI a q ą 0 implies that σm pGa q ą 0 and hence Ga is invertible. The
+values for ∆ and κ follow from lemmas 18 and and 17 respectively.
+The value for δ is derived as follows. By Lemma 16 we have for any rule a Ñ x, for any
+h P rms,
+?
+ˆ8
+ˆ
+1` 5
+||d8 ´ d8 ||2
+1 ||daÑx ||2
+aÑx
+8
+a
+8
+a
+|rˆaÑx G sh ´ rcaÑx G sh | ď
+c
+` aÑx
+.
+(40)
+ˆ
+2 mintσm pΣa q, σm pΣa qu2
+σm pΣa q
+a
+
+σm pG q ě
+
+By deﬁnition
+˜ř
+ˆ
+d8 “
+aÑx
+
+M
+pi,1q “ a Ñ
+i“1 vr
+řM
+i“1 vai “ aw
+
+xw
+
+¸
+
+˜ř
+ˆ
+
+M
+pi,1q “ a Ñ xwpz piq qJ
+i“1 vr
+řM pi,1q
+“ a Ñ xw
+i“1 vr
+
+¸
+
+ˆ
+ˆ
+In addition z piq “ pV ai qJ ψptpi,1q q and ||V ai ||2,o ď 1, ||ψptpi,1q q||2 ď 1, hence ||z piq ||2 ď 1, and
+řM
+ˆ
+||d8 ||2
+aÑx
+
+ď
+
+pi,1q “ a Ñ
+i“1 vr
+řM
+i“1 vai “ aw
+
+xw
+
+.
+
+It follows that
+ÿ
+
+ˆ
+||d8 ||2 ď 1.
+aÑx
+
+(41)
+
+x
+
+In addition we have
+ÿ
+?
+? cÿ 8
+ˆ
+ˆ
+||d8 ´ d8 ||2 ď n
+||daÑx ´ d8 ||2 ď n d .
+aÑx
+aÑx
+aÑx 2
+x
+
+(42)
+
+x
+
+Combining Eqs. 41, 42 and 40 gives for any a P P, for any h P rms,
+?
+
+?
+
+ÿ
+
+|rˆ8 Ga sh ´ rc8 Ga sh | ď
+caÑx
+aÑx
+
+x
+
+1` 5
+1
+`
+ˆ
+2 mintσm pΣa q, σm pΣa qu2
+
+n
+
+bř
+
+ˆ8
+x ||daÑx ´
+σm pΣa q
+
+d8 ||2
+aÑx 2
+
+from which the lemma follows.
+
+B.3 Estimation Errors
+The next lemma relates estimation errors to the number of samples in the algorithm in
+Figure 4:
+Lemma 19 Consider the algorithm in Figure 7. With probability at least 1´δ, the following
+statements hold:
+d
+c
+dÿ
+1
+2
+2|N | ` 1
+ˆ
+@a P I,
+||DaÑb c ´ DaÑb c ||2 ď
+`
+log
+F
+Ma
+Ma
+δ
+b,c
+44
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+@a P P,
+
+cÿ
+
+c
+ˆ
+||d8 ´ d8 ||2 ď
+aÑx
+aÑx 2
+
+x
+
+c
+ˆ
+@a P N , ||Ωa ´ Ωa ||F ď
+
+cÿ
+
+c
+||ˆ1 ´ c1 ||2 ď
+ca
+a 2
+
+a
+
+d
+1
+`
+Ma
+
+2|N | ` 1
+2
+log
+Ma
+δ
+
+d
+2|N | ` 1
+2
+log
+Na
+δ
+
+1
+`
+Na
+
+1
+`
+R
+
+c
+
+2
+2|N | ` 1
+log
+R
+δ
+
+B.3.1 Proof of Lemma 19
+We ﬁrst need the following lemma:
+Lemma 20 Assume i.i.d. random vectors X1 . . . XN where each Xi P Rd , and for all i with
+probability 1, ||Xi ||2 ď 1. Deﬁne
+q “ ErXi s
+for all i and
+řN
+
+i“1 Xi
+
+ˆ
+Q“
+Then for any
+
+N
+
+.
+
+ą 0,
+?
+ˆ
+Pp||Q ´ q||2 ě 1{ N ` q ď e´N
+
+2 {2
+
+.
+
+Proof: The proof is very similar to the proof of proposition 19 of Hsu et al. (2009).
+Consider two random samples x1 . . . xn and y1 . . . yn where xi “ yi for all i ‰ k. deﬁne
+řN
+
+i“1 xi
+
+q“
+ˆ
+
+N
+
+and
+řN
+p“
+ˆ
+
+i“1 yi
+
+N
+
+.
+
+Then
+||ˆ ´ q||2 ´ ||ˆ ´ q||2 ď ||ˆ ´ p||2 “
+q
+p
+q ˆ
+
+||xk ´ yk ||2
+||xk ||2 ` ||yk ||2
+2
+ď
+ď .
+N
+N
+N
+
+It follows through McDiarmid’s inequality (McDiarmid, 1989) that
+ˆ
+ˆ
+P rp||Q ´ q||2 ě E||Q ´ q||2 ` q ď e´N
+45
+
+2 {2
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+In addition,
+ı
+”
+ˆ
+E ||Q ´ q||2
+« ř
+ﬀ
+N
+Xi
+“ E || i“1
+´ q||2
+N
+ﬀ
+«
+N
+ÿ
+1
+E || pXi ´ qq||2
+“
+N
+i“1
+g «
+ﬀ
+f
+N
+ÿ
+1f
+eE || pX ´ qq||2
+ď
+i
+2
+N
+i“1
+(By Jensen’s inequality)
+g
+fN
+1 fÿ “
+e E ||pX ´ qq||2 ‰
+“
+i
+2
+N i“1
+(By independence of the Xi ’s)
+g
+fN
+1 fÿ “
+e E ||X ||2 ‰ ´ N ||q||2
+“
+i 2
+2
+N i“1
+b
+1
+N p1 ´ ||q||2 q
+ď
+2
+N
+(By ||Xi ||2 ď 1.)
+1
+ď ? ,
+N
+which completes the proof.
+Proof of Lemma 19: For each a Ñ b c, i, j, k P rms, deﬁne a random variable
+AaÑb c “ vR1 “ a Ñ b cwZi Yj2 Yk3 .
+i,j,k
+It follows that
+aÑb
+Di,j,k c “ ErAaÑb c |A1 “ as.
+i,j,k
+
+Note that
+||Z||2 “ ||pV a qJ ψpOq||2 ď 1
+because ||V a ||2,o ď 1, and ||ψpOq||2 ď 1. Similarly ||Y 2 ||2 ď 1 and ||Y 3 ||2 ď 1.
+In addition we have for all a P I,
+m m m
+ÿÿ ÿ ÿ
+b,c i“1 j“1 k“1
+
+|AaÑb c |2 “
+i,j,k
+
+m m m
+ÿÿ ÿ ÿ
+
+|Zi |2 |Yj2 |2 |Yk3 |2 vR1 “ a Ñ b cw2
+
+b,c i“1 j“1 k“1
+
+“ ||Z||2 ||Y 2 ||2 ||Y 3 ||2 p
+2
+2
+2
+
+ÿ
+b,c
+
+46
+
+vR1 “ a Ñ b cw2 q ď 1
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+ˆ
+It follows by an application of Lemma 20 that for the deﬁnitions of DaÑb c and DaÑb c in
+Figure 7, for all a,
+dÿ ÿ
+a
+2
+aÑb
+ˆ aÑb
+Pp
+|Di,j,k c ´ Di,j,k c |2 ě 1{ Ma ` 1 q ď e´Ma 1 {2 ,
+b,c i,j,k
+
+or equivalently,
+˛
+¨
+d
+dÿ
+2|N | ` 1 ‚
+δ
+2
+1
+ˆ
+log
+ď
+P˝
+||DaÑb c ´ DaÑb c ||2 ě ?
+`
+.
+F
+Ma
+δ
+2|N | ` 1
+Ma
+b,c
+
+(43)
+
+By a similar argument, if for each a P P, x P rns, i P rms we deﬁne the random variable
+aÑx
+Bi
+“ Zi vR1 “ a Ñ xw
+
+then
+aÑx
+d8 “ ErBi |A1 “ as
+aÑx
+
+and
+
+m
+ÿÿ
+
+aÑx
+|Bi |2 “
+
+m
+ÿÿ
+
+|Zi |2 vR1 “ a Ñ xw2 ď 1
+
+x i“1
+
+x i“1
+
+ˆ
+It follows by an application of Lemma 20 that for the deﬁnitions of d8 and d8 in
+aÑx
+aÑx
+Figure 7, for all a,
+dÿ ÿ
+a
+2
+ˆ
+Pp
+|rd8 si ´ rd8 si |2 ě 1{ Na ` 2 q ď e´Ma 2 {2
+aÑx
+aÑx
+x
+
+i
+
+or equivalently
+P
+
+˜
+cÿ
+
+d
+ˆ
+||d8 ´
+aÑx
+
+d8 ||2
+aÑx 2
+
+x
+
+1
+ě?
+`
+Ma
+
+2
+2|N | ` 1
+log
+Ma
+δ
+
+¸
+ď
+
+δ
+.
+2|N | ` 1
+
+(44)
+
+ˆ
+A similar argument can be used to show that for all a, for the deﬁnitions of Ωa and Ωa
+in Figure 7,
+dÿ
+a
+2
+ˆ
+Pp
+|Ωa ´ Ωa |2 ě 1{ Na ` 3 q ď e´Na 3 {2
+i,j
+i,j
+i,j
+
+or equivalently
+˜
+
+d
+
+1
+ˆ
+P ||Ωa ´ Ωa ||F ě ?
+`
+Na
+
+2
+2|N | ` 1
+log
+Na
+δ
+
+Finally, if we deﬁne the random variable
+Fia “ Yi1 vA1 “ aw
+47
+
+¸
+ď
+
+δ
+2|N | ` 1
+
+(45)
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+then
+ÿÿ
+a
+
+|Fia |2 “
+
+ÿÿ
+a
+
+i
+
+|Yi1 |2 vA1 “ aw2 ď 1.
+
+i
+
+In addition
+c1 “ ErFia |B “ 1s.
+a
+It follows by an application of Lemma 20 that for the deﬁnitions of c1 and c1 in Figure 7,
+ˆa
+a
+dÿ ÿ
+?
+2
+Pp
+|rˆ1 si ´ rc1 si |2 ě 1{ R ` 4 q ď e´R 4 {2
+ca
+a
+a
+
+i
+
+or equivalently
+P
+
+˜
+cÿ
+a
+
+1
+||ˆ1 ´ c1 ||2 ě ? `
+ca
+a 2
+R
+
+c
+
+2
+2|N | ` 1
+log
+R
+δ
+
+¸
+ď
+
+δ
+.
+2|N | ` 1
+
+(46)
+
+Finally, applying the union bound to the 2|N | ` 1 events in Eqs. 43, 44, 45 and 46 proves
+the theorem.
+B.4 Proof of Theorem 8
+Under the assumptions of the theorem, we have constants C1 , C2 , C3 , C4 and C5 such that
+˙
+ˆ
+˙
+ˆ
+C2 N m 2
+N m 2
+@a P P, Na ě L ˆ
+@a P I, Na ě L ˆ C1
+γ ξ2σ2
+σ2
+ˆ
+˙
+ˆ
+? ˙
+N m 2
+Nm n 2
+@a P I, Ma ě L ˆ C3
+@a P P, Ma ě L ˆ C4
+γ ξ2σ
+σ
+ˆ
+? ˙
+Nm m 2
+R ě L ˆ C5
+σ
+It follows from Lemma 19 that with probability at least 1 ´ δ,
+ˆ
+||Ωa ´ Ωa ||F ď 1
+Ω
+ˆ a ´ Ωa ||F ď 2
+||Ω
+Ω
+ˆ aÑb c ´ DaÑb c ||F ď D
+||D
+cÿ
+ˆ
+||d8 ´ d8 ||2 ď d
+aÑx
+aÑx
+
+@a P I,
+@a P P,
+@a Ñ b c,
+@a P P,
+
+x
+
+||ˆ1 ´ c1 ||2 ď
+ca
+a
+
+@a,
+where
+
+π
+
+1
+ˆ σ2 ˆ
+C2
+Nm
+1
+γ
+2
+ˆ ξ2σ2 ˆ
+Ω ď3ˆ
+C1
+Nm
+1
+γ
+ˆ ξ2σ ˆ
+D ď3ˆ
+C3
+Nm
+1
+Ω
+
+ď3ˆ
+
+48
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+d
+
+ď3ˆ
+
+1
+ˆσˆ ?
+C4
+nN m
+
+π
+
+ď3ˆ
+
+1
+σ
+ˆ? ˆ
+.
+C5
+m Nm
+
+It follows from Lemma 15 that with suitable choices of C1 . . . C5 , the inequalities in Lemma 15
+hold with values
+γ
+∆ď
+4N m
+δď
+κď
+
+4N m
+4N m
+
+.
+
+It follows from Lemma 12 that
+ÿ
+
+ˆ´
+|ˆptq ´ pptq| ď m
+p
+
+1`
+
+tPT pa,N q
+
+˙
+
+¯2N
+4N m
+
+´1
+
+ď
+
+where the second inequality follows because p1 ` a{tqt ď 1 ` 2a for a ď 1{2.
+
+References
+S. Arora, R. Ge, Y. Halpern, D. M. Mimno, A. Moitra, D. Sontag, Y. Wu, and M. Zhu. A
+practical algorithm for topic modeling with provable guarantees. In Proceedings of ICML,
+2013.
+R. Bailly, A. Habrar, and F. Denis. A spectral approach for probabilistic grammatical
+inference on trees. In Proceedings of ALT, 2010.
+R. Bailly, Carreras P. X., F. M. Luque, and A. J. Quattoni. Unsupervised spectral learning
+of WCFG as low-rank matrix completion. In Proceedings of EMNLP, 2013.
+J. Baker. Trainable grammars for speech recognition. In Proceedings of ASA, 1979.
+B. Balle, A. Quattoni, and X. Carreras. A spectral learning algorithm for ﬁnite state
+transducers. In Proceedings of ECML, 2011.
+P.J. Bickel and K.A. Doksum. Mathematical Statistics: Basic Ideas And Selected Topics.
+Mathematical Statistics: Basic Ideas and Selected Topics. Pearson Prentice Hall, 2006.
+E. Charniak. Statistical parsing with a context-free grammar and word statistics. In Proceedings of AAAI-IAAI, 1997.
+S. B. Cohen and M. Collins. A provably correct learning algorithm for latent-variable
+PCFGs. In Proceedings of ACL, 2014.
+S. B. Cohen, K. Stratos, M. Collins, D. P. Foster, and L. Ungar. Spectral learning of
+latent-variable PCFGs. In Proceedings of ACL, 2012.
+49
+
+Cohen, Stratos, Collins, Foster and Ungar
+
+S. B. Cohen, K. Stratos, M. Collins, D. P. Foster, and L. Ungar. Experiments with spectral
+learning of latent-variable PCFGs. In Proceedings of NAACL, 2013.
+M. Collins. Three generative, lexicalised models for statistical parsing. In Proceedings of
+ACL, 1997.
+S. Dasgupta. Learning mixtures of Gaussians. In Proceedings of FOCS, 1999.
+A. Dempster, N. Laird, and D. Rubin. Maximum likelihood estimation from incomplete
+data via the EM algorithm. Journal of the Royal Statistical Society B, 39:1–38, 1977.
+P. Dhillon, D. Foster, and L. Ungar. Multi-view learning of word embeddings via CCA. In
+Proceedings of NIPS, 2011.
+P. Dhillon, J. Rodu, M. Collins, D. P. Foster, and L. H. Ungar. Spectral dependency parsing
+with latent variables. In Proceedings of EMNLP, 2012.
+D. P. Foster, J. Rodu, and L. H. Ungar. Spectral dimensionality reduction for HMMs.
+arXiv:1203.6130, 2012.
+J. Goodman. Parsing algorithms and metrics. In Proceedings of ACL, 1996.
+D. Hsu, S. M. Kakade, and T. Zhang. A spectral algorithm for learning hidden Markov
+models. In Proceedings of COLT, 2009.
+H. Jaeger. Observable operator models for discrete stochastic time series. Neural Computation, 12(6), 2000.
+M. Johnson. PCFG models of linguistic tree representations.
+D. Klein and C.D. Manning. Accurate Unlexicalized Parsing. In Proceedings of ACL, pages
+423–430, 2003.
+F. M. Luque, A. Quattoni, B. Balle, and X. Carreras. Spectral learning for non-deterministic
+dependency parsing. In Proceedings of EACL, 2012.
+M.P. Marcus, B. Santorini, and M.A. Marcinkiewicz. Building a large annotated corpus of
+english: The penn treebank. Computational Linguistics, 19(2):313–330, 1993.
+T. Matsuzaki, Y. Miyao, and J. Tsujii. Probabilistic CFG with latent annotations. In
+Proceedings of ACL, 2005.
+C. McDiarmid. On the method of bounded diﬀerences. Surveys in Combinatorics, pages
+148–188, 1989.
+A. Moitra and G. Valiant. Settling the polynomial learnability of mixtures of Gaussians.
+IEEE Annual Symposium on Foundations of Computer Science, pages 93–102, 2010. ISSN
+0272-5428.
+A. Parikh, L. Song, and E. P. Xing. A spectral algorithm for latent tree graphical models.
+In Proceedings of ICML, 2011.
+50
+
+Spectral Learning of L-PCFGs: Algorithms and Sample Complexity
+
+S. Petrov, L. Barrett, R. Thibaux, and D. Klein. Learning accurate, compact, and interpretable tree annotation. In Proceedings of COLING-ACL, 2006.
+S. Siddiqi, B. Boots, and G. Gordon. Reduced-rank hidden Markov models. Journal of
+Machine Learning Research, 9:741–748, 2010.
+L. Song, B. Boots, S. M. Siddiqi, G. J. Gordon, and A. J. Smola. Hilbert space embeddings
+of hidden Markov models. In Proceedings of ICML, 2010.
+L. Song, A. P. Parikh, and E. P. Xing. Kernel embeddings of latent tree graphical models.
+In NIPS, pages 2708–2716, 2011.
+K. Stratos, A. M. Rush, S. B. Cohen, and M. Collins. Spectral learning of reﬁnement
+HMMs. In Proceedings of CoNLL, 2013.
+S. A. Terwijn. On the learnability of hidden Markov models. In Grammatical Inference: Algorithms and Applications (Amsterdam, 2002), volume 2484 of Lecture Notes in Artiﬁcial
+Intelligence, pages 261–268, Berlin, 2002. Springer.
+A. Tropp, N. Halko, and P. G. Martinsson. Finding structure with randomness: Stochastic
+algorithms for constructing approximate matrix decompositions. In Technical Report No.
+2009-05, 2009.
+L. Valiant. A theory of the learnable. Communications of the ACM, 27:1134–1142, 1984.
+S. Vempala and G. Wang. A spectral algorithm for learning mixtures of distributions.
+Journal of Computer and System Sciences, 68(4):841–860, 2004.
+
+51
+
+

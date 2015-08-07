@@ -1,0 +1,2317 @@
+Scaling Abstraction Reﬁnement via Pruning
+Percy Liang
+
+Mayur Naik
+
+UC Berkeley
+pliang@cs.berkeley.edu
+
+Intel Labs Berkeley
+mayur.naik@intel.com
+
+Abstract
+Many static analyses do not scale as they are made more precise.
+For example, increasing the amount of context sensitivity in a klimited pointer analysis causes the number of contexts to grow
+exponentially with k. Iterative reﬁnement techniques can mitigate
+this growth by starting with a coarse abstraction and only reﬁning
+parts of the abstraction that are deemed relevant with respect to a
+given client.
+In this paper, we introduce a new technique called pruning that
+uses client feedback in a different way. The basic idea is to use
+coarse abstractions to prune away parts of the program analysis
+deemed irrelevant for proving a client query, and then using ﬁner
+abstractions on the sliced program analysis. For a k-limited pointer
+analysis, this approach amounts to adaptively reﬁning and pruning
+a set of preﬁx patterns representing the contexts relevant for the
+client. By pruning, we are able to scale up to much more expensive
+abstractions than before. We also prove that the pruned analysis
+is both sound and complete, that is, it yields the same results as
+an analysis that uses a more expensive abstraction directly without
+pruning.
+Categories and Subject Descriptors
+ing]: Software/Program Veriﬁcation
+General Terms
+tion
+
+D.2.4 [Software Engineer-
+
+Algorithms, Experimentation, Theory, Veriﬁca-
+
+Keywords heap abstraction, static analysis, concurrency, abstraction reﬁnement, pruning, slicing
+
+1.
+
+Introduction
+
+Making a static analysis more precise requires increasing the complexity of the underlying abstraction—in pointer analysis, by increasing the amount of context/object sensitivity [7, 8, 12, 13,
+16, 22]; or in model checking, by adding more abstraction predicates [1, 3]. However, the complexity of these analyses often grows
+exponentially as the abstraction is reﬁned. Much work has been
+done on curbing this exponential growth (e.g., client-driven [4] and
+demand-driven [5] approaches in pointer analysis; lazy abstraction
+[6, 11] and other iterative reﬁnement approaches in model checking). We refer to these techniques as selected reﬁnement, where the
+main idea is to only reﬁne an abstraction along components deemed
+relevant according to client feedback.
+In this paper, we introduce pruning, a new and orthogonal approach which represents a signiﬁcant departure from existing selected reﬁnement techniques. Pruning is applicable to static analy-
+
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for proﬁt or commercial advantage and that copies bear this notice and the full citation
+on the ﬁrst page. To copy otherwise, to republish, to post on servers or to redistribute
+to lists, requires prior speciﬁc permission and/or a fee.
+PLDI’11, June 4–8, 2011, San Jose, California, USA.
+Copyright c 2011 ACM 978-1-4503-0663-8/11/06. . . $10.00
+
+ses expressed as a set of inference rules where a program property
+of interest (a client query) is proven by the inability to derive a designated fact using the given rules. For concreteness, assume that the
+static analysis is expressed as a Datalog program. A Datalog program takes a set of input tuples and derives new tuples via a set of
+inference rules. These inference rules capture the abstract semantics of the static analysis and the evaluation of the client query using
+the analysis result; the input tuples encode the program we are analyzing and the abstraction we are using. The program property is
+proven if a designated query tuple cannot be derived.
+The key idea behind pruning is to identify input tuples which
+are provably irrelevant for deriving the query tuple and remove
+these tuples completely from analysis. Consequently, when the abstraction is reﬁned, only the relevant tuples are reﬁned, potentially
+resulting in major computational savings. It is helpful to think of
+pruning in terms of generalized program slicing, where irrelevant
+parts of the program (irrelevant input tuples) are removed, resulting
+in a smaller program that is cheaper to analyze. Existing selected
+reﬁnement techniques attempt to keep the set of input tuples small
+by simply not reﬁning some of them; pruning keeps the set small
+by removing some of them entirely.
+Pruning can be a dangerous affair though. With selected reﬁnement, we are always performing a static analysis with respect to an
+abstraction and therefore inherit the soundness guarantees of abstract interpretation. However, once we start pruning input tuples,
+we are no longer running a valid static analysis on the original program. Soundness therefore is no longer automatic, though we do
+prove that our method is sound with respect to a given client.
+While soundness is trivial for selected reﬁnement but requires
+some argument for pruning, the situation is reversed for completeness. By completeness, we mean that the analysis is as precise as
+if we had reﬁned all the components of an abstraction. Selected reﬁnement only reﬁnes a subset of an abstraction, so it is unclear that
+the resulting abstraction is as precise as an abstraction obtained by
+reﬁning all components. However, with pruning, we conceptually
+work with the fully-reﬁned abstraction; by removing input tuples,
+we cannot prove fewer queries; thus, completeness is automatic.
+To capitalize on the idea of pruning, we propose an algorithm,
+which we call the Prune-Reﬁne algorithm. The idea is to start with
+a coarse abstraction and prune the irrelevant input tuples before
+reﬁning the abstraction; the algorithm iterates until the query is
+proven or a speciﬁed computational budget is reached. We prove
+that the Prune-Reﬁne algorithm computes the same answers to
+client queries as directly using a reﬁned abstraction without pruning, which would be precise but possibly infeasible.
+We apply pruning to the k-object-sensitivity abstraction [12],
+where objects in the heap are abstracted using chains of allocation
+sites; these chains are the input tuples we maintain. To facilitate
+pruning, we introduce two new heap abstractions: The ﬁrst abstraction truncates chains to avoid repeating allocation sites; this allows
+us to increase k without getting bogged down by long chains created due to recursion. The second abstraction replaces allocation
+sites by types (a generalization of [17]). We show that these abstractions can be composed to further improve the effectiveness of
+pruning.
+
+We ran our experiments on ﬁve Java benchmarks using three
+clients that depend heavily on having a precise pointer analysis:
+downcast safety checking, monomorphic call site inference, and
+race detection. We show that with pruning, our Prune-Reﬁne algorithm enables us to perform a k-object-sensitive pointer analysis
+with a substantially much ﬁner abstraction (larger k) compared to
+a full k-object-sensitive pointer analysis or even using the selected
+reﬁnement strategy of [10]. In a few cases, the non-pruning approaches hit a wall around k = 3 but the Prune-Reﬁne algorithm is
+able to go well beyond k = 10.
+
+2.
+
+Preliminaries
+
+Datalog
+
+A Datalog program consists of a set of constants C (e.g., 0, [03] ∈
+C), a set of variables V (e.g., i, j ∈ V), and a set of relations R
+(e.g., edge ∈ R).
+A term t consists of a relation t.r ∈ R and a list of arguments
+t.a, where each argument t.ai is either a variable or a constant,
+(that is, t.ai ∈ V ∪ C) for i = 1, . . . , |t.a|. We will write a term in
+any of the following three equivalent ways:
+t
+
+≡
+
+Input relations:
+edge(g, i, j)
+head(c, i)
+ext(i, c, c )
+
+(edge from node i to node j in graph g)
+(ﬁrst element of array c is i)
+(i prepended to c yields c : c = [i] + c)
+
+Rules:
+path(g, [0]).
+path(g, c ) ⇐ path(g, c), head(c, i), edge(g, i, j), ext(j, c, c ).
+common(g1 , g2 , i) ⇐ path(g1 , c), path(g2 , c), head(c, i).
+Query tuple: xQ = common(G1 , G2 , 3).
+
+Our pruning technique works on Datalog, a general language which
+can be used to express static analyses declaratively [2, 21]. Normally, these analyses and their underlying abstractions are encoded
+by one monolithic Datalog program which evaluates a query abstractly. For us, it will be convenient to consider the Datalog program, which evaluates a query concretely,1 as distinct from the abstraction, which transforms the input to the Datalog program, resulting in an abstract evaluation of the query. This separation allows us to make theoretical statements comparing the behavior of
+the same Datalog program across different abstractions.
+We ﬁrst deﬁne Datalog and the computation of a concrete query
+(Section 2.1). Then, we focus on the abstraction (Section 2.2),
+which interacts with the Datalog program by transforming the input
+tuples. Throughout this section, we will use Figure 1 as a running
+example.
+2.1
+
+Graph Example
+
+t.r(t.a)
+
+≡
+
+t.r(t.a1 , . . . , t.a|t.a| ).
+
+(1)
+
+For example, ext(j, c, c ) is a term. We call a term whose arguments are all constants a tuple (e.g., ext(0, [ ], [0])). Note that the
+tuple includes the relation as well as the arguments. We let xQ
+denote a designated query tuple (e.g., common(G1 , G2 , 3)), whose
+truth value we want to determine.
+Let Z denote the set of rules, where each rule z ∈ Z consists
+of a target term z.t and a set of source terms z.s. We write a rule
+with z.t = t and z.s = {s1 , . . . , sk } as
+t ⇐ s1 , . . . , sk .
+
+Constants: C = {G1 , G2 , 0, 1, 2, 3, [0], [01], . . . }.
+
+0
+
+1
+3
+
+2
+
+0
+2
+
+g1
+
+1
+3
+g2
+
+Input tuples:
+Derived tuples:
+edge(g1 , 0, 1)
+path(g1 , [0])
+edge(g1 , 0, 2)
+path(g1 , [10])
+edge(g1 , 1, 3)
+path(g1 , [20])
+edge(g2 , 0, 3)
+path(g1 , [310])
+head([0], 0)
+path(g2 , [0])
+...
+path(g2 , [30])
+ext(1, [0], [10])
+...
+
+Figure 1. A simple example illustrating Datalog: Suppose we have
+two graphs G1 and G2 deﬁned on the same set of nodes {0, 1, 2, 3},
+and we want to compute the query tuple common(G1 , G2 , 3), asking
+whether the two graphs have a common path from node 0 to node
+3. Given the input tuples encoding the graph, the Datalog program
+computes a set of derived tuples from the rules. In this case, the
+absence of common(G1 , G2 , 3) from the derived tuples means the
+query is false (proven).
+
+C
+P(C)
+α : C → P(C)
+xQ
+D(X)
+E(X)
+P(X)
+Ak
+˜
+Ak
+
+(concrete values)
+(abstract values)
+(abstraction, maps to equivalence class)
+(designated query tuple)
+(derivations of xQ using input tuples X)
+(tuples involved in deriving xQ )
+(input tuples relevant to deriving xQ )
+(abstract input tuples after k iterations)
+(relevant abstract input tuples after pruning)
+Figure 2. Notation.
+
+(2)
+
+An assignment is a function f : V → C which maps variables
+to constants. To simplify notation later, we extend an assignment f
+so that it can be applied (i) to constants (f (c) = c for c ∈ C), and
+(ii) to terms by replacing the variables in the term with constants
+(f (t) = t.r(f (t.a1 ), . . . , f (t.a|t.a| ))).
+
+(i) for each i = 1, . . . , n, we have xi ∈ X; or there exists a set of
+indices J such that (J, i) satisﬁes the following two conditions:
+j < i for each j ∈ J, and there is a rule z ∈ Z and an
+assignment f such that f (z.t) = xi and {xj : j ∈ J} =
+{f (s) : s ∈ z.s};
+
+Derivations A Datalog program takes a set of input tuples and
+derives new tuples. To formalize this computation, we deﬁne the
+notation of a derivation.
+A derivation (of the query xQ ) with respect to a set of input
+tuples X is a sequence x = (x1 , . . . , xn ) such that
+
+(ii) xn = xQ ; and
+
+1 We
+
+refer to this computation as “concrete” to contrast with abstract computation we will consider later, but note that this “concrete” computation
+could already contain some level of abstraction. For example, the Datalog
+program might correspond to ∞-object-sensitivity without abstraction and
+k-object-sensitivity with abstraction.
+
+(iii) for each j = 1, . . . , n−1, there exists J such that j ∈ J and
+an index i such that (J, i) satisﬁes the two conditions in (i).
+Deﬁne D(X) to be the set of all derivations with respect to the
+input tuples X.
+Condition (i) says that each tuple in a derivation should either
+be given as an input tuple (xi ∈ X) or be the result of some rule
+z ∈ Z. Condition (ii) says that the query tuple xQ is derived at the
+end. Condition (iii) says that in the derivation of xQ , every tuple is
+somehow “relevant” for deriving xQ .
+
+We say that the query xQ is false (proven) if and only if D(X)
+is empty. Although this answer to the query is the ultimate quantity
+of interest, the Datalog program can be used to provide more
+information, which will be useful for pruning. Speciﬁcally, we
+deﬁne E(X) as the set of all tuples used in any derivation (of xQ )
+and P(X) to be the subset of E(X) which are input tuples:
+[
+E(X)
+x,
+(3)
+
+{[0]}
+{[1]}
+{[00]}
+{[01]}
+{[10]}
+{[11]}
+[000]∗ [001]∗ [010]∗ [011]∗ [100]∗ [101]∗ [110]∗ [111]∗
+Figure 3. The 14 abstract values deﬁned by the k-limited abstraction πk with H = {0, 1} and k = 3. Speciﬁcally, πk maps each
+chain c ∈ H∗ to one of the values above.
+
+x∈D(X)
+
+P(X)
+
+X ∩ E(X).
+
+(4)
+
+We call P(X) the set of relevant input tuples. As we will see later,
+any tuple not in this set can be safely pruned. In fact, P(X) also
+tells us whether the query is true or false. In particular, D(X) = ∅
+if and only if P(X) = ∅ (assuming xQ cannot be derived trivially
+without inputs). This equivalence suggests that proving and pruning
+are intimately related; in some sense, proving the query is just
+pruning away the query tuple. In the remainder of the paper, we will
+make heavy use of P as the principal proving/pruning operator. In
+our graph example, D(X) = P(X) = ∅, but as we will see later,
+this is not true if we apply an abstraction to X.
+Computation Given input tuples X, a Datalog solver returns the
+set of derived tuples Y ; the query is proven if xQ ∈ Y . Note that
+Y is a superset of the relevant derived tuples E(X), which itself is
+a superset of the relevant input tuples P(X), which is needed for
+pruning.
+We can compute P(X) by using the Datalog program transformation technique described in [10]: We augment our existing
+Datalog program with a set of new relations R = {r : r ∈ R}.
+For a term t = t.r(t.a) we let t = t.r (t.a) be the term that uses
+the corresponding new relation t.r . We then add the following new
+Datalog rules:
+xQ ⇐ xQ ,
+
+(5)
+
+s ⇐ z.t , z.s for each z ∈ Z and s ∈ z.s.
+
+(6)
+
+For example, the last rule of the original Datalog program in Figure 1 generates the following three new rules:
+path (g1 , c) ⇐ common (g1 , g2 , i), path(g1 , c), path(g2 , c), head(c, i).
+path (g2 , c) ⇐ common (g1 , g2 , i), path(g1 , c), path(g2 , c), head(c, i).
+head (c, i) ⇐ common (g1 , g2 , i), path(g1 , c), path(g2 , c), head(c, i).
+
+The key is that a tuple x is derived by the new Datalog program
+if and only if x ∈ E(X). Rules generated by (5) and (6) construct
+E(X) recursively: The base case (5) states that the query tuple
+xQ ∈ E(X). The recursive case (6) states that if x ∈ E(X) and
+a rule z (with some assignment f ) was used to produce x, then for
+every source term s ∈ z.s of that rule, we also have f (s) ∈ E(X).
+Having obtained E(X), we get P(X) by keeping only tuples in X.
+The advantage of this technique is that we can use any Datalog
+solver as a black-box to compute P(X). In practice, we will not
+actually run P on concrete input tuples X, but on abstract input
+tuples. From the point of view of the Datalog solver, there is
+no difference between the two. We consider constructing abstract
+tuples next.
+2.2
+
+Abstractions
+
+Given a Datalog program, an abstraction is an equivalence relation
+over constants C. In particular, we represent the abstraction as the
+function which maps each constant to its equivalence class.
+Deﬁnition 1. An abstraction is a function α : C → P(C) such that
+for each set s ∈ range(α), we have α(c) = s for all c ∈ s.
+We will refer to constants C as the concrete values and range(α)
+as the abstract values. We assume the natural partial order on
+
+abstractions, where α1
+α2 if and only if α1 (c) ⊇ α2 (c) for
+all c—that is, α2 is ﬁner than α1 .
+Example: k-limited abstraction The main abstraction we will
+work with in this paper is the k-limited abstraction [12, 16]. Our
+general theory does not depend on this particular choice, but we
+present the abstraction here so we can use it as a running example.
+First, we deﬁne some notation. Let H be an arbitrary set; for the
+graph example of Figure 1, let H = {0, 1, 2, 3} be the nodes of
+the graph; later, H will be the set of allocation sites in a program.
+Deﬁne a chain c ∈ H∗ to be a ﬁnite sequence of elements from
+this set. Let |c| denote the length of the chain. Let c[i] be the
+i-th element of c (starting with index 1) and let c[i..j] be the
+subchain [c[i] · · · c[j]] (boundary cases: c[i..j] = [ ] if i > j and
+c[i..j] = c[i..|c|] if j > |c|). For two chains c1 and c2 , let c1 + c2
+denote their concatenation.
+The k-limited abstraction partitions chains based on their length
+k preﬁx. First, for a chain c, let c∗ denote the set of all chains with
+preﬁx c; formally:
+c∗
+
+{c ∈ H∗ : c [1..|c|] = c}.
+
+(7)
+
+For an integer truncation level k ≥ 0, deﬁne the k-limited abstraction πk as follows:
+(
+{c}
+if |c| < k
+πk (c)
+(8)
+c[1..k]∗ if |c| ≥ k.
+If the concrete chain c is shorter than length k, we map it to the
+singleton set {c}; otherwise, we map it to the set of chains that
+share the ﬁrst k elements. It is easy to verify that πk is a valid
+abstraction under Deﬁnition 1.
+For example, if c = [01], then we have that π1 (c) = [0]∗ =
+{[0], [00], [01], [000], . . . } are the chains that start with [0]. As
+another example, Figure 3 shows the range of π3 .
+It is important that we represent {c} and c∗ as distinct abstract
+values. In contrast, traditional k-limited analyses are parametrized
+by a set S of abstract values “c”, where each abstract “c” represents
+the set of concrete chains whose longest matching preﬁx in S is c.
+With this setup, every concrete chain would map to some abstract
+value regardless of S (note that we must have “[ ]” ∈ S). Therefore,
+pruning would be impossible using this representation.
+Extending the abstraction Given an abstraction α, it will be
+useful to extend the deﬁnition of α to not just concrete values, but
+also to abstract values, and (sets of) concrete/abstract tuples.
+First, we extend α from concrete values c to abstract values s as
+follows:
+α(s)
+
+{α(c) : c ∈ s},
+
+s ∈ P(C).
+
+(9)
+
+Note that α(s) returns a set of abstract values. This allows us to
+naturally deﬁne the composition of two abstractions. In particular,
+given two abstractions, α and β, deﬁne their composition to be:
+(α ◦ β)(c)
+
+∪s∈α(β(c)) s.
+
+(10)
+
+Note that the composition α ◦ β need not be an abstraction even
+if α and β are.2 Therefore, when we compose abstractions in Section 3.2, it will be important to check that the resulting compositions are valid abstractions.
+An important case in which compositions yield valid abstractions is when α
+β (β is ﬁner than α). In this case, α ◦ β = α,
+corresponding to the fact that applying a ﬁner abstraction ﬁrst has
+no impact.
+Next, we extend α to concrete tuples x and sets of concrete
+tuples X in the natural way:
+α(x)
+α(X)
+
+x.r(α(x.a1 ), . . . , α(x.a|x.a| )),
+
+(11)
+
+{α(x) : x ∈ X}.
+
+(12)
+
+Here, α(x) is an abstract tuple (one where the arguments are
+abstract values) and α(X) is a set of abstract tuples. For example:
+π1 (ext(1, [0], [10])) = ext(1, [0]∗, [1]∗).
+Finally, we extend α to abstract tuples b and sets of abstract tuples
+B:
+α(b)
+α(B)
+
+{b.r(s1 , . . . , s|b.a| ) : ∀i, si ∈ α(b.ai )},
+
+(13)
+
+∪b∈B α(b).
+
+(14)
+
+(13) applies the abstraction function to each component of b and
+takes the cross product over the resulting abstract values; the result
+is a set of abstract tuples. (14) aggregates these sets of abstract
+tuples. For example:
+π1 (ext(1, [00]∗, [10]∗)) = {ext(1, [0]∗, [1]∗)}.
+Using the abstraction Given an abstraction α, we want to run
+the Datalog program to compute an abstract answer to the query.
+We do this by applying the abstraction to the concrete input tuples
+X, producing a set of abstract input tuples α(X). We then feed
+these tuples into the Datalog program to produce P(α(X)). (Note
+that the Datalog program is oblivious to whether the tuples are
+abstract or concrete.) Figure 4 shows an example of performing this
+computation on the graph example from Figure 1 with the k-limited
+abstraction π1 .
+We say the query is proven by α if P(α(X)) = ∅. Because
+abstraction is sound, this happens only if the query is actually false
+(P(X) = ∅). This fact is stated formally below (see Appendix A
+for the proof):
+Proposition 1 (Abstraction is sound). Let α be an abstraction and
+let X be any set of input tuples. If P(α(X)) = ∅ (the query is false
+abstractly), then P(X) = ∅ (the query is false concretely).
+If α is coarse, P(α(X)) will be imprecise; but if α is ﬁne,
+P(α(X)) will be expensive to compute. The next section shows
+how pruning can allow us to use a ﬁne abstraction α without
+incurring the full cost of computing P(α(X)).
+
+3.
+
+General theory
+
+We ﬁrst describe the core idea behind pruning (Section 3.1) and
+then show how it can be used in the Prune-Reﬁne algorithm (Section 3.2).
+3.1
+
+Pruning
+
+Recall that the central operation of a static analysis is P, which
+serves two roles: (i) determining if the query is proven (when P
+returns ∅); and (ii) returning the relevant input tuples. The following
+2 For
+
+example, suppose C = {1, 2, 3}; α(1) = α(2) = {1, 2}, α(3) =
+{3}; and β(1) = β(3) = {1, 3}, β(2) = {2}. Then (α ◦ β)(1) =
+{1, 2, 3} but (α◦β)(2) = {1, 2}. Therefore, α◦β is not a valid abstraction.
+
+theorem provides the key equation that drives everything in this
+paper (see Appendix A for the proof):
+Theorem 1 (Pruning is sound and complete). Let α and β be two
+abstractions such that β
+α (β is coarser than α). Then for any
+set of concrete input tuples X, we have:
+P(α(X)) = P(α(X) ∩ α(P(β(X)))).
+
+(15)
+
+The left-hand side of (15) corresponds to running the analysis
+with respect to α. The right-hand side corresponds to ﬁrst pruning
+the input tuples X with β and then running the analysis with α. The
+theorem states that the two procedures obtain identical results (the
+right-hand side is sound and complete with respect to the left-hand
+side). The signiﬁcance of this is that the right-hand side is often
+much cheaper to compute than the left-hand side.
+Let us decipher (15) a bit more. On the right-hand side, the
+abstract input tuples β(X) are fed into the Datalog solver which
+computes P(β(X)), which is the subset of input tuples, namely
+those that participate in any derivation of the abstract query tuple
+β(xQ ). These relevant tuples are then reﬁned via α to yield a set of
+tuples which are used to prune α(X). The resulting subset is fed
+into the analysis P. On the left-hand side, P(α(X)) is the result of
+directly running the analysis on the abstract tuples α(X) without
+pruning.
+To obtain some intuition behind pruning, consider the following
+simpler idea: ﬁrst run the analysis with β; if the query is proven,
+stop and declare proven; otherwise, run the analysis with α and
+output that answer. It is easy to see that this two-step procedure
+returns the same answer as just running α: Because β
+α, if
+β proves the query, then so does α (Proposition 1). (15) can be
+thought of as an extension of this basic idea: instead of using β to
+just determine whether the query tuple is proven, we obtain more
+information, namely the whole set of input tuples that are relevant.
+The complexity of an analysis is largely determined by the number of input tuples. Traditionally, the abstraction alone determines
+the set of input tuples and thus also the complexity of the analysis.
+In our case, however, the set of input tuples is pruned along the way,
+so the abstraction only partially determines the complexity. As we
+will see later, with sufﬁcient pruning of the input tuples, we can use
+a very reﬁned abstraction at a low cost.
+3.2
+
+The Prune-Reﬁne algorithm
+
+We now turn Theorem 1 into a full algorithm, which we call the
+Prune-Reﬁne algorithm. Figure 5 shows the pseudocode of the
+algorithm and a diagram showing the computation of the various
+abstract input tuples computed.
+This algorithm essentially applies (15) repeatedly. We ﬁrst
+present a simpliﬁed version of the algorithm which ignores the
+pre-pruning step (we take At = At ). We are given a sequence of
+successively ﬁner abstractions α0 , α1 , . . . (e.g., αt = πt for the
+k-limited abstractions) and a set of input abstract tuples A0 , which
+is computed under the initial abstraction α0 . Then the algorithm
+alternates between a pruning step and a reﬁning step, maintaining
+only the abstract input tuples that could participate in a derivation
+of the query tuple xQ . On iteration t, our current input tuples At are
+˜
+ﬁrst pruned to At using P; this is subsequently reﬁned to At+1 .
+Figure 6 shows an example of running this algorithm on the graph
+example from Figure 1; the ﬁrst pruning step is shown in Figure 4.
+Now we discuss pre-pruning. Pre-pruning requires the user
+to provide another sequence of successively ﬁner abstractions
+β0 , β1 , . . . which are coarser than α0 , α1 , . . . , respectively. These
+abstractions will also be used to prune the input tuples. The idea is
+that before reﬁning At to At+1 , we perform two steps of pruning:
+(i) ﬁrst we use βt in a pre-pruning step; (ii) then we use αt during
+the main pruning step.
+
+edge(g1 , 0, 2) ext(2, [0]∗, [2]∗) path(g1 , [0]∗) ext(1, [0]∗, [1]∗)
+path(g1 , [2]∗)
+
+path(g1 , [1]∗)
+
+edge(g1 , 0, 1)
+ext(3, [1]∗, [3]∗) edge(g1 , 1, 3)
+
+path(g2 , 0) ext(3, [0]∗, [3]∗) edge(g2 , 0, 3)
+
+path(g1 , [3]∗)
+
+path(g2 , [3]∗)
+common(g1 , g2 , 3)
+
+Figure 4. Computation of P(π1 (X)) on the graph example from Figure 1, where X is the set of concrete input tuples, and π1 is the 1limited abstraction which maps each path onto the set of paths with the same ﬁrst element. In the ﬁgure, each abstract tuple is derived by
+a rule whose source terms are connected via incoming edges. Relevant input tuples (P(π1 (X)), shown in green) are the ones which are
+reachable by following the edges backwards; ones which are not backwards-reachable are pruned (π1 (X)\P(π1 (X)), shown in red).
+A0
+ext(1, [0]∗, [1]∗)
+ext(2, [0]∗, [2]∗)
+ext(3, [0]∗, [3]∗)
+ext(3, [1]∗, [3]∗)
+
+Prune-Reﬁne algorithm
+Input:
+−Sequence of abstractions: α0 α1 α2 · · ·
+−[Auxiliary abstractions: βt αt , t = 0, 1, 2, . . . ]
+−A0 = α0 (X), set of tuples
+
+A0
+
+P
+
+α1
+(reﬁne)
+
+(prune)
+
+β0
+
+B0
+
+P
+
+A0
+
+A1
+
+α0
+
+∩
+
+β1
+
+˜
+B0
+
+B1
+
+(pre-prune)
+
+˜
+A1
+(none)
+
+˜
+A1
+
+˜
+A0
+P
+
+A1
+ext(1, {[0]}, [10]∗)
+ext(3, {[0]}, [30]∗)
+ext(3, {[1]}, [31]∗)
+ext(3, [10]∗, [31]∗)
+
+Figure 6. The abstract input tuples computed by the Prune-Reﬁne
+algorithm on the graph example from Figure 1 (without prepruning). We are using k-limited abstractions (αt = πt ). During
+the ﬁrst pruning step, ext(2, [0]∗, [2]∗) is pruned from A0 , yield˜
+ing A0 . In the reﬁnement step, we expand [1]∗ to {[1]} and [10]∗. In
+the second pruning step, we prove the query (pruning everything).
+
+For t = 0, 1, 2, . . . :
+−[Pre-prune: At ← At ∩ αt (P(βt (At )))]
+˜
+˜
+−Prune: At = P(At ). If At = ∅: return proven.
+˜
+−Reﬁne: At+1 = αt+1 (At ).
+
+(prune)
+
+˜
+A0
+ext(1, [0]∗, [1]∗)
+ext(3, [0]∗, [3]∗)
+ext(3, [1]∗, [3]∗)
+
+∩
+
+A1
+
+α2
+(reﬁne)
+
+A2 · · ·
+
+Theorem 2 (Correctness of the Prune-Reﬁne algorithm). At iteration t, using the incrementally pruned abstraction At is equivalent
+to using the full abstraction αt (X) in that P(αt (X)) = P(At ).
+Consequently, if the algorithm returns “proven,” then P(X) = ∅
+(the query is actually false).
+
+α1
+P
+
+˜
+B1
+
+(pre-prune)
+
+Figure 5. The pseudocode and the schema for the Prune-Reﬁne
+algorithm. The algorithm maintains a set of (abstract) input tuples
+which could be involved in some derivation of the query xQ and
+attempts to prune down this set. The basic version of the algorithm,
+which excludes the lines in square brackets and the dotted boxes,
+simply alternates between pruning and reﬁning. The full version
+includes a pre-pruning step, which uses auxiliary abstractions to
+further reduce the number of tuples.
+
+Pre-pruning requires a sequence of auxiliary abstractions (βt )
+which are coarser than the main abstractions (αt ). A standard way
+to obtain auxiliary abstractions is by composing the main abstractions with another abstraction τ ; formally, βt = αt ◦ τ . We can use
+any τ for which αt ◦ τ yields a valid abstraction, but the speedup
+we obtain from pre-pruning depends on the relationship between τ
+and αt . If τ is the total abstraction (τ (c) = C), then pre-pruning
+will be fast but nothing will be pre-pruned, so we get no speedup.
+If τ is no abstraction (τ (c) = c), then pre-pruning is equivalent to
+just running the pruning step, so we again get no speedup. A good
+rule of thumb is that τ should be “complementary” to αt (we will
+see some examples in Section 5).
+Theorem 2 states that the Prune-Reﬁne algorithm is both sound
+and complete. In other words, pruning has no impact on the answer
+to a query. The proof is given in Appendix A and uses Theorem 1.
+
+4. k -limited Pointer Analysis
+We now introduce our k-object-sensitive pointer analysis [12], on
+which we will apply the Prune-Reﬁne algorithm. Each node in
+the control-ﬂow graph of each method m ∈ M is associated
+with a simple statement (e.g., v2 = v1 ). We omit statements
+that have no effect on our analysis (e.g., operations on data of
+primitive type). For simplicity, we assume each method has a single
+argument and no return value.3 Figure 7 describes the Datalog
+program corresponding to this analysis.
+The analysis represents both contexts and abstract objects using chains of allocation sites (C = H∗ ). Contexts are extended into
+new contexts via the ext relation, which prepends an allocation site
+to a chain (e.g., ext(3, [12], [312])). Note that these chains are not
+truncated in the Datalog program, and therefore, running the Datalog program directly (ignoring the fact that it might not terminate)
+corresponds to performing an ∞-object-sensitivity analysis.
+Although this Datalog program itself is an approximation to the
+concrete program semantics—it is ﬂow-insensitive, does not handle
+primitive data, etc., we will informally say that a client query
+computed with respect to this analysis yields a concrete answer.
+In contrast, we obtain an abstract answer by computing the client
+query with respect to a k-limited abstraction, which we will discuss
+in Section 4.2.
+We now brieﬂy describe the Datalog rules in Figure 7. Rule (1)
+states that the main method mmain is reachable in a distinguished
+context [ ]. Rule (2) states that a target method of a reachable call
+3 Our actual implementation is a straightforward extension of this simpliﬁed
+
+analysis which handles multiple arguments, return values, class initializers,
+and objects allocated through reﬂection.
+
+Input relations:
+Domains:
+(method)
+(local variable)
+(global variable)
+(object ﬁeld)
+(method call site)
+(allocation site)
+(statement)
+(method context)
+(abstract object)
+p ::=
+
+m
+v
+g
+f
+i
+h
+p
+c
+o
+
+∈
+∈
+∈
+∈
+∈
+∈
+∈
+∈
+∈
+
+⊂ M×P
+(method contains statement)
+⊂ I×M
+(call site resolves to method)
+⊂ I×V
+(call site’s argument variable)
+⊂ M×V
+(method’s formal argument variable)
+⊂ H × C × C (extend context with site)
+= {(h, c, [h] + c) : h ∈ H, c ∈ C}
+Output relations:
+body
+trgt
+argI
+argM
+ext
+
+M = {mmain , ...}
+V
+G
+F
+I
+H
+P
+C = H∗
+O = H∗
+
+⊂
+⊂
+⊂
+⊂
+⊂
+⊂
+
+reachM
+reachP
+ptsV
+ptsG
+heap
+cg
+
+v = new h | v2 = v1 | g = v | v = g |
+v2 .f = v1 | v2 = v1 .f | i(v)
+
+C×M
+C×P
+C×V×O
+G×O
+O×F×O
+C×I×C×M
+
+(reachable methods)
+(reachable statements)
+(points-to sets of local variables)
+(points-to sets of static ﬁelds)
+(heap graph)
+(call graph)
+
+Rules:
+reachM([], mmain ).
+reachM(c, m)
+reachP(c, p)
+
+⇐
+⇐
+
+cg(∗, ∗, c, m).
+reachM(c, m), body(m, p).
+
+(1)
+(2)
+(3)
+
+ptsV(c, v, o)
+ptsV(c, v2 , o)
+ptsG(g, o)
+ptsV(c, v, o)
+heap(o2 , f, o1 )
+ptsV(c, v2 , o2 )
+
+⇐
+⇐
+⇐
+⇐
+⇐
+⇐
+
+reachP(c, v = new h), ext(h, c, o).
+reachP(c, v2 = v1 ), ptsV(c, v1 , o).
+reachP(c, g = v), ptsV(c, v, o).
+reachP(c, v = g), ptsG(g, o).
+reachP(c, v2 .f = v1 ), ptsV(c, v1 , o1 ), ptsV(c, v2 , o2 ).
+reachP(c, v2 = v1 .f ), ptsV(c, v1 , o1 ), heap(o1 , f, o2 ).
+
+(4)
+(5)
+(6)
+(7)
+(8)
+(9)
+
+cg(c, i, o, m)
+ptsV(c, v, c)
+
+⇐
+⇐
+
+reachP(c, i), trgt(i, m), argI(i, v), ptsV(c, v, o).
+reachM(c, m), argM(m, v).
+
+(10)
+(11)
+
+Figure 7. Datalog implementation of our k-object-sensitivity pointer analysis with call-graph construction. Our abstraction a affects the
+analysis solely through ext, which speciﬁes that when we prepend s to c, we truncate the resulting sequence to length as .
+site is also reachable. Rule (3) states that every statement in a reachable method is also reachable. Rules (4) through (9) implement the
+transfer function associated with each kind of statement. Rule (10)
+analyzes the target method m in a separate context o for each abstract object o to which the distinguished this argument of method
+m points, and rule (11) sets the points-to set of the this argument
+of method m in context o to the singleton {o}.
+This pointer analysis computes the reachable methods (reachM),
+reachable statements (reachP), and points-to sets of local variables
+(ptsV), each with the associated context; the context-insensitive
+points-to sets of static ﬁelds (ptsG) and heap graph (heap); and a
+context-sensitive call graph (cg).
+4.1
+
+Clients
+
+The core pointer analysis just described is used by three clients,
+which each deﬁnes a set of queries.
+Monomorphic call site detection Monomorphic call sites are dynamically dispatched call sites with at most one target method.
+These can be transformed into statically dispatched ones which are
+cheaper to execute. For each call site i ∈ I whose target is a virtual
+method, we create a query poly(i) asking whether i is polymorphic. This query can be computed with the following rule:
+poly(i) ⇐ cg(∗, i, ∗, m1 ), cg(∗, i, ∗, m2 ), m1 = m2 .
+
+(16)
+
+Downcast safety checking A safe downcast is one that cannot fail
+because the object to which the downcast is applied is guaranteed to
+be a subtype of the target type. Therefore, safe downcasts obviate
+the need for run-time cast checking. We create a query for each
+downcast—statement of the form v1 = v2 where the declared type
+
+of v2 is not a subtype of the declared type of v1 . The query can be
+computed with the following rule:
+unsafe(v1 , v2 ) ⇐ ptsV(∗, v2 , o), typeO(o, t2 ), typeV(v1 , t1 ),
+¬subtype(t1 , t2 ).
+(17)
+Here, typeV is a relation on a variable and its declared type and
+typeO is a relation on an abstract object and its type (computed by
+inspecting the initial allocation site of o).
+Race detection In race detection, each query consists of a pair
+of heap-accessing statements of the same ﬁeld in which at least
+one statement is a write. We implemented the static race detector
+of [14], which declares a (p1 , p2 ) pair as racing if both statements
+may be reachable, may access thread-escaping data, may point to
+the same object, and may happen in parallel. All four components
+rely heavily on the context- and object-sensitive pointer analysis.
+4.2
+
+Relationship to general notation
+
+We now describe the k-object-sensitive pointer analysis (Figure 7)
+in terms of our general notation presented in Section 2. The set of
+concrete values C is the union of all the domains (e.g.., allocation
+sites H = {1, 2, 3, . . . }, abstract objects C = H∗ , etc.). The
+input tuples X are speciﬁed by the input relations (e.g., X =
+{body(mmain , x = new 3), ext(3, [12], [312])}). Each of the three
+clients deﬁnes a set of possible query tuples, for example, xQ =
+unsafe(v4, v8) for downcast safety checking of an assignment
+v4 = v8.
+Recall that P(X) corresponds to obtaining an answer to a client
+query with respect to ∞-object-sensitivity. To obtain k-object-
+
+class A {
+f() {
+0: v = new A
+if (*) return v
+else return v.f()
+}
+}
+
+1:
+2:
+
+x1
+x2
+y1
+y2
+
+=
+=
+=
+=
+
+new A
+new A
+x1.f()
+x2.f()
+
+Figure 8. An example illustrating the repetition of allocation
+sites. The points-to set of y1 using ∞-object-sensitivity is
+{[01], [001], [0001], . . . } (any positive number of zeros followed
+by a 1), and the points-to set of y2 is {[02], [002], [0002], . . . }.
+While these two sets are disjoint, if we use a k-limited abstraction
+for any ﬁnite k, we would conclude erroneously that both variables
+might point to 0k ∗, where 0k is a chain of k zeros. Incidentally,
+this demonstrates an intrinsic limitation of the k-object-sensitivity
+abstraction. Using the barely-repeating k-limited abstraction, we
+can increase k while avoiding chains longer than [00] since [00] is
+barely-repeating. This results in computational savings, and in this
+case, in no loss in precision.
+sensitivity, we ﬁrst apply the k-limited abstraction πk to the input tuples and run the Datalog program on these abstract tuples
+(P(πk (X))). Note that only the ext tuples are affected by the abstraction.
+
+5.
+
+Barely-repeating k-limited abstraction
+
+When we applied the k-limited abstraction in practice, we noticed
+empirically that a major reason why it did not scale was the seemingly unnecessary combinatorial explosion associated with chains
+formed by cycling endlessly through the same allocation sites.
+For k-CFA, this repetition corresponds to recursion. For k-objectsensitivity, this corresponds to recursive allocation, as illustrated in
+Figure 8.4 We therefore wish to deﬁne an abstraction that not only
+truncates chains at length k but also truncates a chain when it starts
+repeating.
+For a sequence c, we say c is non-repeating if all its elements
+are distinct. We say c is barely-repeating if (i) c excluding the last
+element (c[1..|c| − 1]) is non-repeating and (ii) the last element of
+c is repeated earlier in c. Let δ(c) be the length of the longest preﬁx
+of c that is barely-repeating, if it exists, and ∞ otherwise:
+(
+maxm :c[1..m ] is barely-repeating m if m exists,
+δ(c)
+(18)
+∞
+otherwise.
+For example, δ([10010]) = 3 because [100] is barely-repeating,
+but [1001] is not.
+We now deﬁne the barely-repeating k-limited abstraction πk as
+ˆ
+follows:
+πk (c)
+ˆ
+
+πmin{k,δ(c)} (c),
+
+(19)
+
+Figure 9 shows an example of πk . We show that πk is a valid
+ˆ
+ˆ
+abstraction:
+4 Incidentally,
+
+the example in the ﬁgure also gives an interesting example
+where k-object-sensitivity for any ﬁnite k (no matter how large) is less
+precise than ∞-object-sensitivity.
+
+{[01]}
+[010]∗
+
+[011]∗
+
+{[1]}
+{[10]}
+[100]∗
+
+[11]∗
+[101]∗
+
+Figure 9. For the barely-repeating k-limited abstraction for H =
+{0, 1} and k = 3, we show the equivalence classes under πk . Comˆ
+pare this with the classes for the k-limited abstraction (Figure 3).
+Note that, for example, [000]∗ and [001]∗ are collapsed into [00]∗
+since [000] and [001] are not barely-repeating, but [00] is.
+Proposition 2. The function πk deﬁned in (19) is a valid abstracˆ
+tion (Deﬁnition 1).
+Proof. We consider two cases: (i) for {c} ∈ range(ˆk ), we have
+π
+πk (c) = {c}; and (ii) for any c∗ ∈ range(ˆk ), either |c| = k or c
+ˆ
+π
+is barely-repeating; in either case, it is easy to see that any extension
+c ∈ c∗ will have πk (c ) = c∗.
+ˆ
+Remark: one might wonder why we deﬁned the abstraction
+using the barely-repeating criterion as opposed to the simpler nonrepeating criterion. It turns out that using the latter in (18) would
+not result in a valid abstraction. If πk were deﬁned using the nonˆ
+repeating criterion, then π3 ([00]) = [0]∗. But for [01] ∈ [0]∗, we
+ˆ
+have π3 ([01]) = {[01]} = [0]∗.
+ˆ
+5.2
+
+Abstractions
+
+We have already deﬁned the k-limited abstraction, which corresponds to k-object-sensitivity. We now present two orthogonal variants of this basic abstraction: one that additionally limits the repetition of allocation sites (Section 5.1) and one that further abstracts
+allocation sites using type information (Section 5.2).
+5.1
+
+{[0]}
+[00]∗
+
+Type-based abstraction
+
+We now introduce an abstraction that we will use in the pre-pruning
+step of the Prune-Reﬁne algorithm. We start by deﬁning an equivalence relation over allocation sites H, represented by a function τ :
+H → P(H) mapping each allocation site h ∈ H to its equivalence
+class. In the graph example, we might have τ (0) = τ (1) = {0, 1}
+and τ (2) = τ (3) = {2, 3}.
+Given such a τ , we extend it to sequences by taking the cross
+product over elementwise applications:
+τ (c) = τ (c[1]) × · · · × τ (c[|c|]),
+
+c ∈ H∗ .
+
+(20)
+
+In the running example, τ ([02]) = {[02], [03], [12], [13]}.
+To construct τ for k-limited pointer analysis, we consider using
+two sources of type information associated with an allocation site,
+motivated by [17]:
+I (h)
+C (h)
+
+= declaring type of allocation site h
+= type of class containing allocation site h
+
+(21)
+(22)
+
+Using these two functions, we can construct three equivalence
+relations, τI , τC , and τI×C as follows:
+τf (h) = {h : f (h) = f (h )},
+
+(23)
+
+for f ∈ {I, C, I × C}.
+Now we have three choices for τ : one that uses the declaring
+type (τI ), one that uses the type of the containing class (τC ), and
+one that uses both (τI×C ). Recall that all three are complementary
+to the k-limited abstraction πk : Speciﬁcally, τ abstracts a chain by
+abstracting each site uniformly, whereas πk performs no abstraction on the ﬁrst k sites, but performs a total abstraction on the rest
+of the chain. Recall that this complementarity is desirable for effective pre-pruning.
+Since τ is not coarser than πk , we cannot use it directly in the
+Prune-Reﬁne algorithm. We must compose τ with πk or πk to yield
+ˆ
+another abstraction which is coarser than πk or πk , respectively.
+ˆ
+But in what order should we compose? We must be careful because
+the composition of two abstractions is not necessarily an abstraction. Fortunately, the following proposition shows which compositions are valid:
+
+Proposition 3. The functions (i) πk ◦ τ and (ii) τ ◦ πk are valid
+abstractions (see Deﬁnition 1) and equivalent; (iii) πk ◦ τ is also
+ˆ
+valid, but (iv) τ ◦ πk is not.
+ˆ
+Proof. For each of these four composed functions, each set s in the
+range of the function must be either of the form s = w1 ×· · ·×wm
+for m < k (case 1) or s = w1 × · · · × wm × H∗ for some m ≤ k
+(case 2), where wi ∈ range(τ ) for each i = 1, . . . , m.
+For (i) and (ii), it is straightforward to check that (πk ◦ τ )(c) =
+(τ ◦ πk )(c) = s for each c ∈ s. Intuitively, the truncation (πk ) and
+coarsening (τ ) operate independently and can be interchanged.
+For (iii) and (iv), the two dimensions do not act independently;
+the amount of truncation depends on the amount of coarsening: the
+coarser τ is, the more truncation one might need to limit repetitions.
+Showing that πk ◦ τ is valid proceeds in a similar manner to
+ˆ
+Proposition 2. If s falls under case 1, note that no c ∈ s is repeating
+because the wi ’s must be disjoint; therefore πk (τ (c)) = s. If s falls
+ˆ
+under case 2, note that for any c[1..m] ∈ s must be barely-repeating
+but any longer preﬁx is not, and therefore, πk (τ (c)) = s.
+ˆ
+To show that (iv) is not an abstraction, consider the following
+counterexample: let H = {0, 1, 2}, and deﬁne τ (h) = H for all
+h ∈ H (there is one equivalence class). Consider applying τ ◦ π3 to
+ˆ
+two elements [01] and [00]: For [01], we have π3 ([01]) = {[01]},
+ˆ
+so τ (ˆ3 ([01])) = H2 ; for [00], we have π3 ([00]) = [00]∗, so
+π
+ˆ
+τ (ˆ3 ([00])) = H2 × H∗ . But H2
+π
+H2 × H∗ (notably, the two
+sets are neither equal nor disjoint), so τ ◦ π3 does not deﬁne a valid
+ˆ
+abstraction.
+In light of this result, we will use the valid abstractions πk ◦ τ and
+πk ◦ τ , which work by ﬁrst applying the type-based abstraction τ
+ˆ
+and then applying πk or πk .
+ˆ
+
+6.
+
+Experiments
+
+In this section, we apply the Prune-Reﬁne algorithm (Section 3.2)
+to k-object-sensitivity for our three clients (Section 4.1): downcast
+safety checking (DOWNCAST), monomorphic call site inference
+(MONOSITE), and race detection (RACE). Our main empirical result
+is that across different clients and benchmarks, pruning is effective
+at curbing the exponential growth, which allows us to run analyses
+using abstractions ﬁner than what is possible without pruning.
+6.1
+
+Setup
+
+Our experiments were performed using IBM J9VM 1.6.0 on 64bit Linux machines. All analyses were implemented in Chord, an
+extensible program analysis framework for Java bytecode,5 which
+uses the BDD Datalog solver bddbddb [21]. We evaluated our
+analyses on ﬁve Java benchmarks shown in Table 1. In each run,
+we allocated 8GB of memory and terminated the process when it
+ran out of memory.
+We experimented with various combinations of abstractions and
+reﬁnement algorithms (see Table 2). As a baseline, we consider
+running an analysis with a full abstraction α (denoted FULL(α)).
+For α, we can either use k-limited abstractions (π = (πk )∞ ), in
+k=0
+which case we recover ordinary k-object-sensitivity, or the barelyˆ
+repeating variants (π = (ˆk )∞ ). We also consider the siteπ k=0
+based reﬁnement algorithm of [10], which considers a sequence of
+abstractions α = (α0 , α1 , . . . ) but stops reﬁning sites which have
+been deemed irrelevant. This algorithm is denoted SITE(α).
+As for the new algorithms that we propose in this paper, we
+have PR(α), which corresponds to the Prune-Reﬁne (PR) algorithm using a sequence of abstractions α with no pre-pruning;
+and PR(α, τ ), which performs pre-pruning using βt = αt ◦ τ for
+5 http://code.google.com/p/jchord/
+
+Abstractions
+π = (πk )∞
+k=0
+ˆ
+π = (ˆk )∞
+π k=0
+τI
+τC
+τI×C
+
+(k-limited abstractions (8))
+(barely-repeating k-limited abstractions (19))
+(abstraction using type of allocation site)
+(abstraction using type of containing class)
+(abstraction using both types)
+
+Algorithms
+FULL (α)
+SITE (α)
+PR (α)
+PR (α, τ )
+
+(standard analysis using an abstraction α)
+(site-based reﬁnement [10] on abstractions α)
+(PR algorithm using α, no pre-pruning)
+(PR algorithm using α, using α ◦ τ to pre-prune)
+
+Table 2. Shows the abstractions and algorithms that we evaluˆ
+ated empirically. For example, PR(π, τI×C ) means running the
+Prune-Reﬁne algorithm on the barely-repeating k-limited abstraction (αk = πk ), using a composed abstraction based on the type of
+ˆ
+an allocation site (τI ) and the type of the declaring class (τC ) to do
+pre-pruning (speciﬁcally, βk = πk ◦ τI×C ).
+ˆ
+t = 0, 1, 2, . . . . We consider three choices of τ which use different
+kinds of type information (τI , τC , τI×C ).
+In our implementation of the Prune-Reﬁne algorithm, we depart slightly from our presentation. Instead of maintaining the full
+set of relevant input tuples, we instead maintain only the set of allocation site chains which exist in some relevant input tuple. This
+choice results in more conservative pruning, but reduces the amount
+of information that we have to keep. We can modify the original
+Datalog program so that the original Prune-Reﬁne algorithm computes this new variant: Speciﬁcally, ﬁrst introduce new input tuples
+active(c) for each c ∈ H∗ . Then encode existing ext input tuples as rules with no source terms; ext is no longer an input relation. Finally, add active(c) to the right-hand side of each existing
+rule that uses a chain-valued variable. Computing the relevant input tuples in this modiﬁed Datalog program corresponds exactly to
+computing the set of relevant allocation site chains.
+6.2
+
+Results
+
+We ran the four algorithms of Table 2 using k-limited abstractions,
+seeing how far we could increase k until the analyses ran out of
+memory. For each analysis, we also measured the number of input
+tuples given to the Datalog solver; this quantity is denoted as |At |
+(see Figure 5). In this section, the number of iterations t is the same
+as the k value.
+Figure 10 plots the number of tuples |At | as a function of
+number of iterations t. We see that the non-pruning algorithms
+completely hit a wall after a few iterations, with the number of
+tuples exploding exponentially. On most benchmark-client pairs,
+the pruning algorithms are able to continue increasing k much
+further, though on several pairs, pruning only manages to increase k
+by one beyond the non-pruning algorithms. We also observed that
+pruning does yield speedups, although these are less pronounced
+than the differences in the number of tuples. Nonetheless, pruning
+overcomes the major bottleneck—that standard k-limited analyses
+run out of memory even for moderate k. By curbing the growth
+of the number of tuples, pruning makes it possible to run some
+analyses at all.
+However, there are several caveats with pruning: First, we are
+using BDDs, which can actually handle large numbers of tuples so
+long as they are structured; pruning destroys some of this structure,
+yielding less predictable running times. Second, pruning requires
+solving the transformed Datalog program for computing P(X),
+which is more expensive than the original Datalog program. Finally, we must solve the Datalog program several times, not just
+
+elevator
+hedc
+weblech
+lusearch
+avrora
+
+description
+discrete event simulation program
+web crawler
+website downloading and mirroring tool
+text indexing and search tool
+simulation and analysis framework for AVR microcontrollers
+
+# classes
+154
+309
+532
+611
+1,498
+
+# methods
+629
+1,885
+3,130
+3,789
+5,892
+
+# bytecodes
+39K
+151K
+230K
+267K
+312K
+
+|H|
+637
+1,494
+2,545
+2,822
+4,823
+
+Table 1. Benchmark characteristics: the number of classes, number of methods, total number of bytecodes in these methods, and number of
+allocation sites (|H|) deemed reachable by 0-CFA.
+|Bt |
+|At |
+
+DOWNCAST/hedc
+DOWNCAST/weblech
+DOWNCAST/lusearch
+DOWNCAST/avrora
+MONOSITE /elevator
+MONOSITE /hedc
+MONOSITE /weblech
+MONOSITE /lusearch
+MONOSITE /avrora
+RACE /elevator
+RACE /hedc
+RACE /weblech
+RACE /lusearch
+RACE /avrora
+
+Average
+
+˜
+|Bt |
+|Bt |
+
+|At |
+|At |
+
+˜
+|At |
+|At |
+
+|At+1 |
+|At |
+
+0.28
+0.19
+0.17
+0.21
+0.10
+0.22
+0.19
+0.26
+0.30
+0.10
+0.28
+0.19
+0.30
+0.38
+0.23
+
+0.72
+0.18
+0.04
+0.03
+0.55
+0.30
+0.18
+0.10
+0.05
+0.57
+0.28
+0.18
+0.15
+0.08
+0.24
+
+0.68
+0.26
+0.03
+0.05
+0.21
+0.36
+0.25
+0.15
+0.04
+0.22
+0.34
+0.27
+0.18
+0.08
+0.22
+
+0.65
+0.19
+0.02
+0.03
+0.21
+0.29
+0.18
+0.12
+0.03
+0.21
+0.25
+0.18
+0.14
+0.06
+0.18
+
+1.63
+3.28
+1.89
+1.57
+1.67
+3.78
+3.33
+3.39
+1.85
+1.58
+4.01
+3.43
+3.96
+2.71
+2.72
+
+Table 3. Shows the shrinking and growth of the number of tuples during the various pruning and reﬁnement operations (see Figure 5) for our best algorithm PR(π, τI×C ) across all the clients and
+benchmarks, averaged across iterations. The columns are as folt|
+lows: First, |Bt | measures the number of tuples after projecting
+|A
+down to the auxiliary abstraction βt = πt ◦ τI×C for pre-pruning;
+note that running the analysis using types instead of allocation sites
+˜
+|Bt |
+is much cheaper. Next, |Bt | shows the fraction of abstract values
+kept during pre-pruning; When we return from types to allocation
+|A |
+sites, we see that the effect of pre-pruning carries over ( |At | ). Next,
+t
+˜
+
+|A
+
+|
+
+t+1
+pruning kept |At | of the chains. Finally, |At | measures the ratio
+|At |
+between iterations, which includes both pruning and reﬁnement.
+Note that there is still almost a three-fold growth of the number of
+tuples (on average), but this growth would have been much more
+unmanageable without the pruning.
+
+once. These three caveats also apply to the site-based reﬁnement
+algorithm of [10] (SITE), so pruning is at least a strict improvement
+over that algorithm.
+We found that the best instantiation of the Prune-Reﬁne algorithm is PR(π, τI×C ), which involves pre-pruning with both kinds of
+type information (τI×C ); this works better than both no pre-pruning
+and pre-pruning with only τI or τC alone.
+Table 3 provides more details on the quantitative impact of
+pruning for PR(π, τI×C ). We see that pre-pruning has a signiﬁcant
+impact: we can eliminate about three-quarters of the tuples by just
+operating on the coarser level of types rather than allocation sites
+˜
+(see the |Bt | column). Importantly, the effect of this pruning carries
+|Bt |
+|A |
+
+t
+over to the original k-limited abstraction (see the |At | column).
+So far, we have been using the k-limited abstraction; we now
+compare this abstraction with the barely-repeating k-limited abstraction introduced in Section 5.1. As Figure 11 shows, for a few
+cases, the barely-repeating k-limited abstraction requires fewer tuples than the k-limited abstraction; but in most cases, it does not
+improve scalability. The reason is that the barely-repeating abstrac-
+
+client/benchmark \ k
+DOWNCAST/elevator
+DOWNCAST/hedc
+DOWNCAST/weblech
+DOWNCAST/lusearch
+DOWNCAST/avrora
+MONOSITE /elevator
+MONOSITE /hedc
+MONOSITE /weblech
+MONOSITE /lusearch
+MONOSITE /avrora
+RACE /elevator
+RACE /hedc
+RACE /weblech
+RACE /lusearch
+RACE /avrora
+
+1
+0
+10
+24
+36
+12
+1
+164
+273
+593
+288
+475
+23,033
+7,286
+33,845
+62,060
+
+2
+8
+14
+14
+10
+1
+149
+258
+454
+278
+440
+22,043
+4,742
+23,509
+61,807
+
+3
+3
+6
+6
+6
+1
+149
+252
+447
+272
+437
+21,966
+4,669
+16,957
+61,734
+
+4
+2
+6
+5
+6
+1
+149
+252
+447
+437
+-
+
+5
+2
+5
+6
+1
+437
+-
+
+Table 4. The number of unproven queries (unsafe downcasts, polymorphic sites, races) for each of the clients and benchmarks over
+the ﬁrst ﬁve iterations. All analyses obtain the exact results on iterations where they obtain an answer. Bolded numbers refer to k
+values reached by PR(π, τI×C ) but not by any non-pruning algorithm. While pruning enables to increase k more, we get strictly
+more precise results for only two of the client/benchmark pairs
+(DOWNCAST/hedc and DOWNCAST/lusearch). This points out inherent limitations of this family of k-limited abstractions.
+tion curbs reﬁnement, but often, somewhat paradoxically, it is exactly the reﬁnement which enables more pruning.
+Finally, Table 4 shows the effect on the number of queries
+proven. While pruning enables us to increase k much more than
+before, it turns out that our particular analyses for these clients
+saturate quite quickly, so over all the clients and benchmarks, we
+were only able to prove two queries more than using the nonpruning techniques. On the surface, these ﬁndings seem to contradict [9], which showed a sharp increase in precision around k = 4
+for k-CFA. However, this discrepancy merely suggests that our
+ﬂow-insensitive analyses are simply limited: since [9] offers upper bounds on precision, we know for sure that low k values are
+insufﬁcient; the fact that we don’t see an increase in precision for
+higher k suggests that the non-k-related aspects of our analyses are
+insufﬁcient. Given that our pruning approach is general, it would
+be interesting to tackle other aspects of program analysis such as
+ﬂow-sensitivity.
+
+7.
+
+Related Work
+
+There is a wealth of literature which attempts to scale static analyses without sacriﬁcing precision. One general theme is to work
+with a ﬂexible family of abstractions, which in principle allows
+us to conform to the needs of the client. Milanova et al. [12, 13]
+consider abstractions where each local variable can be independently treated context-sensitively or context-insensitively, and different k values can be chosen for different allocation sites. Lhot´ k
+a
+and Hendren [7, 8] present Paddle, a parametrized framework for
+BDD-based, k-limited pointer analyses. [17] scale up k-object-
+
+6.4e2
+
+1.2e7
+
+1.3e7
+
+1.7e7
+
+7.6e6
+
+6.4e2
+
+9.7e6
+
+1.0e7
+
+1.4e7
+
+6.1e6
+
+7.2e6
+
+7.6e6
+
+1.0e7
+
+full(π)
+
+|At |
+
+6.4e2
+
+site(π)
+
+6.4e2
+
+pr(π)
+
+|At |
+
+pr(π, τi×c )
+
+6.4e2
+
+|At |
+
+4.8e6
+2.4e6
+
+2.5e6
+
+1
+
+4
+
+t
+(a) downcast/elevator
+
+|At |
+
+5.1e6
+
+8
+
+12
+
+16
+
+3.4e6
+1
+
+t
+(b) downcast/hedc
+
+|At |
+
+6.8e6
+
+2
+
+3
+
+4
+
+5
+
+t
+(c) downcast/weblech
+
+4.6e6
+3.0e6
+1.5e6
+
+2
+
+4
+
+6
+
+8
+
+10
+
+4
+
+t
+(d) downcast/lusearch
+
+6.0e6
+
+1.4e7
+
+1.7e7
+
+16
+
+1.7e7
+
+4.2e6
+
+4.8e6
+
+1.1e7
+
+1.4e7
+
+1.4e7
+
+3.2e6
+
+3.6e6
+
+8.2e6
+
+1.0e7
+
+|At |
+
+2.1e6
+1.1e6
+
+|At |
+
+2.4e6
+1.2e6
+
+5
+
+10
+
+15
+
+20
+
+2
+
+3
+
+4
+
+5
+
+|At |
+
+6.8e6
+3.4e6
+
+1
+
+t
+(g) monosite/hedc
+
+(f) monosite/elevator
+
+|At |
+
+5.5e6
+2.7e6
+
+1
+
+t
+
+2
+
+3
+
+4
+
+5
+
+1.1e7
+7.0e6
+3.5e6
+
+1
+
+2
+
+3
+
+4
+
+t
+(h) monosite/weblech
+
+5
+
+2
+
+t
+(i) monosite/lusearch
+
+4
+
+6
+
+8
+
+t
+(j) monosite/avrora
+
+3.8e6
+
+6.0e6
+
+2.0e7
+
+1.7e7
+
+1.4e6
+
+3.0e6
+
+|At |
+
+12
+
+t
+(e) downcast/avrora
+
+5.3e6
+
+|At |
+
+8
+
+4.8e6
+
+1.6e7
+
+1.4e7
+
+1.1e6
+
+2.3e6
+
+3.6e6
+
+1.2e7
+
+1.0e7
+
+|At |
+
+1.5e6
+7.6e5
+
+|At |
+
+2.4e6
+1.2e6
+
+5
+
+10
+
+15
+
+|At |
+
+7.8e6
+3.9e6
+
+20
+
+1
+
+2
+
+t
+
+3
+
+4
+
+3.4e6
+1
+
+2
+
+3
+
+t
+
+(k) race/elevator
+
+|At |
+
+6.8e6
+
+4
+
+5.6e5
+2.8e5
+
+5
+
+1
+
+2
+
+t
+
+(l) race/hedc
+
+8.3e5
+
+3
+
+4
+
+1
+
+2
+
+t
+
+(m) race/weblech
+
+3
+
+4
+
+t
+
+(n) race/lusearch
+
+(o) race/avrora
+
+Figure 10. For each client/benchmark pair, we show the growth of the number of input tuples |At | across iterations (recall that At are the
+tuples fed into the Datalog program). Table 2 describes the four algorithms. We see that the pruning algorithms (PR(π) and PR(π, τI×C ))
+drastically cut down the number of input tuples by many orders of magnitude.
+7.6e5
+
+5.7e6
+
+6.1e5
+
+|At |
+
+4.5e5
+
+8.9e6
+
+4.5e6
+
+π
+ˆ
+π
+
+|At |
+
+3.0e5
+1.5e5
+
+3.4e6
+
+|At |
+
+2.3e6
+1.1e6
+
+4
+
+8
+
+12
+
+iteration t
+(a) downcast/hedc
+
+16
+
+1.9e5
+
+7.2e6
+
+π
+ˆ
+π
+
+5.4e6
+
+|At |
+
+3.6e6
+1.8e6
+
+3
+
+6
+
+9
+
+12
+
+iteration t
+(b) downcast/avrora
+
+15
+
+2.9e5
+
+1.5e5
+
+π
+ˆ
+π
+
+2.3e5
+
+π
+ˆ
+π
+
+1.1e5
+
+|At |
+
+7.5e4
+3.8e4
+
+4
+
+8
+
+12
+
+16
+
+iteration t
+(c) downcast/lusearch
+
+π
+ˆ
+π
+
+1.8e5
+1.2e5
+5.9e4
+
+4
+
+8
+
+12
+
+16
+
+iteration t
+(d) monosite/elevator
+
+20
+
+4
+
+8
+
+12
+
+16
+
+iteration t
+(e) race/elevator
+
+ˆ
+Figure 11. Shows the 5 (out of the 15) client/benchmark pairs for which using the barely-repeating k-limited abstraction (π) allows one to
+increase k much more than the plain k-limited abstraction (π). On the other 10 client/benchmarks where k cannot get very large, limiting
+ˆ
+repetitions is actually slightly worse in terms of scalability. Also note that three of the plots for π stop early, not because the algorithm runs
+out of memory, but because the algorithm has actually converged and increasing k would have no effect.
+sensitivity, increasing k by one using types rather than allocation
+sites. However, in all of this work, which parts of the abstraction
+should be more reﬁned is largely left up to the user.
+Client-driven approaches use feedback from a client query to
+determine what parts of an abstraction to reﬁne. Plevyak and
+Chien [15] use a reﬁnement-based algorithm for type inference,
+where context-sensitivity is driven by detecting type conﬂicts.
+Guyer and Lin [4] present a pointer analysis for C which detects
+loss of precision (e.g., at merge points) and introduce contextsensitivity. Our method for determining relevant input tuples is
+similar in spirit but more general.
+Section 3.1 of Liang et al. [10] (not the focus of that work)
+also computes the set of relevant tuples by running a transformed
+Datalog program. However, what is done with this information is
+quite different there. [10] merely stops reﬁning the irrelevant sites
+whereas we actually prune all irrelevant tuples, thereby exploiting
+
+this information more fully. As we saw in Section 6, this difference
+had major ramiﬁcations.
+Demand-driven analyses [5, 23] do not reﬁne the abstraction
+but rather try to compute an analysis on an existing abstraction
+more efﬁciently. Sridharan et al. [19] presents an algorithm which
+casts pointer analysis as a CFL-reachability problem and relaxes
+the problem by introducing additional “match” edges.
+Our Prune-Reﬁne algorithm has a client-driven ﬂavor in that we
+reﬁne our abstraction, but also a demand-driven ﬂavor in that we
+do not perform a full computation (in particular, ignoring tuples
+which were pruned). However, there are two important differences
+between the present work and the work described earlier: First,
+while most of that work is speciﬁc to pointer analysis, our PruneReﬁne algorithm is applicable to any Datalog program. Second,
+past work is based on selected reﬁnement, which is orthogonal
+to pruning. Selected reﬁnement merely governs the abstractions
+(αt )∞ that we use, whereas pruning focuses on removing input
+t=0
+
+20
+
+tuples. Given that the input tuples encode the program analysis,
+pruning is analogous to program slicing.
+Other forms of pruning have been implemented in various settings. [20] uses dynamic analysis to prune down the set of paths
+and then focuses a static analysis on these paths. [18] uses pruning
+for type inference in functional languages, where pruning is simply
+a heuristic which shortcuts a search algorithm. As a result, pruning
+can hurt precision. One advantage of our pruning approach is that
+it comes with strong soundness and completeness guarantees.
+
+8.
+
+Conclusion
+
+We have introduced pruning as a general technique for scaling up
+static analyses written in Datalog. The basic idea is to run an analysis using a coarse abstraction, only keeping input tuples deemed
+relevant, and then using a ﬁner abstraction on the remaining tuples.
+Theoretically, we showed that pruning is both sound and complete
+(our analysis is valid and we lose no precision). Empirically, we
+showed that pruning enables us to scale up analyses based on kobject-sensitivity much more than previous approaches.
+
+Acknowledgments
+We thank Mooly Sagiv and Hongseok Yang for discussion and
+useful feedback. We also thank the anonymous reviewers for their
+insightful comments.
+
+References
+[1] T. Ball, R. Majumdar, T. Millstein, and S. Rajamani. Automatic
+predicate abstraction of C programs. In PLDI, pages 203–213, 2001.
+[2] M. Bravenboer and Y. Smaragdakis. Strictly declarative speciﬁcation
+of sophisticated points-to analyses. In OOPSLA, pages 243–262, 2009.
+[3] S. Graf and H. Saidi. Construction of abstract state graphs with PVS.
+Computer Aided Veriﬁcation, 1254:72–83, 1997.
+[4] S. Guyer and C. Lin. Client-driven pointer analysis. In SAS, pages
+214–236, 2003.
+[5] N. Heintze and O. Tardieu. Demand-driven pointer analysis. In PLDI,
+pages 24–34, 2001.
+[6] T. A. Henzinger, R. Jhala, R. Majumdar, and G. Sutre. Lazy abstraction. In POPL, 2002.
+[7] O. Lhot´ k and L. Hendren. Context-sensitive points-to analysis: is it
+a
+worth it? In CC, pages 47–64, 2006.
+[8] O. Lhot´ k and L. Hendren. Evaluating the beneﬁts of context-sensitive
+a
+points-to analysis using a BDD-based implementation. ACM Transactions on Software Engineering and Methodology, 18(1):1–53, 2008.
+[9] P. Liang, O. Tripp, M. Naik, and M. Sagiv. A dynamic evaluation of
+static heap abstractions. In OOPSLA, pages 411–427, 2010.
+[10] P. Liang, O. Tripp, and M. Naik. Learning minimal abstractions. In
+POPL, 2011.
+[11] K. McMillan. Lazy abstraction with interpolants. In CAV, pages 123–
+136, 2006.
+[12] A. Milanova, A. Rountev, and B. Ryder. Parameterized object sensitivity for points-to and side-effect analyses for Java. In ISSTA, pages
+1–11, 2002.
+[13] A. Milanova, A. Rountev, and B. Ryder. Parameterized object sensitivity for points-to analysis for Java. ACM Transactions on Software
+Engineering and Methodology, 14(1):1–41, 2005.
+[14] M. Naik, A. Aiken, and J. Whaley. Effective static race detection for
+Java. In PLDI, pages 308–319, 2006.
+[15] J. Plevyak and A. Chien. Precise concrete type inference for objectoriented languages. In OOPSLA, pages 324–340.
+[16] O. Shivers. Control-ﬂow analysis in Scheme. In PLDI, pages 164–
+174, 1988.
+[17] Y. Smaragdakis, M. Bravenboer, and O. Lhotak. Pick your contexts
+well: Understanding object-sensitivity. In POPL, 2011.
+
+[18] S. A. Spoon and O. Shivers. Demand-driven type inference with
+subgoal pruning: Trading precision for scalability. In ECOOP, 2004.
+[19] M. Sridharan and R. Bod´k. Reﬁnement-based context-sensitive
+ı
+points-to analysis for Java. In PLDI, pages 387–400, 2006.
+[20] V. Vipindeep and P. Jalote. Efﬁcient static analysis with path pruning
+using coverage data. In International Workshop on Dynamic Analysis
+(WODA), 2005.
+[21] J. Whaley. Context-Sensitive Pointer Analysis using Binary Decision
+Diagrams. PhD thesis, Stanford University, 2007.
+[22] J. Whaley and M. Lam. Cloning-based context-sensitive pointer alias
+analysis using binary decision diagrams. In PLDI, pages 131–144,
+2004.
+[23] X. Zheng and R. Rugina. Demand-driven alias analysis for C. In
+POPL, pages 197–208, 1998.
+
+A.
+
+Proofs
+
+Instead of directly proving Proposition 1, we state a more general
+theorem which will be useful later:
+Theorem 3 (Soundness). Let α and β be two abstractions with
+β α (β is coarser), and let X be any set of input tuples. For any
+derivation a ∈ D(α(X)), deﬁne b = (b1 , . . . , b|a| ) where each bi
+is the unique element in β(ai ). Then b ∈ D(β(X)).
+Proof of Theorem 3. Deﬁne A = α(X) and B = β(X). Consider
+a ∈ D(A) and let b be as deﬁned in the theorem. For each position
+i, we have two cases. First, if ai ∈ A, then bi ∈ (β ◦ α)(X) =
+β(X) = B. Otherwise, let z ∈ Z be the rule and J be the
+indices of the tuples used to derive ai . The same rule z and the
+corresponding tuples {bj : j ∈ J} can also be used to derive bi .
+Therefore, b ∈ D(B).
+Proof of Proposition 1 (abstraction is sound). Apply Theorem 3
+with β = α and α as the identity function (no abstraction).
+Before we prove Theorem 1, we state a useful lemma.
+Lemma 1 (Pruning is idempotent). For any set of tuples (concrete
+or abstract) X, P(X) = P(P(X)).
+Proof. Since P(X) ⊂ X by deﬁnition and P is monotonic, we
+have P(P(X)) ⊂ P(X). For the other direction, let x ∈ P(X).
+Then x is part of some derivation (x ∈ x ∈ D(X)). All the input
+tuples of x (those in x ∩ X) are also in P(X), so x ∈ D(P(X)).
+Therefore x ∈ P(P(X)).
+Proof of Theorem 1 (pruning is sound and complete). We deﬁne
+variables for the intermediate quantities in (15): A = α(X) and
+˜
+˜
+˜
+˜
+B = β(X), B = P(B), A = α(B), and A = A ∩ A. We
+want to show that pruning is sound (P(A) ⊂ P(A )) and complete
+(P(A) ⊃ P(A )). Completeness follows directly because A ⊃ A
+and P is monotonic (increasing the number of input tuples can only
+increase the number of derived tuples).
+Now we show soundness. Let a ∈ P(A). By deﬁnition of P
+((3)), there is a derivation a ∈ D(A) containing a. For each ai ∈ a,
+let bi be the unique element in β(ai ) (a singleton set because
+β
+α), and let b be the corresponding sequence constructed
+from the bi s. Since β
+α, we have b ∈ D(B) by Theorem 3,
+˜
+and so each input tuple in b is also in P(B) = B; in particular,
+˜
+b ∈ B for β(a) = {b}. Since β
+α, a ∈ α(b), and so
+˜
+˜
+a ∈ A. We have thus shown that P(A) ⊂ A. Finishing up,
+˜
+P(A ) = P(A ∩ A) ⊃ P(A ∩ P(A)) = P(P(A)) = P(A),
+where the last equality follows from idempotence (Lemma 1).
+We now show that the Prune-Reﬁne algorithm is correct, which
+follows from a straightforward application of Theorem 1.
+
+Proof of Theorem 2 (correctness of the Prune-Reﬁne algorithm).
+First, we argue that pre-pruning is correct. For each iteration t,
+we invoke Theorem 1 with α = αt , β = βt and X be such that
+α(X) = At . The result is that P(At ) = P(At ), so without loss of
+generality, we will assume At = At for the rest of the proof.
+Now ﬁx an iteration t. We will show that P(αt (X)) = P(At )
+by induction, where the inductive hypothesis is P(αt (X)) =
+˜
+˜
+P(αt (As )). For the base case (s = −1), we deﬁne A−1 = {X},
+we get a tautology. For the inductive case, apply the theorem with
+˜
+applied to β = αs , α = αt and X such that αs (X) = αs (As−1 ),
+we get that
+˜
+˜
+˜
+P(αt (As−1 )) = P(αt (P(αs (As−1 )))) = P(αt (As )).
+˜
+When s = t − 1, we have P(αt (X)) = P(αt (At−1 )) = P(At ),
+completing the claim. Finally, if the algorithm returns proven, we
+have
+∅ = P(At ) = P(αt (X)) ⊃ P(X).
+
+

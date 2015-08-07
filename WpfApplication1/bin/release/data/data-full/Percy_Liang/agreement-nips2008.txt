@@ -1,0 +1,943 @@
+Agreement-Based Learning
+
+Percy Liang
+Computer Science Division
+University of California
+Berkeley, CA 94720
+
+Dan Klein
+Computer Science Division
+University of California
+Berkeley, CA 94720
+
+Michael I. Jordan
+Computer Science Division
+University of California
+Berkeley, CA 94720
+
+pliang@cs.berkeley.edu
+
+klein@cs.berkeley.edu
+
+jordan@cs.berkeley.edu
+
+Abstract
+The learning of probabilistic models with many hidden variables and nondecomposable dependencies is an important and challenging problem. In contrast
+to traditional approaches based on approximate inference in a single intractable
+model, our approach is to train a set of tractable submodels by encouraging them
+to agree on the hidden variables. This allows us to capture non-decomposable
+aspects of the data while still maintaining tractability. We propose an objective
+function for our approach, derive EM-style algorithms for parameter estimation,
+and demonstrate their effectiveness on three challenging real-world learning tasks.
+
+1
+
+Introduction
+
+Many problems in natural language, vision, and computational biology require the joint modeling of
+many dependent variables. Such models often include hidden variables, which play an important role
+in unsupervised learning and general missing data problems. The focus of this paper is on models
+in which the hidden variables have natural problem domain interpretations and are the object of
+inference.
+Standard approaches for learning hidden-variable models involve integrating out the hidden variables and working with the resulting marginal likelihood. However, this marginalization can be intractable. An alternative is to develop procedures that merge the inference results of several tractable
+submodels. An early example of such an approach is the use of pseudolikelihood [1], which deals
+with many conditional models of single variables rather than a single joint model. More generally,
+composite likelihood permits a combination of the likelihoods of subsets of variables [7]. Another
+approach is piecewise training [10, 11], which has been applied successfully to several large-scale
+learning problems.
+All of the above methods, however, focus on fully-observed models. In the current paper, we develop
+techniques in this spirit that work for hidden-variable models. The basic idea of our approach is to
+create several tractable submodels and train them jointly to agree on their hidden variables. We
+present an intuitive objective function and efﬁcient EM-style algorithms for training a collection of
+submodels. We refer to this general approach as agreement-based learning.
+Sections 2 and 3 presents the general theory for agreement-based learning. In some applications, it
+is infeasible computationally to optimize the objective function; Section 4 provides two alternative
+objectives that lead to tractable algorithms. Section 5 demonstrates that our methods can be applied successfully to large datasets in three real world problem domains—grammar induction, word
+alignment, and phylogenetic hidden Markov modeling.
+1
+
+2
+
+Agreement-based learning of multiple submodels
+
+Assume we have M (sub)models pm (x, z; θm ), m = 1, . . . , M , where each submodel speciﬁes a
+distribution over the observed data x ∈ X and some hidden state z ∈ Z. The submodels could be
+parametrized in completely different ways as long as they are deﬁned on the common event space
+X × Z. Intuitively, each submodel should capture a different aspect of the data in a tractable way.
+To learn these submodels, the simplest approach is to train them independently by maximizing the
+sum of their log-likelihoods:
+def
+
+Oindep (θ) = log
+
+pm (x, z; θm ) =
+m
+
+z
+
+log pm (x; θm ),
+
+(1)
+
+m
+
+where θ = (θ1 , . . . , θM ) is the collective set of parameters and pm (x; θm ) =
+z pm (x, z; θm )
+1
+is the likelihood under submodel pm . Given an input x, we can then produce an output z by
+combining the posteriors pm (z | x; θm ) of the trained submodels.
+If we view each submodel as trying to solve the same task of producing the desired posterior over
+z, then it seems advantageous to train the submodels jointly to encourage “agreement on z.” We
+propose the following objective which realizes this insight:
+def
+
+Oagree (θ) = log
+
+pm (x, z; θm ) =
+z
+
+m
+
+pm (z | x; θm ).
+
+log pm (x; θm ) + log
+m
+
+z
+
+(2)
+
+m
+
+The last term rewards parameter values θ for which the submodels assign probability mass to the
+same z (conditioned on x); the summation over z reﬂects the fact that we do not know what z is.
+Oagree has a natural probabilistic interpretation. Imagine deﬁning a joint distribution over M independent copies over the data and hidden state, (x1 , z1 ), . . . , (xM , zM ), which are each generated
+by a different submodel: p((x1 , z1 ), . . . , (xM , zM ); θ) = m p(xm , zm ; θm ). Then Oagree is the
+probability that the submodels all generate the same observed data x and the same hidden state:
+p(x1 = · · · = xM = x, z1 = · · · = zM ; θ).
+Oagree is also related to the likelihood of a proper probabilistic model pnorm , obtained by normalizing
+the product of the submodels, as is done in [3]. Our objective Oagree is then a lower bound on the
+likelihood under pnorm :
+def
+
+pnorm (x; θ) =
+
+z
+
+pm (x, z; θm )
+≥
+pm (x, z; θm )
+
+m
+
+x,z m
+
+z
+
+pm (x, z; θm )
+= Oagree (θ).
+pm (x, z; θm )
+
+m
+
+(3)
+
+m x,z
+
+The inequality holds because the denominator of the lower bound contains additional cross terms.
+The bound is generally loose, but becomes tighter as each pm becomes more deterministic. Note
+that pnorm is distinct from the product-of-experts model [3], in which each “expert” model pm has
+its own set of (nuisance) hidden variables: ppoe (x) ∝ m z pm (x, z; θm ). In contrast, pnorm has
+one set of hidden variables z common to all submodels, which is what provides the mechanism for
+agreement-based learning.
+2.1
+
+The product EM algorithm
+
+We now derive the product EM algorithm to maximize Oagree . Product EM bears many striking
+similarities to EM: both are coordinate-wise ascent algorithms on an auxiliary function and both
+increase the original objective monotonically. By introducing an auxiliary distribution q(z) and
+applying Jensen’s inequality, we can lower bound Oagree with an auxiliary function L:
+Oagree (θ) = log
+
+q(z)
+z
+
+m
+
+pm (x, z; θm )
+≥ Eq(z) log
+q(z)
+
+m
+
+pm (x, z; θm ) def
+= L(θ, q)
+q(z)
+
+(4)
+
+The product EM algorithm performs coordinate-wise ascent on L(θ, q). In the (product) E-step, we
+optimize L with respect to q. Simple algebra reveals that this optimization is equivalent to minimizing a KL-divergence: L(θ, q) = −KL(q(z)|| m pm (x, z; θm )) + constant, where the constant
+1
+
+To simplify notation, we consider one data point x. Extending to a set of i.i.d. points is straightforward.
+
+2
+
+does not depend on q. This quantity is minimized by setting q(z) ∝ m pm (x, z; θm ). In the (product) M-step, we optimize L with respect to θ, which decomposes into M independent objectives:
+L(θ, q) = m Eq log pm (x, z; θm ) + constant, where this constant does not depend on θ. Each
+term corresponds to an independent M-step, just as in EM for maximizing Oindep .
+Thus, our product EM algorithm differs from independent EM only in the E-step, in which the
+submodels are multiplied together to produce one posterior over z rather than M separate ones.
+Assuming that there is an efﬁcient EM algorithm for each submodel pm , there is no difﬁculty in
+performing the product M-step. In our applications (Section 5), each pm is composed of multinomial
+distributions, so the M-step simply involves computing ratios of expected counts. On the other hand,
+the product E-step can become intractable and we must develop approximations (Section 4).
+
+3
+
+Exponential family formulation
+
+Thus far, we have placed no restrictions on the form of the submodels. To develop a richer understanding and provide a framework for making approximations, we now assume that each submodel
+pm is an exponential family distribution:
+T
+pm (x, z; θm ) = exp{θm φm (x, z) − Am (θm )} for x ∈ X , z ∈ Zm and 0 otherwise,
+
+(5)
+
+T
+exp{θm φm (x, z)}
+
+where φm are sufﬁcient statistics (features) and Am (θm ) = log x∈X ,z∈Zm
+is
+the log-partition function,2 deﬁned on θm ∈ Θm ⊂ RJ . We can think of all the submodels pm as
+being deﬁned on a common space Z∪ = ∪m Zm , but the support of q(z) as computed in the E-step is
+only the intersection Z∩ = ∩m Zm . Controlling this support will be essential in developing tractable
+approximations (Section 4.1).
+In the general formulation, we required only that the submodels share the same event space X ×
+Z. Now we make explicit the possibility of the submodels sharing features, which give us more
+structure for deriving approximations. In particular, suppose each feature j of submodel pm can be
+decomposed into a part that depends on x (which is speciﬁc to that particular submodel) and a part
+that depends on z (which is the same for all submodels):
+I
+
+φX (x)φZ (z), or in matrix notation, φm (x, z) = φX (x)φZ (z),
+mji
+i
+m
+
+φmj (x, z) =
+
+(6)
+
+i=1
+
+where φX (x) is a J × I matrix and φZ (z) is a I × 1 vector. When z is discrete, such a decompom
+sition always exists by deﬁning φZ (z) to be an |Z∪ |-dimensional indicator vector which is 1 on the
+component corresponding to z. Fortunately, we can usually obtain more compact representations of
+φZ (z). We can now express our objective L(θ, q) (4) using (5) and (6):
+T
+θm φX (x) (Eq(z) φZ (z)) + H(q) −
+m
+
+L(θ, q) =
+m
+
+Am (θm ) for q ∈ Q(Z∩ ),
+
+(7)
+
+m
+
+def
+
+where Q(Z ) = {q : q(z) = 0 for z ∈ Z } is the set of distributions with support Z . For
+T
+convenience, deﬁne bT = θm φX (x) and b = m bm , which summarize the parameters θ for the
+m
+m
+E-step. Note that for any θ, the q maximizing L always has the following exponential family form:
+q(z; β) = exp{β T φZ (z) − AZ∩ (β)} for z ∈ Z∩ and 0 otherwise,
+T
+
+(8)
+
+Z
+
+where AZ∩ (β) = log z∈Z∩ exp{β φ (z)} is the log-partition function. In a minor abuse of
+notation, we write L(θ, β) = L(θ, q(·; β)). Speciﬁcally, L(θ, β) is maximized by setting β = b.
+It will be useful to express (7) using convex duality [12]. The key idea of convex duality is the
+existence of a mapping between the canonical exponential parameters β ∈ RI of an exponential
+family distribution q(z; β) and the mean parameters deﬁned by µ = Eq(z;β) φZ (z) ∈ M(Z∩ ) ⊂ RI ,
+where M(Z ) = {µ : ∃q ∈ Q(Z ) : Eq φZ (z) = µ} is the set of realizable mean parameters. The
+Fenchel-Legendre conjugate of the log-partition function AZ∩ (β) is
+def
+
+A∗ ∩ (µ) = sup {β T µ − AZ∩ (β)} for µ ∈ M(Z∩ ),
+Z
+
+(9)
+
+β∈RI
+
+2
+Our applications use directed graphical models, which correspond to curved exponential families where
+each Θm is deﬁned by local normalization constraints and Am (θm ) = 0.
+
+3
+
+which is also equal to −H(q(z; β)), the negative entropy of any distribution q(z; β) corresponding
+to µ. Substituting µ and A∗ ∩ (µ) into (7), we obtain an objective in terms of the dual variables µ:
+Z
+def
+
+L∗ (θ, µ) =
+
+T
+θm φX (x) µ − A∗ ∩ (µ) −
+m
+Z
+m
+
+Am (θm ) for µ ∈ M(Z∩ ).
+
+(10)
+
+m
+
+Note that the two objectives are equivalent: supβ∈RI L(θ, β) = supµ∈M(Z∩ ) L∗ (θ, µ) for each θ.
+The mean parameters µ are exactly the z-speciﬁc expected sufﬁcient statistics computed in the product E-step. The dual is an attractive representation because it allows us to form convex combinations
+of different µ, an operation does not have a direct correlate in the primal formulation. The product
+EM algorithm is summarized below:
+
+E-step:
+M-step:
+
+4
+
+Product EM
+µ = argmaxµ ∈M(Z∩ ) {bT µ − A∗ ∩ (µ )}
+Z
+T
+θm = argmaxθm ∈Θm {θm φX (x)µ − Am (θm )}
+
+Approximations
+
+The product M-step is tractable provided that the M-step for each submodel is tractable, which
+is generally the case. The corresponding statement is not true for the E-step, which in general
+requires explicitly summing over all possible z ∈ Z∩ , often an exponentially large set. We will thus
+consider alternative E-steps, so it will be convenient to succinctly characterize an E-step. An E-step
+is speciﬁed by a vector b (which depends on θ and x) and a set Z (which we sum z over):
+E(b , Z ) computes µ = argmax {b T µ − A∗ (µ )}.
+Z
+
+(11)
+
+µ ∈M(Z )
+
+Using this notation, E(bm , Zm ) is the E-step for training the m-th submodel independently using
+EM and E(b, Z∩ ) is the E-step of product EM. Though we write E-steps in the dual formulation, in
+practice, we compute µ as an expectation over all z ∈ Z , perhaps leveraging dynamic programming.
+If E(bm , Zm ) is tractable and all submodels have the same dynamic programming structure (e.g.,
+if z is a tree and all features are local with respect to that tree), then E(b, Z∩ ) is also tractable: we
+can incorporate all the features into the same dynamic program and simply run product EM (see
+Section 5.1 for an example).
+However, E(b, Z∩ ) is intractable in general, owing to two complications: (1) we can sum over each
+Zm efﬁciently but not the intersection Z∩ ; and (2) each bm corresponds to a decomposable graphical
+model, but the combined b = m bm corresponds to a loopy graph. In the sequel, we describe two
+approximate objective functions addressing each complication, whose maximization can be carried
+out by performing M independent tractable E-steps.
+4.1
+
+Domain-approximate product EM
+
+Assume that for each submodel pm , E(b, Zm ) is tractable (see Section 5.2 for an example). We
+propose maximizing the following objective:
+def
+
+L∗ (θ, µ1 , . . . , µm ) =
+dom
+
+1
+M
+
+T
+θm φX (x) µm − A∗ m (µm ) −
+m
+Z
+m
+
+Am (θm ),
+
+(12)
+
+m
+
+m
+
+with each µm ∈ M(Zm ). This objective can be maximized via coordinate-wise ascent:
+Domain-approximate product EM
+E-step:
+M-step:
+
+µm = argmaxµm ∈M(Zm ) {bT µm − A∗ m (µm )}
+Z
+θm =
+
+T
+argmaxθm ∈Θm {θm φX (x)
+
+1
+M
+
+m
+
+µm
+
+[E(b, Zm )]
+− Am (θm )}
+
+The product E-step consists of M separate E-steps, which are each tractable because each involves
+the respective Zm instead of Z∩ . The resulting expected sufﬁcient statistics are averaged and used
+in the product M-step, which breaks down into M separate M-steps.
+4
+
+While we have not yet established any relationship between our approximation L∗ and the original
+dom
+objective L∗ , we can, however, relate L∗ to L∗ , which is deﬁned as an analogue of L∗ by replacing
+∪
+dom
+Z∩ with Z∪ in (10).
+Proposition 1. L∗ (θ, µ1 , . . . , µM ) ≤ L∗ (θ, µ) for all θ and µm ∈ M(Zm ) and µ =
+¯
+¯
+∪
+dom
+1
+µm .
+m
+M
+Proof. First, since M(Zm ) ⊂ M(Z∪ ) and M(Z∪ ) is a convex set, µ ∈ M(Z∪ ), so L∗ (θ, µ)
+¯
+¯
+∪
+is well-deﬁned. Subtracting the L∪ version of (10) from (12), we obtain L∗ (θ, µ1 , . . . , µM ) −
+dom
+1
+1
+L∗ (θ, µ) = A∗ ∪ (¯) − M m A∗ m (µm ). It sufﬁces to show A∗ ∪ (¯) ≤ M m A∗ ∪ (µm ) ≤
+¯
+∪
+Z µ
+Z
+Z µ
+Z
+1
+∗
+∗
+AZm (µm ). The ﬁrst inequality follows from convexity of AZ∪ (·). For the second inequality:
+m
+M
+since Zm ⊃ Z∪ , AZ∪ (µm ) ≥ AZm (µm ); by inspecting (9), it follows that A∗ ∪ (µm ) ≤ A∗ m (µm ).
+Z
+Z
+4.2
+
+Parameter-approximate product EM
+
+Now suppose that for each submodel pm , E(bm , Z∩ ) is tractable (see Section 5.3 for an example).
+We propose maximizing the following objective:
+def
+
+L∗ (θ, µ1 , . . . , µm ) =
+par
+
+1
+M
+
+T
+(M θm φX (x))µm − A∗ ∩ (µm ) −
+m
+Z
+m
+
+Am (θm ),
+
+(13)
+
+m
+
+with each µm ∈ M(Z∩ ). This objective can be maximized via coordinate-wise ascent, which again
+consists of M separate E-steps E(M bm , Z∩ ) and the same M-step as before:
+Parameter-approximate product EM
+E-step:
+M-step:
+
+µm = argmaxµm ∈M(Zm ) {(M bm )T µm − A∗ ∩ (µm )}
+Z
+θm =
+
+T
+argmaxθm ∈Θm {θm φX (x)
+
+1
+M
+
+m
+
+µm
+
+[E(M bm , Z∩ )]
+
+− Am (θm )}
+
+We can show that the maximum value of L∗ is at least that of L∗ , which leaves us maximizing an
+par
+upper bound of L∗ . Although less logical than maximizing a lower bound, in Section 5.3, we show
+that our approach is nonetheless a reasonable approximation which importantly is tractable.
+Proposition 2. maxµ1 ∈M(Z∩ ),...,µM ∈M(Z∩ ) L∗ (θ, µ1 , . . . , µM ) ≥ maxµ∈M(Z∩ ) L∗ (θ, µ).
+par
+Proof. From the deﬁnitions of L∗ (13) and L∗ (10), it is easy to see that L∗ (θ, µ, . . . , µ) =
+par
+par
+L∗ (θ, µ) for all µ ∈ M(Z∩ ). If we maximize L∗ with M distinct arguments, we cannot end up
+par
+with a smaller value.
+The product E-step could also be approximated by mean-ﬁeld or loopy belief propagation variants.
+These methods and the two we propose all fall under the general variational framework for approximate inference [12]. The two approximations we developed have the advantage of permitting exact
+tractable solutions without resorting to expensive iterative methods which are only guaranteed to
+converge to a local optima.
+While we still lack a complete theory relating our approximations L∗ and L∗ to the original
+par
+dom
+objective L∗ , we can give some intuitions. Since we are operating in the space of expected sufﬁcient
+statistics µm , most of the information about the full posterior pm (z | x) must be captured in these
+statistics alone. Therefore, we expect our approximations to be accurate when each submodel has
+enough capacity to represent the posterior pm (z | x; θm ) as a low-variance unimodal distribution.
+
+5
+
+Applications
+
+We now empirically validate our algorithms on three concrete applications: grammar induction using
+product EM (Section 5.1), unsupervised word alignment using domain-approximate product EM
+(Section 5.2), and prediction of missing nucleotides in DNA sequences using parameter-approximate
+product EM (Section 5.3).
+5
+
+HMM model
+
+e1
+
+a1
+
+f1
+
+e2
+
+a2
+
+f2
+
+e3
+
+a3
+
+f3
+
+e1
+
+f4
+
+f1
+
+(a) Submodel p1
+
+e3
+
+a1
+
+a4
+
+e2
+
+a2
+
+a3
+
+f2
+
+f3
+
+f4
+
+alignment error rate
+
+0.12
+
+Independent EM
+Domain-approximate product EM
+
+0.11
+
+0.1
+
+0.09
+
+0.08
+
+0.07
+
+1
+
+(b) Submodel p2
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+10
+
+iteration
+
+Figure 1: The two instances of IBM model 1 for word alignment are shown in (a) and (b). The graph
+shows gains from agreement-based learning.
+5.1
+
+Grammar induction
+
+Grammar induction is the problem of inducing latent syntactic structures given a set of observed
+sentences. There are two common types of syntactic structure (one based on word dependencies and
+the other based on constituent phrases), which can each be represented as a submodel. [5] proposed
+an algorithm to train these two submodels. Their algorithm is a special case of our product EM
+algorithm, although they did not state an objective function. Since the shared hidden state is a tree
+structure, product EM is tractable. They show that training the two submodels to agree signiﬁcantly
+improves accuracy over independent training. See [5] for more details.
+5.2
+
+Unsupervised word alignment
+
+Word alignment is an important component of machine translation systems. Suppose we have a set
+of sentence pairs. Each pair consists of two sentences, one in a source language (say, English) and
+its translation in a target language (say, French). The goal of unsupervised word alignment is to
+match the words in a source sentence to the words in the corresponding target sentence. Formally,
+let x = (e, f ) be an observed pair of sentences, where e = (e1 , . . . , e|e| ) and f = (f1 , . . . , f|f | ); z
+is a set of alignment edges between positions in the English and positions in the French.
+Classical models for word alignment include IBM models 1 and 2 [2] and the HMM model [8].
+These are asymmetric models, which means that they assign non-zero probability only to alignments
+in which each French word is aligned to at most one English word; we denote this set Z1 . An
+element z ∈ Z1 can be parametrize by a vector a = (a1 , . . . , a|f | ), with aj ∈ {N ULL, 1, . . . , |e|},
+corresponding to the English word (if any) that French word fj is aligned to. We deﬁne the ﬁrst
+submodel on X × Z1 as follows (specializing to IBM model 1 for simplicity):
+|f |
+
+p1 (aj )p1 (fj | eaj ; θ1 ),
+
+p1 (x, z; θ1 ) = p1 (e, f , a; θ1 ) = p1 (e)
+
+(14)
+
+j=1
+
+where p1 (e) and p1 (aj ) are constant and the canonical exponential parameters θ1 are the transition
+log-probabilities {log t1;ef } for each English word e (including N ULL) and French word f .
+Written in exponential family form, φZ (z) is an (|e| + 1)(|f | + 1)-dimensional vector whose components are {φZ (z) ∈ {0, 1} : i = N ULL, 1, . . . , |e|, j = N ULL, 1, . . . , |f |}. We have φZ (z) = 1
+ij
+ij
+if and only if English word ei is aligned to French word fj and zN ULLj = 1 if and only if fj is not
+aligned to any English word. Also, φX ;ij (x) = 1 if and only if ei = e and fj = f . The mean
+ef
+parameters associated with an E-step are {µ1;ij }, the posterior probabilities of ei aligning to fj ;
+these can be computed independently for each j. We can deﬁne a second submodel p2 (x, z; θ2 ) on
+X × Z2 by reversing the roles of English and French. Figure 1(a)–(b) shows the two models.
+We cannot use product EM algorithm to train p1 and p2 because summing over all alignments
+in Z∩ = Z1 ∩ Z2 is NP-hard. However, we can use domain-approximate product EM because
+E(b1 + b2 , Zm ) is tractable—the tractability here does not depend on decomposability of b but the
+asymmetric alignment structure of Zm . The concrete change from independent EM is slight: we
+need to only change the E-step of each pm to use the product of translation probabilities t1;ef t2;f e
+and change the M-step to use the average of the edge posteriors obtained from the two E-steps.
+6
+
+dA1
+
+dB1
+
+dA2
+
+dC1
+
+dD1
+
+dE1
+
+dB2
+
+dA3
+
+dC2
+
+dD2
+
+dB3
+
+dE2
+
+dA4
+
+dC3
+
+dD3
+
+dE3
+
+dB4
+
+dA1
+
+dC4
+
+dD4
+
+dB1
+
+dE4
+
+dC1
+
+dD1
+
+(a) Submodel p1
+
+dA2
+
+dE1
+
+dB2
+
+dA3
+
+dC2
+
+dD2
+
+dE2
+
+dB3
+
+dA4
+
+dC3
+
+dD3
+
+dE3
+
+dB4
+
+dC4
+
+dD4
+
+dE4
+
+(b) Submodel p2
+
+Figure 2: The two phylogenetic HMM models, one for the even slices, the other for the odd ones.
+[6] proposed an alternative method to train two models to agree. Their E-step computes µ1 =
+E(b1 , Z1 ) and µ2 = E(b2 , Z2 ), whereas our E-steps incorporate the parameters of both models
+in b1 + b2 . Their M-step uses the elementwise product of µ1 and µ2 , whereas we use the average
+1
+2 (µ1 + µ2 ). Finally, while their algorithm appears to be very stable and is observed to converge
+empirically, no objective function has been developed; in contrast, our algorithm maximizes (12).
+In practice, both algorithms perform comparably.
+We conducted our experiments according to the setup of [6]. We used 100K unaligned sentences
+for training and 137 for testing from the English-French Hansards data of the NAACL 2003 Shared
+Task. Alignments are evaluated using alignment error rate (AER); see [6] for more details. We
+trained two instances of the HMM model [8] (English-to-French and French-to-English) using 10
+iterations of domain-approximate product EM, initializing with independently trained IBM model 1
+parameters. For prediction, we output alignment edges with sufﬁcient posterior probability: {(i, j) :
+1
+2 (µ1;ij + µ2;ij ) ≥ δ}. Figure 1 shows how agreement-based training improves the error rate over
+independent training for the HMM models.
+5.3
+
+Phylogenetic HMM models
+
+Suppose we have a set of species s ∈ S arranged in a ﬁxed phylogeny (i.e., S are the nodes
+of a directed tree). Each species s is associated with a length L sequence of nucleotides ds =
+(ds1 , . . . , dsL ). Let d = {ds : s ∈ S} denote all the nucleotides, which consist of some observed
+ones x and unobserved ones z.
+A good phylogenetic model should take into consideration both the relationship between nucleotides
+of the different species at the same site and the relationship between adjacent nucleotides in the same
+species. However, such a model would have high tree-width and be intractable to train. Past work
+has focused on traditional variational inference in a single intractable model [9, 4]. Our approach is
+to instead create two tractable submodels and train them to agree. Deﬁne one submodel to be
+p1 (ds j | dsj ; θ1 )p1 (ds j+1 | ds j , ds(j+1) ; θ1 ),
+
+p1 (x, z; θ1 ) = p1 (d; θ1 ) =
+
+(15)
+
+j odd s∈S s ∈C H(s)
+
+where C H(s) is the set of children of s in the tree. The second submodel p2 is deﬁned similarly,
+only with the product taken over j even. The parameters θm consist of ﬁrst-order mutation logprobabilities and second-order mutation log-probabilities. Both submodels permit the same set of
+assignments of hidden nucleotides (Z∩ = Z1 = Z2 ). Figure 2(a)–(b) shows the two submodels.
+Exact product EM is not tractable since b = b1 + b2 corresponds to a graph with high tree-width.
+We can apply parameter-approximate product EM, in which the E-step only involves computing
+µm = E(2bm , Z∩ ). This can be done via dynamic programming along the tree for each two1
+nucleotide slice of the sequence. In the M-step, the average 2 (µ1 + µ2 ) is used for each model,
+which has a closed form solution.
+Our experiments used a multiple alignment consisting of L = 20, 000 consecutive sites belonging
+to the L1 transposons in the Cystic Fibrosis Transmembrane Conductance Regulator (CFTR) gene
+(chromosome 7). Eight eutherian species were arranged in the phylogeny shown in Figure 3. The
+data we used is the same as that of [9]. Some nucleotides in the sequences were already missing. In
+addition, we held out some fraction of the observed ones for evaluation. We trained two models using
+30 iterations of parameter-approximate product EM.3 For prediction, the posteriors over heldout
+3
+We initialized with a small amount of noise around uniform parameters plus a small bias towards identity
+mutations.
+
+7
+
+20% heldout
+
+50% heldout
+
+0.85
+
+(hidden)
+
+0.8
+
+0.8
+0.75
+
+0.7
+
+baboon
+
+(hidden)
+
+(hidden)
+
+(hidden)
+
+(hidden) (hidden) mouse rat
+
+accuracy
+
+(hidden)
+
+accuracy
+
+0.7
+0.65
+0.6
+0.55
+
+0.5
+
+0.5
+0.4
+
+0.45
+
+Independent EM
+Parameter-approximate product EM
+
+0.4
+
+chimp human cow pig cat dog
+
+0.6
+
+0
+
+5
+
+10
+
+15
+
+20
+
+25
+
+Independent EM
+Parameter-approximate product EM
+0
+
+iteration
+
+5
+
+10
+
+15
+
+20
+
+25
+
+iteration
+
+Figure 3: The tree is the phylogeny topology used in experiments. The graphs show the prediction accuracy of independent versus agreement-based training (parameter-approximate product EM)
+when 20% and 50% of the observed nodes are held out.
+nucleotides under each model are averaged and the one with the highest posterior is chosen. Figure 3
+shows the prediction accuracy. Though independent and agreement-based training eventually obtain
+the same accuracy, agreement-based training converges much faster. This gap grows as the amount
+of heldout data increases.
+
+6
+
+Conclusion
+
+We have developed a general framework for agreement-based learning of multiple submodels. Viewing these submodels as components of an overall model, our framework permits the submodels to be
+trained jointly without paying the computational cost associated with an actual jointly-normalized
+probability model. We have presented an objective function for agreement-based learning and three
+EM-style algorithms that maximize this objective or approximations to this objective. We have also
+demonstrated the applicability of our approach to three important real-world tasks. For grammar induction, our approach yields the existing algorithm of [5], providing an objective for that algorithm.
+For word alignment and phylogenetic HMMs, our approach provides entirely new algorithms.
+Acknowledgments We would like to thank Adam Siepel for providing the phylogenetic data
+and acknowledge the support of the Defense Advanced Research Projects Agency under contract
+NBCHD030010.
+
+References
+[1] J. Besag. The analysis of non-lattice data. The Statistician, 24:179–195, 1975.
+[2] P. F. Brown, S. A. D. Pietra, V. J. D. Pietra, and R. L. Mercer. The mathematics of statistical machine
+translation: Parameter estimation. Computational Linguistics, 19:263–311, 1993.
+[3] G. Hinton. Products of experts. In International Conference on Artiﬁcial Neural Networks, 1999.
+[4] V. Jojic, N. Jojic, C. Meek, D. Geiger, A. Siepel, D. Haussler, and D. Heckerman. Efﬁcient approximations
+for learning phylogenetic HMM models from data. Bioinformatics, 20:161–168, 2004.
+[5] D. Klein and C. D. Manning. Corpus-based induction of syntactic structure: Models of dependency and
+constituency. In Association for Computational Linguistics (ACL), 2004.
+[6] P. Liang, B. Taskar, and D. Klein. Alignment by agreement. In Human Language Technology and North
+American Association for Computational Linguistics (HLT/NAACL), 2006.
+[7] B. Lindsay. Composite likelihood methods. Contemporary Mathematics, 80:221–239, 1988.
+[8] H. Ney and S. Vogel. HMM-based word alignment in statistical translation. In International Conference
+on Computational Linguistics (COLING), 1996.
+[9] A. Siepel and D. Haussler. Combining phylogenetic and hidden Markov models in biosequence analysis.
+Journal of Computational Biology, 11:413–428, 2004.
+[10] C. Sutton and A. McCallum. Piecewise training of undirected models. In Uncertainty in Artiﬁcial Intelligence (UAI), 2005.
+[11] C. Sutton and A. McCallum. Piecewise pseudolikelihood for efﬁcient CRF training. In International
+Conference on Machine Learning (ICML), 2007.
+[12] M. Wainwright and M. I. Jordan. Graphical models, exponential families, and variational inference.
+Technical report, Department of Statistics, University of California at Berkeley, 2003.
+
+8
+
+
